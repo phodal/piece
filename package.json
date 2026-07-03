@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "Declaration-level compiler for fast React and TSX piece previews.",
   "type": "module",
+  "types": "./src/public-api/index.d.ts",
   "license": "Apache-2.0",
+  "sideEffects": false,
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
