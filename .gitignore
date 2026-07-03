@@ -1,6 +1,10 @@
 node_modules/
 coverage/
 dist/
+build/
+.gradle/
+.kotlin/
+kotlin-js-store/
 site/
 preview/dist/
 .DS_Store

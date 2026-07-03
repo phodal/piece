@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import * as esbuild from "esbuild";
 
-const SOURCE_FILE_PATTERN = /\.(tsx?|jsx?)$/;
+const SOURCE_FILE_PATTERN = /\.(tsx?|jsx?|kts?)$/;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "coverage"]);
 
 export function createNodeEsbuildBuildEngine(options = {}) {

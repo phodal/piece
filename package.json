@@ -1,7 +1,7 @@
 {
   "name": "piece-compiler",
   "version": "0.1.0",
-  "description": "Compile the React component you are editing without rebuilding the whole app.",
+  "description": "Piece-aware build feedback for AI-era coding agents.",
   "type": "module",
   "types": "./src/public-api/index.d.ts",
   "license": "Apache-2.0",
@@ -18,16 +18,19 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck && npm test && npm pack --dry-run",
+    "core:check": "cd piece-core && ./gradlew check wasmJsBrowserDistribution",
+    "core:wasm:build": "cd piece-core && ./gradlew wasmJsBrowserDistribution",
     "preview:build": "node preview/build.mjs",
     "preview": "npm run preview:build && node preview/serve.mjs",
-    "pages:build": "npm run preview:build && node scripts/build-pages.mjs"
+    "pages:build": "npm run preview:build && npm run core:wasm:build && node scripts/build-pages.mjs"
   },
   "keywords": [
+    "kotlin",
     "react",
-    "tsx",
+    "typescript",
     "compiler",
-    "preview",
-    "component-preview",
+    "piece-aware-build",
+    "feedback-graph",
     "incremental-build",
     "editor-tools"
   ],
@@ -53,6 +56,15 @@
     }
   },
   "files": [
+    "docs",
+    "piece-core/README.md",
+    "piece-core/build.gradle.kts",
+    "piece-core/settings.gradle.kts",
+    "piece-core/gradle/wrapper/gradle-wrapper.jar",
+    "piece-core/gradle/wrapper/gradle-wrapper.properties",
+    "piece-core/gradlew",
+    "piece-core/gradlew.bat",
+    "piece-core/src",
     "src"
   ],
   "dependencies": {

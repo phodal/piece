@@ -1,0 +1,4 @@
+*.jar binary
+
+piece-core/gradlew text eol=lf
+piece-core/gradlew.bat text eol=crlf

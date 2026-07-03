@@ -147,6 +147,60 @@ export type PieceSliceKind = "type" | "class" | "function" | "value" | "effect" 
 export type PieceEdgeKind = "runtime" | "type" | "external" | "unknown";
 export type PieceFallbackMode = "none" | "include-effect-segment" | "whole-file";
 
+export interface PieceRule {
+  readonly name: string;
+  readonly language: string;
+  readonly targetKind: PieceSliceKind;
+  readonly actionKind: string;
+  readonly implementation: string;
+}
+
+export interface PieceAction {
+  readonly id: string;
+  readonly target: string;
+  readonly kind: string;
+  readonly mnemonic: string;
+  readonly inputs: readonly string[];
+  readonly outputs: readonly string[];
+}
+
+export interface PieceArtifact {
+  readonly id: string;
+  readonly target: string;
+  readonly kind: string;
+  readonly path: string;
+}
+
+export interface PiecePackageTarget {
+  readonly id: string;
+  readonly label: string;
+  readonly name?: string;
+  readonly kind: PieceSliceKind;
+  readonly rule: string;
+  readonly source: string;
+  readonly deps: readonly string[];
+  readonly runtimeDeps: readonly string[];
+  readonly typeDeps: readonly string[];
+  readonly externalDeps: readonly string[];
+  readonly actions: readonly string[];
+  readonly artifacts: readonly string[];
+  readonly visibility: readonly string[];
+}
+
+export interface SingleFilePiecePackage {
+  readonly version: 1;
+  readonly kind: "single-file-package";
+  readonly language: string;
+  readonly packageName: string;
+  readonly label: string;
+  readonly filePath: string;
+  readonly sourceFile: string;
+  readonly rules: readonly PieceRule[];
+  readonly targets: readonly PiecePackageTarget[];
+  readonly actions: readonly PieceAction[];
+  readonly artifacts: readonly PieceArtifact[];
+}
+
 export interface PieceSourceRange {
   readonly startByte: number;
   readonly endByte: number;
@@ -335,6 +389,7 @@ export interface PieceFileAnalysis {
   readonly filePath: string;
   readonly manifest: PieceFileManifest;
   readonly graph: PieceSliceGraph;
+  readonly piecePackage: SingleFilePiecePackage;
   readonly previewTargets: readonly string[];
   readonly metrics: PieceFileAnalysisMetrics;
   readonly snapshot: PieceSnapshot;
@@ -551,8 +606,18 @@ export function createPieceStatus(
 export function normalizePieceAppInput(options: CompilePieceAppOptions, fileSystem?: VirtualFileSystem): Promise<NormalizedPieceAppInput>;
 export function compilePieceApp(options: CompilePieceAppOptions): Promise<CompilePieceAppStatus>;
 export function createPieceCompiler(defaultOptions?: PieceCompilerOptions): PieceCompiler;
+export function setDefaultDeclarationExtractorResolver(resolver: (filePath: string) => PieceDeclarationExtractor | Promise<PieceDeclarationExtractor>): void;
+export function resolveDefaultDeclarationExtractor(filePath: string): Promise<PieceDeclarationExtractor>;
+export function createDefaultDeclarationExtractorForFile(filePath: string): Promise<PieceDeclarationExtractor>;
+export function createSingleFilePiecePackage(options: {
+  readonly filePath: string;
+  readonly manifest: PieceFileManifest;
+  readonly graph: PieceSliceGraph;
+}): SingleFilePiecePackage;
 export function createTreeSitterDeclarationExtractor(options?: { readonly name?: string; readonly parser?: unknown; readonly tree?: unknown }): PieceDeclarationExtractor;
 export function createFallbackDeclarationExtractor(): PieceDeclarationExtractor;
+export function createKotlinDeclarationExtractor(options?: { readonly name?: string }): PieceDeclarationExtractor;
+export function createTypeScriptDeclarationExtractor(options?: { readonly name?: string }): Promise<PieceDeclarationExtractor>;
 export function analyzePieceFile(options: AnalyzePieceFileOptions): Promise<PieceFileAnalysis>;
 export function createPieceSnapshot(options: CreatePieceSnapshotOptions): PieceSnapshot;
 export function reconcilePieceSnapshot(options: ReconcilePieceSnapshotOptions): PieceReconcileResult;

@@ -170,6 +170,8 @@ Source files
 
 The Bazel-like part is the graph, the deterministic closure, and the cacheable artifact. The AI-era part is that the graph starts below the file boundary and returns structured feedback to the agent after every edit.
 
+See [docs/architecture.md](./docs/architecture.md) for the single-file Bazel mapping, the generated Piece DSL shape, the Kotlin MPP direction, and the planned directory layout for Kotlin, JS/TS, and React adapters.
+
 ## Local Demo
 
 ```sh
@@ -184,11 +186,16 @@ Open `http://127.0.0.1:8797`. Click `Sample Edit` to see the preview and metrics
 ```sh
 npm run typecheck
 npm test
+npm run core:check
 npm run pages:build
 npm run verify
 ```
 
 `npm run verify` runs type checks, unit tests, and an npm package dry run.
+`npm run core:check` uses the checked-in `piece-core/gradlew` wrapper, so local
+Kotlin Multiplatform development does not require a global Gradle installation.
+Gradle outputs stay local under ignored directories such as `piece-core/build`,
+`piece-core/.gradle`, and `piece-core/kotlin-js-store`.
 
 ## License
 

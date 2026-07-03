@@ -35,6 +35,26 @@ export function OtherCard() {
 `;
 }
 
+function kotlinSource() {
+  return `package demo.pricing
+
+import demo.flags.FeatureFlag
+
+data class User(val id: String, val name: String)
+data class Greeting(val message: String)
+
+private val prefix = "Hello"
+
+fun renderGreeting(user: User): Greeting {
+  return Greeting(prefix + ", " + user.name)
+}
+
+class Greeter {
+  fun render(user: User): Greeting = renderGreeting(user)
+}
+`;
+}
+
 function changedRange(previousSource, nextSource) {
   let startByte = 0;
   while (startByte < previousSource.length && startByte < nextSource.length && previousSource[startByte] === nextSource[startByte]) {
@@ -76,6 +96,25 @@ describe("piece compiler", () => {
       ["function:UserCard", "runtime", "value:statusColorMap", ["statusColorMap"]],
       ["function:UserCard", "external", "Tag", ["Tag"]],
       ["type:UserCardProps", "type", "type:User", ["User"]]
+    ]);
+  });
+
+  it("maps TypeScript-family pieces into a Bazel-like single-file package", async () => {
+    const compiler = createPieceCompiler();
+    const analysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: sampleSource()
+    });
+
+    expect(analysis.piecePackage).toMatchObject({
+      kind: "single-file-package",
+      language: "typescript",
+      packageName: "repo/src",
+      label: "//repo/src:DashboardPage.tsx"
+    });
+    expect(analysis.piecePackage.targets.map((target) => [target.rule, target.label])).toContainEqual([
+      "typescript_piece_function",
+      "//repo/src:DashboardPage.tsx__function_UserCard"
     ]);
   });
 
@@ -238,5 +277,61 @@ export function UserCard() {
     expect(reconciliation.publicShapeChangedPieces.map((id) => id.split("#")[1])).toEqual(["type:User"]);
     expect(reconciliation.affectedTargets.map((id) => id.split("#")[1])).toEqual(["function:UserCard"]);
     expect(reconciliation.reusedArtifactIds.map((id) => id.split("#")[1])).toEqual(["function:OtherCard", "value:statusColorMap"]);
+  });
+
+  it("extracts Kotlin single-file pieces and exposes Bazel-like targets", async () => {
+    const compiler = createPieceCompiler();
+    const analysis = await compiler.analyzeFile({
+      filePath: "/repo/src/Pricing.kt",
+      source: kotlinSource()
+    });
+
+    expect(analysis.manifest.parser).toBe("kotlin-declaration-extractor");
+    expect(analysis.manifest.importBindings).toEqual([
+      { local: "FeatureFlag", imported: "FeatureFlag", source: "demo.flags", kind: "named", isTypeOnly: false }
+    ]);
+    expect(analysis.manifest.slices.map((slice) => [slice.kind, slice.name, slice.preview.previewable])).toEqual([
+      ["class", "User", true],
+      ["class", "Greeting", true],
+      ["value", "prefix", false],
+      ["function", "renderGreeting", true],
+      ["class", "Greeter", true]
+    ]);
+    expect(analysis.graph.edges.map((edge) => [edge.from.split("#")[1], edge.kind, edge.to.split("#")[1] ?? edge.to, edge.symbols])).toEqual([
+      ["class:Greeter", "type", "class:Greeting", ["Greeting"]],
+      ["class:Greeter", "type", "class:User", ["User"]],
+      ["class:Greeter", "runtime", "function:renderGreeting", ["renderGreeting"]],
+      ["function:renderGreeting", "type", "class:Greeting", ["Greeting"]],
+      ["function:renderGreeting", "type", "class:User", ["User"]],
+      ["function:renderGreeting", "runtime", "value:prefix", ["prefix"]]
+    ]);
+    expect(analysis.piecePackage).toMatchObject({
+      language: "kotlin",
+      label: "//repo/src:Pricing.kt"
+    });
+    expect(analysis.piecePackage.targets.map((target) => [target.rule, target.label])).toContainEqual([
+      "kotlin_piece_function",
+      "//repo/src:Pricing.kt__function_renderGreeting"
+    ]);
+  });
+
+  it("rebuilds Kotlin affected targets with full reanalysis while preserving React incremental behavior", async () => {
+    const compiler = createPieceCompiler();
+    const previousSource = kotlinSource();
+    const previousAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/Pricing.kt",
+      source: previousSource
+    });
+    const nextSource = previousSource.replace('"Hello"', '"Hi"');
+    const editResult = await compiler.applyEdit({
+      filePath: "/repo/src/Pricing.kt",
+      source: nextSource,
+      previousAnalysis,
+      changedRanges: [changedRange(previousSource, nextSource)]
+    });
+
+    expect(editResult.analysis.metrics.incremental).toBeUndefined();
+    expect(editResult.edit.changedSlices.map((id) => id.split("#")[1])).toEqual(["value:prefix"]);
+    expect(editResult.affectedTargets.map((id) => id.split("#")[1])).toEqual(["class:Greeter", "function:renderGreeting"]);
   });
 });

@@ -1,5 +1,5 @@
-import { createFallbackDeclarationExtractor } from "./declaration-extractor.js";
-import { createTypeScriptDeclarationExtractor } from "./typescript-declaration-extractor.js";
+import { resolveDefaultDeclarationExtractor } from "./extractor-registry.js";
+import { createSingleFilePiecePackage } from "./piece-package.js";
 import { buildPieceClosure } from "./closure-builder.js";
 import { buildPiecePreviewBundle } from "./build-orchestrator.js";
 import { createPieceVirtualModules } from "./virtual-modules.js";
@@ -10,17 +10,9 @@ import { byteLength, measureAsync, measureSync, nowMs, roundMs } from "./metrics
 import { stableTextHash } from "./hash.js";
 import { collectIdentifierReferences, createSourceRange } from "./source-utils.js";
 
-async function createDefaultExtractor() {
-  try {
-    return await createTypeScriptDeclarationExtractor();
-  } catch {
-    return createFallbackDeclarationExtractor();
-  }
-}
-
 export async function analyzePieceFile(options) {
   const startedAt = nowMs();
-  const extractor = options.declarationExtractor ?? (await createDefaultExtractor());
+  const extractor = options.declarationExtractor ?? (await resolveDefaultDeclarationExtractor(options.filePath));
   const manifestResult = await measureAsync(() =>
     extractor.extract({
       filePath: options.filePath,
@@ -30,12 +22,18 @@ export async function analyzePieceFile(options) {
   );
   const graphResult = measureSync(() => buildPieceSliceGraph(manifestResult.value, { globals: options.globals }));
   const previewTargets = manifestResult.value.slices.filter((slice) => slice.preview.previewable).map((slice) => slice.id);
+  const piecePackage = createSingleFilePiecePackage({
+    filePath: options.filePath,
+    manifest: manifestResult.value,
+    graph: graphResult.value
+  });
 
   const analysis = {
     version: 1,
     filePath: options.filePath,
     manifest: manifestResult.value,
     graph: graphResult.value,
+    piecePackage,
     previewTargets,
     metrics: {
       totalMs: roundMs(nowMs() - startedAt),
@@ -106,6 +104,9 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
   if (!options.previousAnalysis || !options.changedRanges?.length) {
     return undefined;
   }
+  if (options.previousAnalysis.manifest.parser !== "typescript-declaration-extractor") {
+    return undefined;
+  }
 
   const previousManifest = options.previousAnalysis.manifest;
   const delta = options.source.length - previousManifest.source.length;
@@ -166,12 +167,18 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
   };
   const graphResult = measureSync(() => updatePieceSliceGraph(options.previousAnalysis.graph, manifest, [changedSlice.id], { globals: options.globals }));
   const previewTargets = manifest.slices.filter((slice) => slice.preview.previewable).map((slice) => slice.id);
+  const piecePackage = createSingleFilePiecePackage({
+    filePath: options.filePath,
+    manifest,
+    graph: graphResult.value
+  });
 
   const analysis = {
     version: 1,
     filePath: options.filePath,
     manifest,
     graph: graphResult.value,
+    piecePackage,
     previewTargets,
     metrics: {
       totalMs: graphResult.ms,
