@@ -1,4 +1,5 @@
 export * from "./index.js";
+export * from "./node-language-compilers.js";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import * as esbuild from "esbuild";

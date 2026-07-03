@@ -112,6 +112,7 @@ The current repository has not fully moved to this layout yet. Today:
 - TypeScript-family extraction lives in `src/core/typescript-declaration-extractor.js`.
 - `src/languages/typescript/declaration-extractor.js` exposes the TypeScript extractor through the language directory.
 - `src/languages/go/declaration-extractor.js` is the first Go single-file adapter; it emits the same manifest and Bazel-like `PiecePackage` shape without making Go a core dependency.
+- `src/node-language-compilers.js` owns Node-only language compiler backends. Go compilation shells out to `go build`/`go test`; Kotlin compilation shells out to a generated Kotlin Multiplatform Gradle project.
 - React preview entry generation lives in `src/core/virtual-modules.js`.
 - `src/adapters/react/virtual-modules.js` exposes the React virtual-module adapter through the adapter directory.
 - Kotlin extraction in `src/languages/kotlin/declaration-extractor.js` is a runnable npm-side adapter for single-file experiments.
@@ -142,6 +143,35 @@ PieceTarget
 ```
 
 Both paths share target identity, dependency edges, snapshot reconciliation, dirty propagation, and artifact reuse.
+
+## Language Toolchains
+
+Piece should not reimplement full language compilers. A Bazel-like Piece action is the stable boundary:
+
+```text
+PieceTarget
+  -> PieceAction(kind = "compile")
+  -> language backend
+  -> PieceArtifact(kind = "piece-compile")
+```
+
+The current Node backend follows that shape:
+
+- `compileGoPieceFile()` creates a temporary Go module, writes the single `.go` file, runs `go build`, and can run `go test`.
+- `compileKotlinPieceFile()` creates a temporary Kotlin Multiplatform project, writes the single `.kt` file into the selected source set, and runs Gradle tasks for `jvm`, `js`, `wasmJs`, or `all`.
+- `piece-core` DSL has `go()` and `compile()` so language-specific implementations can be represented in the same generated DSL:
+
+```kotlin
+pieceFile("/repo/src/Pricing.go") {
+  language = go()
+  target("RenderGreeting") {
+    rule = function()
+    action(compile())
+  }
+}
+```
+
+Kotlin can run on the Web in two supported ways: [Kotlin/JS](https://kotlinlang.org/docs/js-overview.html) transpiles Kotlin to JavaScript, while [Kotlin/Wasm](https://kotlinlang.org/docs/wasm-overview.html) compiles Kotlin to WebAssembly for browsers with the required Wasm support. This repository uses both directions: `jsMain` publishes the npm bridge, and `wasmJsMain` builds the browser smoke bundle copied into GitHub Pages.
 
 ## Near-Term Boundary
 

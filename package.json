@@ -22,6 +22,7 @@
     "core:js:build": "./gradlew jsNodeProductionLibraryDistribution",
     "core:bridge:smoke": "npm run core:js:build && node scripts/smoke-kotlin-core-bridge.mjs",
     "core:wasm:build": "./gradlew wasmJsBrowserDistribution",
+    "language:compile:smoke": "node scripts/smoke-language-compilers.mjs",
     "preview:build": "node preview/build.mjs",
     "preview": "npm run preview:build && node preview/serve.mjs",
     "pages:build": "npm run preview:build && npm run core:wasm:build && node scripts/build-pages.mjs"
@@ -70,6 +71,7 @@
     "piece-core/gradlew",
     "piece-core/gradlew.bat",
     "piece-core/src",
+    "scripts",
     "src"
   ],
   "dependencies": {

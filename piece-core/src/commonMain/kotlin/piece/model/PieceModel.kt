@@ -25,6 +25,7 @@ enum class PieceEdgeKind {
 
 enum class PieceActionKind {
     Feedback,
+    Compile,
     Preview,
     Test,
     Typecheck,

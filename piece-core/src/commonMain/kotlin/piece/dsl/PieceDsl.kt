@@ -12,6 +12,12 @@ import piece.model.piecePackageName
 import piece.model.pieceSourceLabel
 import piece.model.pieceTargetLabel
 
+data class PieceActionSpec(
+    val name: String,
+    val kind: PieceActionKind,
+    val artifactKind: String,
+)
+
 @DslMarker
 annotation class PieceDsl
 
@@ -25,6 +31,8 @@ class PieceFileBuilder(private val filePath: String) {
     private val targetBuilders = mutableListOf<PieceTargetBuilder>()
 
     fun kotlin(): String = "kotlin"
+
+    fun go(): String = "go"
 
     fun typescript(): String = "typescript"
 
@@ -40,28 +48,41 @@ class PieceFileBuilder(private val filePath: String) {
         val targetLabelsByName = targetBuilders.associate { builder ->
             builder.name to pieceTargetLabel(filePath, builder.rule, builder.name)
         }
-        val targets = targetBuilders.map { it.build(language, packageName, sourceLabel, targetLabelsByName) }
-        val rules = targets
-            .map { PieceRule(name = it.rule, language = language, targetKind = it.kind) }
+        val targetPairs = targetBuilders.map { builder ->
+            builder to builder.build(language, packageName, sourceLabel, targetLabelsByName)
+        }
+        val targets = targetPairs.map { it.second }
+        val rules = targetPairs
+            .map { (builder, target) ->
+                val actionKind = builder.primaryActionKind()
+                PieceRule(
+                    name = target.rule,
+                    language = language,
+                    targetKind = target.kind,
+                    actionKind = actionKind,
+                    implementation = "$language.${target.kind.name.lowercase()}.${actionKind.name.lowercase()}",
+                )
+            }
             .distinctBy { it.name }
             .sortedBy { it.name }
-        val actions = targets.flatMap { target ->
-            target.actions.map { actionId ->
+        val actions = targetPairs.flatMap { (builder, target) ->
+            builder.actionSpecs.map { spec ->
                 PieceAction(
-                    id = actionId,
+                    id = "${target.label}%${spec.name}",
                     target = target.label,
-                    kind = PieceActionKind.Feedback,
+                    kind = spec.kind,
                     inputs = listOf(target.source) + target.deps + target.externalDeps,
-                    outputs = target.artifacts,
+                    outputs = listOf(builder.artifactId(target.label, spec)),
                 )
             }
         }
-        val artifacts = targets.flatMap { target ->
-            target.artifacts.map { artifactId ->
+        val artifacts = targetPairs.flatMap { (builder, target) ->
+            builder.actionSpecs.map { spec ->
+                val artifactId = builder.artifactId(target.label, spec)
                 PieceArtifact(
                     id = artifactId,
                     target = target.label,
-                    kind = "piece-feedback",
+                    kind = spec.artifactKind,
                     path = artifactId.replace("//", "").replace(":", "__"),
                 )
             }
@@ -84,7 +105,7 @@ class PieceFileBuilder(private val filePath: String) {
 class PieceTargetBuilder(private val filePath: String, internal val name: String) {
     var rule: PieceTargetKind = PieceTargetKind.Function
     private val deps = mutableListOf<String>()
-    private var actionName: String = "analysis"
+    internal val actionSpecs = mutableListOf(PieceActionSpec("analysis", PieceActionKind.Feedback, "piece-feedback"))
 
     fun type(): PieceTargetKind = PieceTargetKind.Type
 
@@ -98,18 +119,29 @@ class PieceTargetBuilder(private val filePath: String, internal val name: String
         deps += labels
     }
 
-    fun feedback(name: String): String = name
+    fun feedback(name: String): PieceActionSpec = PieceActionSpec(name, PieceActionKind.Feedback, "piece-feedback")
+
+    fun compile(name: String = "compile"): PieceActionSpec = PieceActionSpec(name, PieceActionKind.Compile, "piece-compile")
 
     fun action(name: String) {
-        actionName = name
+        actionSpecs.clear()
+        actionSpecs += feedback(name)
+    }
+
+    fun action(spec: PieceActionSpec) {
+        actionSpecs.clear()
+        actionSpecs += spec
+    }
+
+    fun actions(vararg specs: PieceActionSpec) {
+        actionSpecs.clear()
+        actionSpecs += specs
     }
 
     fun build(language: String, packageName: String, sourceLabel: String, targetLabelsByName: Map<String, String>): PieceTarget {
         val ruleName = "${language}_piece_${rule.name.lowercase()}"
         val label = pieceTargetLabel(filePath, rule, name)
         val normalizedDeps = deps.map { pieceNormalizeDep(packageName, it, targetLabelsByName) }.sorted()
-        val actionId = "$label%$actionName"
-        val artifactId = "$label.piece.json"
         return PieceTarget(
             id = "$filePath#${rule.name.lowercase()}:$name",
             label = label,
@@ -119,8 +151,18 @@ class PieceTargetBuilder(private val filePath: String, internal val name: String
             source = sourceLabel,
             deps = normalizedDeps,
             runtimeDeps = normalizedDeps,
-            actions = listOf(actionId),
-            artifacts = listOf(artifactId),
+            actions = actionSpecs.map { "$label%${it.name}" },
+            artifacts = actionSpecs.map { artifactId(label, it) },
         )
     }
+
+    internal fun artifactId(label: String, spec: PieceActionSpec): String {
+        return when (spec.kind) {
+            PieceActionKind.Feedback -> "$label.piece.json"
+            PieceActionKind.Compile -> "$label.compile.json"
+            else -> "$label.${spec.name}.json"
+        }
+    }
+
+    internal fun primaryActionKind(): PieceActionKind = actionSpecs.firstOrNull()?.kind ?: PieceActionKind.Feedback
 }

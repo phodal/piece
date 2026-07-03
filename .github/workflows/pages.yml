@@ -32,6 +32,11 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
       - name: Install dependencies
         run: npm ci
 
@@ -43,6 +48,9 @@ jobs:
 
       - name: Core check
         run: npm run core:check
+
+      - name: Language compile smoke
+        run: npm run language:compile:smoke
 
       - name: Build Pages site
         run: npm run pages:build

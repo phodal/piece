@@ -43,6 +43,27 @@ class PieceDslTest {
     }
 
     @Test
+    fun createsLanguageSpecificCompileActions() {
+        val pkg = pieceFile("/repo/src/Pricing.go") {
+            language = go()
+            target("RenderGreeting") {
+                rule = function()
+                action(compile())
+            }
+        }
+
+        val target = pkg.targets.single()
+        val action = pkg.actions.single()
+        val artifact = pkg.artifacts.single()
+
+        assertEquals("go", pkg.language)
+        assertEquals("compile", pkg.rules.single().actionKind.name.lowercase())
+        assertEquals("//repo/src:Pricing.go__function_RenderGreeting%compile", action.id)
+        assertEquals("//repo/src:Pricing.go__function_RenderGreeting.compile.json", target.artifacts.single())
+        assertEquals("piece-compile", artifact.kind)
+    }
+
+    @Test
     fun reconcilesDirtyTargetsThroughGraphDependents() {
         val previous = pieceFile("/repo/src/Pricing.kt") {
             language = kotlin()

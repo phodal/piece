@@ -44,17 +44,22 @@ function uniqueRulesForTargets(language, slices) {
   const rules = new Map();
   for (const slice of slices) {
     const name = ruleForSlice(language, slice);
+    const actionKind = supportsCompileAction(language) ? "compile" : "feedback";
     if (!rules.has(name)) {
       rules.set(name, {
         name,
         language,
         targetKind: slice.kind,
-        actionKind: "feedback",
-        implementation: `${language || "generic"}.${slice.kind}.feedback`
+        actionKind,
+        implementation: `${language || "generic"}.${slice.kind}.${actionKind}`
       });
     }
   }
   return [...rules.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function supportsCompileAction(language) {
+  return language === "go" || language === "kotlin";
 }
 
 function languageForManifest(manifest) {
@@ -88,7 +93,14 @@ export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
     const sliceEdges = edges.get(slice.id) ?? [];
     const directDeps = sliceEdges.filter((edge) => targetLabels.has(edge.to)).map((edge) => targetLabels.get(edge.to));
     const label = targetLabels.get(slice.id);
-    const artifactId = `${label}.piece.json`;
+    const feedbackArtifactId = `${label}.piece.json`;
+    const compileArtifactId = `${label}.compile.json`;
+    const targetActions = [`${label}%feedback`];
+    const targetArtifacts = [feedbackArtifactId];
+    if (supportsCompileAction(language)) {
+      targetActions.push(`${label}%compile`);
+      targetArtifacts.push(compileArtifactId);
+    }
     return {
       id: slice.id,
       label,
@@ -104,26 +116,52 @@ export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
         ...new Set(sliceEdges.filter((edge) => edge.kind === "type" && targetLabels.has(edge.to)).map((edge) => targetLabels.get(edge.to)))
       ].sort(),
       externalDeps: [...new Set(sliceEdges.filter((edge) => edge.kind === "external").map((edge) => edge.to))].sort(),
-      actions: [`${label}%feedback`],
-      artifacts: [artifactId],
+      actions: targetActions,
+      artifacts: targetArtifacts,
       visibility: ["//visibility:private"]
     };
   });
   const rules = uniqueRulesForTargets(language, manifest.slices);
-  const actions = targets.map((target) => ({
-    id: `${target.label}%feedback`,
-    target: target.label,
-    kind: "feedback",
-    mnemonic: "PieceFeedback",
-    inputs: [target.source, ...target.deps, ...target.externalDeps],
-    outputs: target.artifacts
-  }));
-  const artifacts = targets.map((target) => ({
-    id: target.artifacts[0],
-    target: target.label,
-    kind: "piece-feedback",
-    path: `${sanitizeModulePart(target.label)}.piece.json`
-  }));
+  const actions = targets.flatMap((target) => [
+    {
+      id: `${target.label}%feedback`,
+      target: target.label,
+      kind: "feedback",
+      mnemonic: "PieceFeedback",
+      inputs: [target.source, ...target.deps, ...target.externalDeps],
+      outputs: [`${target.label}.piece.json`]
+    },
+    ...(supportsCompileAction(language)
+      ? [
+          {
+            id: `${target.label}%compile`,
+            target: target.label,
+            kind: "compile",
+            mnemonic: "PieceCompile",
+            inputs: [target.source, ...target.deps, ...target.externalDeps],
+            outputs: [`${target.label}.compile.json`]
+          }
+        ]
+      : [])
+  ]);
+  const artifacts = targets.flatMap((target) => [
+    {
+      id: `${target.label}.piece.json`,
+      target: target.label,
+      kind: "piece-feedback",
+      path: `${sanitizeModulePart(target.label)}.piece.json`
+    },
+    ...(supportsCompileAction(language)
+      ? [
+          {
+            id: `${target.label}.compile.json`,
+            target: target.label,
+            kind: "piece-compile",
+            path: `${sanitizeModulePart(target.label)}.compile.json`
+          }
+        ]
+      : [])
+  ]);
 
   return {
     version: 1,

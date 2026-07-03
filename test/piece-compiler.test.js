@@ -333,9 +333,18 @@ export function UserCard() {
       language: "kotlin",
       label: "//repo/src:Pricing.kt"
     });
+    expect(analysis.piecePackage.rules.find((rule) => rule.name === "kotlin_piece_function")).toMatchObject({
+      actionKind: "compile",
+      implementation: "kotlin.function.compile"
+    });
     expect(analysis.piecePackage.targets.map((target) => [target.rule, target.label])).toContainEqual([
       "kotlin_piece_function",
       "//repo/src:Pricing.kt__function_renderGreeting"
+    ]);
+    expect(analysis.piecePackage.actions.map((action) => [action.id, action.kind, action.mnemonic])).toContainEqual([
+      "//repo/src:Pricing.kt__function_renderGreeting%compile",
+      "compile",
+      "PieceCompile"
     ]);
   });
 
@@ -384,9 +393,18 @@ export function UserCard() {
       language: "go",
       label: "//repo/src:Pricing.go"
     });
+    expect(analysis.piecePackage.rules.find((rule) => rule.name === "go_piece_function")).toMatchObject({
+      actionKind: "compile",
+      implementation: "go.function.compile"
+    });
     expect(analysis.piecePackage.targets.map((target) => [target.rule, target.label])).toContainEqual([
       "go_piece_function",
       "//repo/src:Pricing.go__function_RenderGreeting"
+    ]);
+    expect(analysis.piecePackage.actions.map((action) => [action.id, action.kind, action.mnemonic])).toContainEqual([
+      "//repo/src:Pricing.go__function_RenderGreeting%compile",
+      "compile",
+      "PieceCompile"
     ]);
   });
 

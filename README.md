@@ -154,7 +154,13 @@ Preview building is one feedback target. A host can map the same affected-piece 
 - `reconcilePieceSnapshot(options)` reports changed, dirty, reused, and invalidated declarations.
 - `createGoDeclarationExtractor()` exposes the npm-side Go single-file adapter.
 - `createKotlinCoreBridge(kotlinCoreModule)` adapts the Kotlin/JS core bridge into plain JavaScript `PiecePackage` and `PieceGraph` objects.
-- `piece-compiler/node` provides `createNodeEsbuildBuildEngine()` and `createNodeVirtualFileSystem()`.
+- `piece-compiler/node` provides `createNodeEsbuildBuildEngine()`, `createNodeVirtualFileSystem()`, `compileGoPieceFile()`, and `compileKotlinPieceFile()`.
+
+Kotlin and Go compile actions use real language toolchains instead of a fake in-process compiler:
+
+- Go writes a temporary module and runs `go build`, with optional `go test`.
+- Kotlin writes a temporary Kotlin Multiplatform Gradle project and can build `jvm`, `js`, `wasmJs`, or all three.
+- Kotlin Web is supported through Kotlin/JS and Kotlin/Wasm. The repository already builds the `piece-core` Kotlin/Wasm bundle for GitHub Pages.
 
 ## Architecture
 
@@ -190,6 +196,7 @@ npm run typecheck
 npm test
 npm run core:check
 npm run core:bridge:smoke
+npm run language:compile:smoke
 npm run pages:build
 npm run verify
 ```
@@ -201,6 +208,9 @@ root, run `./gradlew check wasmJsBrowserDistribution`; the root wrapper
 delegates to `piece-core/gradlew` and keeps the single Gradle project under
 `piece-core/`. `npm run core:check` also uses that wrapper, builds the
 Kotlin/JS bridge, and runs the npm-side bridge smoke test.
+`npm run language:compile:smoke` requires a local Go toolchain. It compiles a
+real Go single-file main package and a Kotlin single-file MPP project for JVM,
+JS, and WASM.
 Gradle outputs stay local under ignored directories such as `piece-core/build`,
 `piece-core/.gradle`, and `piece-core/kotlin-js-store`.
 
