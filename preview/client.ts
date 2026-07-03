@@ -194,6 +194,10 @@ function renderMetrics(metrics: MetricRecord) {
   ].join("");
 }
 
+function assetUrl(path: string) {
+  return new URL(path, document.baseURI).href;
+}
+
 function iframeSrcDoc(code: string) {
   return `<!doctype html>
 <html>
@@ -202,9 +206,9 @@ function iframeSrcDoc(code: string) {
     <script type="importmap">
       {
         "imports": {
-          "react": "/vendor/react.js",
-          "react-dom/client": "/vendor/react-dom-client.js",
-          "react/jsx-runtime": "/vendor/react-jsx-runtime.js"
+          "react": ${JSON.stringify(assetUrl("dist/vendor/react.js"))},
+          "react-dom/client": ${JSON.stringify(assetUrl("dist/vendor/react-dom-client.js"))},
+          "react/jsx-runtime": ${JSON.stringify(assetUrl("dist/vendor/react-jsx-runtime.js"))}
         }
       }
     </script>

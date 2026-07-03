@@ -3,7 +3,7 @@
 Measured against the preview workbench served by:
 
 ```sh
-node packages/piece-compiler/preview/serve.mjs --port=8797
+npm run preview
 ```
 
 The fixture is a 3,154-line TSX file with 124,267 source bytes and 628 declaration slices. After JSX intrinsic/text filtering, the selected `UserCard` closure graph has 11 target-relevant edges. The right pane is an iframe running the compiled HTML output. The comparison baseline is a full `esbuild-wasm` browser build of the same source file and preview entry.

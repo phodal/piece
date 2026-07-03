@@ -1,8 +1,24 @@
-# piece-compiler
+# Piece
 
-`piece-compiler` builds declaration-level previews for React and TSX source files. It extracts top-level declarations, builds a dependency graph, selects previewable components, and can bundle only the closure needed for a target piece.
+[![Deploy GitHub Pages](https://github.com/phodal/piece/actions/workflows/pages.yml/badge.svg)](https://github.com/phodal/piece/actions/workflows/pages.yml)
 
-The package is standalone ESM. It does not require a host-specific compiler runtime.
+Compile the React component you are editing without rebuilding the whole app.
+
+Piece is a declaration-level preview compiler for React and TSX. It slices a source file into imports, types, values, functions, and components; builds the dependency graph around a selected component; then bundles the smallest safe preview closure it can. The result is a fast inner loop for code editors, design tools, AI coding surfaces, and component workbenches.
+
+Try the demo: [phodal.github.io/piece](https://phodal.github.io/piece/)
+
+## Why Piece
+
+Modern React files often hold far more than one component. A full preview rebuild pays for every declaration, even when the user changed one label or one prop mapping. Piece focuses on the declaration you are looking at:
+
+- extracts previewable React components from TSX;
+- follows runtime, type, and external dependency edges;
+- emits virtual modules for the selected component closure;
+- detects changed, dirty, reused, and invalidated pieces after edits;
+- reuses the previous runtime bundle when a type-only edit leaves runtime code unchanged.
+
+Piece is standalone ESM. It does not depend on a host-specific editor or preview runtime.
 
 ## Install
 
@@ -12,7 +28,7 @@ npm install piece-compiler
 
 Node.js 20 or newer is required.
 
-## Usage
+## Quick Start
 
 Analyze a TSX file:
 
@@ -20,10 +36,15 @@ Analyze a TSX file:
 import { createPieceCompiler } from "piece-compiler";
 
 const compiler = createPieceCompiler();
+
 const analysis = await compiler.analyzeFile({
   filePath: "/repo/src/UserCard.tsx",
   source: `
-export function UserCard(props) {
+interface UserCardProps {
+  name: string;
+}
+
+export function UserCard(props: UserCardProps) {
   return <section>{props.name}</section>;
 }
 `
@@ -32,13 +53,14 @@ export function UserCard(props) {
 console.log(analysis.previewTargets);
 ```
 
-Build a preview closure:
+Build and bundle the selected component preview:
 
 ```js
 import { createPieceCompiler } from "piece-compiler";
 import { createNodeEsbuildBuildEngine } from "piece-compiler/node";
 
 const compiler = createPieceCompiler();
+
 const preview = await compiler.buildPreview({
   filePath: "/repo/src/UserCard.tsx",
   source,
@@ -49,57 +71,56 @@ const preview = await compiler.buildPreview({
 console.log(preview.bundle?.code);
 ```
 
-Compile a standalone piece status:
+Track an edit and rebuild only affected previews:
 
 ```js
-import { compilePieceApp } from "piece-compiler";
-
-const status = await compilePieceApp({
+const edit = await compiler.applyEdit({
   filePath: "/repo/src/UserCard.tsx",
-  source,
-  target: "UserCard",
-  piece: { id: "UserCard" }
+  source: nextSource,
+  previousAnalysis,
+  changedRanges
 });
 
-console.log(status.compiler);
-console.log(status.preview?.target);
+const update = await compiler.rebuildAffectedPreviews({
+  filePath: "/repo/src/UserCard.tsx",
+  source: nextSource,
+  editResult: edit,
+  previousPreviews,
+  buildEngine: createNodeEsbuildBuildEngine()
+});
+
+console.log(update.metrics);
 ```
 
-## API Surface
+## API
 
-- `createPieceCompiler(defaultOptions)` returns a compiler object with `normalize`, `compile`, `analyzeFile`, `selectPreviewTarget`, `buildPreview`, `applyEdit`, and `rebuildAffectedPreviews`.
-- `analyzePieceFile(options)` extracts a declaration manifest, graph, preview targets, metrics, and a snapshot.
-- `buildPiecePreview(options)` creates virtual modules for the selected target and optionally bundles them with an esbuild-compatible build engine.
-- `applyPieceEdit(options)` and `rebuildAffectedPiecePreviews(options)` support incremental edit analysis and cache-aware preview rebuilds.
-- `reconcilePieceSnapshot(options)` compares declaration snapshots and reports changed, dirty, reused, and invalidated pieces.
+- `createPieceCompiler(defaultOptions)` creates a compiler with `normalize`, `compile`, `analyzeFile`, `selectPreviewTarget`, `buildPreview`, `applyEdit`, and `rebuildAffectedPreviews`.
+- `analyzePieceFile(options)` returns a declaration manifest, graph, preview targets, metrics, and snapshot.
+- `buildPiecePreview(options)` creates virtual modules for a target and optionally bundles them with an esbuild-compatible build engine.
+- `applyPieceEdit(options)` performs incremental analysis when an edit stays inside one declaration.
+- `rebuildAffectedPiecePreviews(options)` rebuilds affected targets and keeps the last good preview on errors.
+- `reconcilePieceSnapshot(options)` reports changed, dirty, reused, and invalidated declarations.
 - `piece-compiler/node` provides `createNodeEsbuildBuildEngine()` and `createNodeVirtualFileSystem()`.
+
+## Local Demo
+
+```sh
+npm install
+npm run preview
+```
+
+Open `http://127.0.0.1:8797`. Click `Sample Edit` to see the component preview and metrics update from an incremental rebuild.
 
 ## Development
 
 ```sh
-npm install
 npm run typecheck
 npm test
-npm run preview:build
+npm run pages:build
 npm run verify
 ```
 
-Run the local browser preview:
-
-```sh
-npm run preview
-```
-
-The preview server listens on `http://127.0.0.1:8797` by default.
-
-## Publishing Checklist
-
-Before publishing a release:
-
-1. Run `npm run verify`.
-2. Review `npm pack --dry-run` output.
-3. Update the version in `package.json`.
-4. Create a signed Git tag for the release.
+`npm run verify` runs type checks, unit tests, and an npm package dry run.
 
 ## License
 

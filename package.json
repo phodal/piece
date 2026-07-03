@@ -1,24 +1,35 @@
 {
   "name": "piece-compiler",
   "version": "0.1.0",
-  "description": "Declaration-level compiler for fast React and TSX piece previews.",
+  "description": "Compile the React component you are editing without rebuilding the whole app.",
   "type": "module",
   "types": "./src/public-api/index.d.ts",
   "license": "Apache-2.0",
   "sideEffects": false,
+  "homepage": "https://phodal.github.io/piece/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phodal/piece.git"
+  },
+  "bugs": {
+    "url": "https://github.com/phodal/piece/issues"
+  },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck && npm test && npm pack --dry-run",
     "preview:build": "node preview/build.mjs",
-    "preview": "npm run preview:build && node preview/serve.mjs"
+    "preview": "npm run preview:build && node preview/serve.mjs",
+    "pages:build": "npm run preview:build && node scripts/build-pages.mjs"
   },
   "keywords": [
     "react",
     "tsx",
     "compiler",
     "preview",
-    "incremental-build"
+    "component-preview",
+    "incremental-build",
+    "editor-tools"
   ],
   "engines": {
     "node": ">=20"
