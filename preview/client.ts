@@ -232,7 +232,7 @@ async function ensureEsbuild() {
     return;
   }
   await esbuild.initialize({
-    wasmURL: "/vendor/esbuild.wasm",
+    wasmURL: assetUrl("dist/vendor/esbuild.wasm"),
     worker: true
   });
   esbuildReady = true;
