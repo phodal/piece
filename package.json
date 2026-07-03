@@ -1,0 +1,58 @@
+{
+  "name": "piece-compiler",
+  "version": "0.1.0",
+  "description": "Declaration-level compiler for fast React and TSX piece previews.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm test && npm pack --dry-run",
+    "preview:build": "node preview/build.mjs",
+    "preview": "npm run preview:build && node preview/serve.mjs"
+  },
+  "keywords": [
+    "react",
+    "tsx",
+    "compiler",
+    "preview",
+    "incremental-build"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/public-api/index.d.ts",
+      "import": "./src/public-api/index.js"
+    },
+    "./browser": {
+      "types": "./src/public-api/browser.d.ts",
+      "import": "./src/public-api/browser.js"
+    },
+    "./node": {
+      "types": "./src/public-api/node.d.ts",
+      "import": "./src/public-api/node.js"
+    },
+    "./testing": {
+      "types": "./src/public-api/testing.d.ts",
+      "import": "./src/public-api/testing.js"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@codemirror/lang-javascript": "^6.2.4",
+    "@types/node": "^24.0.10",
+    "codemirror": "^6.0.2",
+    "esbuild-wasm": "^0.28.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "vitest": "^3.2.4"
+  }
+}

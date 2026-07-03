@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Piece Compiler Preview</title>
+    <link rel="stylesheet" href="/preview.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="pane editor-pane" aria-label="TSX editor">
+        <header class="toolbar">
+          <div>
+            <h1>Piece Compiler</h1>
+            <p>Declaration-level TSX pieces</p>
+          </div>
+          <div class="actions">
+            <button id="run-benchmark" type="button">Run Benchmark</button>
+            <button id="apply-sample-edit" type="button">Sample Edit</button>
+          </div>
+        </header>
+        <div class="code-editor">
+          <div id="editor" class="editor-mount" aria-label="TSX source"></div>
+          <div class="editor-status" aria-live="polite">
+            <span id="editor-position"></span>
+            <span id="editor-stats"></span>
+          </div>
+        </div>
+      </section>
+      <section class="pane preview-pane" aria-label="Compiled HTML preview">
+        <header class="toolbar">
+          <div>
+            <h2>Compiled HTML</h2>
+            <p id="status">Initializing compiler...</p>
+          </div>
+          <div class="target-chip" id="target">target: UserCard</div>
+        </header>
+        <iframe id="preview" title="Compiled piece preview" sandbox="allow-scripts allow-same-origin"></iframe>
+        <section class="metrics" aria-label="Compile metrics">
+          <h3>Metrics</h3>
+          <div id="metrics-grid" class="metrics-grid"></div>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="/dist/client.js"></script>
+  </body>
+</html>
