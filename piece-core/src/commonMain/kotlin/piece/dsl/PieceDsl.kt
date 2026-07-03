@@ -7,6 +7,10 @@ import piece.model.PiecePackage
 import piece.model.PieceRule
 import piece.model.PieceTarget
 import piece.model.PieceTargetKind
+import piece.model.pieceNormalizeDep
+import piece.model.piecePackageName
+import piece.model.pieceSourceLabel
+import piece.model.pieceTargetLabel
 
 @DslMarker
 annotation class PieceDsl
@@ -31,10 +35,10 @@ class PieceFileBuilder(private val filePath: String) {
     }
 
     fun build(): PiecePackage {
-        val packageName = packageName(filePath)
-        val sourceLabel = "//$packageName:${basename(filePath)}"
+        val packageName = piecePackageName(filePath)
+        val sourceLabel = pieceSourceLabel(filePath)
         val targetLabelsByName = targetBuilders.associate { builder ->
-            builder.name to "//$packageName:${targetName(filePath, builder.rule, builder.name)}"
+            builder.name to pieceTargetLabel(filePath, builder.rule, builder.name)
         }
         val targets = targetBuilders.map { it.build(language, packageName, sourceLabel, targetLabelsByName) }
         val rules = targets
@@ -102,8 +106,8 @@ class PieceTargetBuilder(private val filePath: String, internal val name: String
 
     fun build(language: String, packageName: String, sourceLabel: String, targetLabelsByName: Map<String, String>): PieceTarget {
         val ruleName = "${language}_piece_${rule.name.lowercase()}"
-        val label = "//$packageName:${targetName(filePath, rule, name)}"
-        val normalizedDeps = deps.map { normalizeDep(packageName, it, targetLabelsByName) }.sorted()
+        val label = pieceTargetLabel(filePath, rule, name)
+        val normalizedDeps = deps.map { pieceNormalizeDep(packageName, it, targetLabelsByName) }.sorted()
         val actionId = "$label%$actionName"
         val artifactId = "$label.piece.json"
         return PieceTarget(
@@ -119,29 +123,4 @@ class PieceTargetBuilder(private val filePath: String, internal val name: String
             artifacts = listOf(artifactId),
         )
     }
-}
-
-private fun packageName(filePath: String): String {
-    val normalized = filePath.replace('\\', '/').trimStart('/')
-    val index = normalized.lastIndexOf('/')
-    return if (index <= 0) "." else normalized.substring(0, index)
-}
-
-private fun basename(filePath: String): String {
-    val normalized = filePath.replace('\\', '/')
-    return normalized.substringAfterLast('/')
-}
-
-private fun targetName(filePath: String, kind: PieceTargetKind, name: String): String {
-    return "${sanitize(basename(filePath))}__${kind.name.lowercase()}_${sanitize(name)}"
-}
-
-private fun normalizeDep(packageName: String, label: String, targetLabelsByName: Map<String, String>): String {
-    if (label.startsWith("//")) return label
-    val name = label.trimStart(':')
-    return targetLabelsByName[name] ?: "//$packageName:$name"
-}
-
-private fun sanitize(value: String): String {
-    return value.replace(Regex("[^A-Za-z0-9_.-]+"), "-").trim('-').ifEmpty { "piece" }
 }

@@ -23,6 +23,10 @@ kotlin {
     }
 
     sourceSets {
+        jvmMain.dependencies {
+            implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.2.21")
+        }
+
         commonTest.dependencies {
             implementation(kotlin("test"))
         }

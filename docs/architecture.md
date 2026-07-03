@@ -79,6 +79,8 @@ The common source set owns the DSL, graph model, and snapshot/reconcile primitiv
 
 This follows Kotlin Multiplatform's expect/actual shape: common code exposes the stable API; platform source sets provide platform-specific implementations.
 
+Current JVM status: `KotlinPsiDeclarationExtractor` uses Kotlin compiler PSI to parse a single Kotlin file and emit the same `PiecePackage` shape as the npm-side adapters. It is still syntax-oriented; Analysis API resolution is the next semantic step for overloads, imported declarations, and cross-file symbols.
+
 ## JS/TS Support
 
 JS/TS support should remain in the npm package as a first-class host adapter:
