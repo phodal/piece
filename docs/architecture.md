@@ -81,6 +81,8 @@ This follows Kotlin Multiplatform's expect/actual shape: common code exposes the
 
 Current JVM status: `KotlinPsiDeclarationExtractor` uses Kotlin compiler PSI to parse a single Kotlin file and emit the same `PiecePackage` shape as the npm-side adapters. It is still syntax-oriented; Analysis API resolution is the next semantic step for overloads, imported declarations, and cross-file symbols.
 
+Current JS bridge status: `piece-core` exports JSON bridge functions from `jsMain`, and the npm package exposes `createKotlinCoreBridge()` so a JavaScript host can call the Kotlin core and receive normal JavaScript `PiecePackage` and `PieceGraph` objects. The bridge accepts generated target specs; it is not intended as a user-authored DSL.
+
 ## JS/TS Support
 
 JS/TS support should remain in the npm package as a first-class host adapter:

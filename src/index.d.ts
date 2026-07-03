@@ -201,6 +201,42 @@ export interface SingleFilePiecePackage {
   readonly artifacts: readonly PieceArtifact[];
 }
 
+export interface PieceGraphEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: PieceEdgeKind;
+  readonly symbols: readonly string[];
+}
+
+export interface PieceGraph {
+  readonly packageLabel: string;
+  readonly targets: readonly PiecePackageTarget[];
+  readonly edges: readonly PieceGraphEdge[];
+}
+
+export interface KotlinCoreBridgeTargetSpec {
+  readonly kind: PieceSliceKind;
+  readonly name: string;
+  readonly deps?: readonly string[];
+  readonly action?: string;
+}
+
+export interface KotlinCoreBridge {
+  createPackageFromTargets(options: {
+    readonly filePath: string;
+    readonly language?: string;
+    readonly targets: readonly KotlinCoreBridgeTargetSpec[];
+  }): SingleFilePiecePackage;
+  createGraphFromTargets(options: {
+    readonly filePath: string;
+    readonly language?: string;
+    readonly targets: readonly KotlinCoreBridgeTargetSpec[];
+  }): PieceGraph;
+  sampleKotlinPackage(options?: { readonly filePath?: string }): SingleFilePiecePackage;
+}
+
+export function createKotlinCoreBridge(kotlinCoreModule: unknown): KotlinCoreBridge;
+
 export interface PieceSourceRange {
   readonly startByte: number;
   readonly endByte: number;

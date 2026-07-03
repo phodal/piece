@@ -6,6 +6,7 @@ setDefaultDeclarationExtractorResolver(createDefaultDeclarationExtractorForFile)
 export * from "./core/compiler.js";
 export * from "./core/declaration-extractor.js";
 export * from "./core/extractor-registry.js";
+export * from "./core/kotlin-core-bridge.js";
 export * from "./core/piece-package.js";
 export * from "./core/piece-pipeline.js";
 export * from "./core/reconciler.js";

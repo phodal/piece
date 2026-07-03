@@ -152,6 +152,7 @@ Preview building is one feedback target. A host can map the same affected-piece 
 - `applyPieceEdit(options)` performs incremental analysis when an edit stays inside one declaration.
 - `rebuildAffectedPiecePreviews(options)` rebuilds affected feedback targets and keeps the last good artifact on errors.
 - `reconcilePieceSnapshot(options)` reports changed, dirty, reused, and invalidated declarations.
+- `createKotlinCoreBridge(kotlinCoreModule)` adapts the Kotlin/JS core bridge into plain JavaScript `PiecePackage` and `PieceGraph` objects.
 - `piece-compiler/node` provides `createNodeEsbuildBuildEngine()` and `createNodeVirtualFileSystem()`.
 
 ## Architecture
@@ -187,6 +188,7 @@ Open `http://127.0.0.1:8797`. Click `Sample Edit` to see the preview and metrics
 npm run typecheck
 npm test
 npm run core:check
+npm run core:bridge:smoke
 npm run pages:build
 npm run verify
 ```
@@ -194,6 +196,7 @@ npm run verify
 `npm run verify` runs type checks, unit tests, and an npm package dry run.
 `npm run core:check` uses the checked-in `piece-core/gradlew` wrapper, so local
 Kotlin Multiplatform development does not require a global Gradle installation.
+It also builds the Kotlin/JS bridge and runs the npm-side bridge smoke test.
 Gradle outputs stay local under ignored directories such as `piece-core/build`,
 `piece-core/.gradle`, and `piece-core/kotlin-js-store`.
 

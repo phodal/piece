@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createNodeEsbuildBuildEngine, createNodeVirtualFileSystem } from "piece-compiler/node";
 import {
   compilePieceApp,
+  createKotlinCoreBridge,
   createPieceCompiler,
   createPieceSnapshot,
   reconcilePieceSnapshot
@@ -333,5 +334,69 @@ export function UserCard() {
     expect(editResult.analysis.metrics.incremental).toBeUndefined();
     expect(editResult.edit.changedSlices.map((id) => id.split("#")[1])).toEqual(["value:prefix"]);
     expect(editResult.affectedTargets.map((id) => id.split("#")[1])).toEqual(["class:Greeter", "function:renderGreeting"]);
+  });
+
+  it("adapts a Kotlin core JS bridge module into plain PiecePackage objects", () => {
+    const bridge = createKotlinCoreBridge({
+      piece: {
+        bridge: {
+          createPiecePackageJson(filePath, language, targetSpecs) {
+            expect(filePath).toBe("/repo/src/Pricing.kt");
+            expect(language).toBe("kotlin");
+            expect(targetSpecs).toContain("function\trenderGreeting\t:prefix\tanalysis");
+            return JSON.stringify({
+              version: 1,
+              kind: "single-file-package",
+              language,
+              packageName: "repo/src",
+              label: "//repo/src:Pricing.kt",
+              filePath,
+              sourceFile: "//repo/src:Pricing.kt",
+              rules: [],
+              targets: [{ name: "renderGreeting", label: "//repo/src:Pricing.kt__function_renderGreeting" }],
+              actions: [],
+              artifacts: []
+            });
+          },
+          createPieceGraphJson() {
+            return JSON.stringify({
+              packageLabel: "//repo/src:Pricing.kt",
+              targets: [],
+              edges: [{ from: "//repo/src:Pricing.kt__function_renderGreeting", to: "//repo/src:Pricing.kt__value_prefix", kind: "runtime", symbols: [] }]
+            });
+          },
+          sampleKotlinPackageJson() {
+            return JSON.stringify({
+              version: 1,
+              kind: "single-file-package",
+              language: "kotlin",
+              packageName: "repo/src",
+              label: "//repo/src:Pricing.kt",
+              filePath: "/repo/src/Pricing.kt",
+              sourceFile: "//repo/src:Pricing.kt",
+              rules: [],
+              targets: [],
+              actions: [],
+              artifacts: []
+            });
+          }
+        }
+      }
+    });
+
+    const piecePackage = bridge.createPackageFromTargets({
+      filePath: "/repo/src/Pricing.kt",
+      targets: [
+        { kind: "value", name: "prefix" },
+        { kind: "function", name: "renderGreeting", deps: [":prefix"] }
+      ]
+    });
+    const graph = bridge.createGraphFromTargets({
+      filePath: "/repo/src/Pricing.kt",
+      targets: [{ kind: "function", name: "renderGreeting" }]
+    });
+
+    expect(piecePackage.targets[0].label).toBe("//repo/src:Pricing.kt__function_renderGreeting");
+    expect(graph.edges[0].kind).toBe("runtime");
   });
 });

@@ -41,6 +41,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Core check
+        run: npm run core:check
+
       - name: Build Pages site
         run: npm run pages:build
 
