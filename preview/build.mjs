@@ -18,7 +18,8 @@ await build({
   format: "esm",
   platform: "browser",
   target: "es2022",
-  sourcemap: true,
+  sourcemap: false,
+  minify: true,
   define: {
     "process.env.NODE_ENV": JSON.stringify("production")
   }
@@ -69,7 +70,8 @@ export const version = React.version;
   bundle: true,
   format: "esm",
   platform: "browser",
-  target: "es2022"
+  target: "es2022",
+  minify: true
 });
 
 await build({
@@ -87,7 +89,8 @@ export const hydrateRoot = client.hydrateRoot;
   bundle: true,
   format: "esm",
   platform: "browser",
-  target: "es2022"
+  target: "es2022",
+  minify: true
 });
 
 await build({
@@ -106,7 +109,8 @@ export const jsxs = runtime.jsxs;
   bundle: true,
   format: "esm",
   platform: "browser",
-  target: "es2022"
+  target: "es2022",
+  minify: true
 });
 
 await copyFile(join(repoRoot, "node_modules/esbuild-wasm/esbuild.wasm"), join(vendorDir, "esbuild.wasm"));
