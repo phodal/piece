@@ -56,6 +56,29 @@ class Greeter {
 `;
 }
 
+function goSource() {
+  return `package pricing
+
+import "fmt"
+
+type User struct {
+  ID string
+  Name string
+}
+
+type Greeting struct {
+  Message string
+}
+
+const prefix = "Hello"
+
+func RenderGreeting(user User) Greeting {
+  fmt.Println(prefix)
+  return Greeting{Message: prefix + ", " + user.Name}
+}
+`;
+}
+
 function changedRange(previousSource, nextSource) {
   let startByte = 0;
   while (startByte < previousSource.length && startByte < nextSource.length && previousSource[startByte] === nextSource[startByte]) {
@@ -334,6 +357,57 @@ export function UserCard() {
     expect(editResult.analysis.metrics.incremental).toBeUndefined();
     expect(editResult.edit.changedSlices.map((id) => id.split("#")[1])).toEqual(["value:prefix"]);
     expect(editResult.affectedTargets.map((id) => id.split("#")[1])).toEqual(["class:Greeter", "function:renderGreeting"]);
+  });
+
+  it("extracts Go single-file pieces and exposes Bazel-like targets", async () => {
+    const compiler = createPieceCompiler();
+    const analysis = await compiler.analyzeFile({
+      filePath: "/repo/src/Pricing.go",
+      source: goSource()
+    });
+
+    expect(analysis.manifest.parser).toBe("go-declaration-extractor");
+    expect(analysis.manifest.importBindings).toEqual([{ local: "fmt", imported: "fmt", source: "fmt", kind: "namespace", isTypeOnly: false }]);
+    expect(analysis.manifest.slices.map((slice) => [slice.kind, slice.name, slice.preview.previewable])).toEqual([
+      ["type", "User", true],
+      ["type", "Greeting", true],
+      ["value", "prefix", false],
+      ["function", "RenderGreeting", true]
+    ]);
+    expect(analysis.graph.edges.map((edge) => [edge.from.split("#")[1], edge.kind, edge.to.split("#")[1] ?? edge.to, edge.symbols])).toEqual([
+      ["function:RenderGreeting", "type", "type:Greeting", ["Greeting"]],
+      ["function:RenderGreeting", "type", "type:User", ["User"]],
+      ["function:RenderGreeting", "runtime", "value:prefix", ["prefix"]],
+      ["function:RenderGreeting", "external", "fmt", ["fmt"]]
+    ]);
+    expect(analysis.piecePackage).toMatchObject({
+      language: "go",
+      label: "//repo/src:Pricing.go"
+    });
+    expect(analysis.piecePackage.targets.map((target) => [target.rule, target.label])).toContainEqual([
+      "go_piece_function",
+      "//repo/src:Pricing.go__function_RenderGreeting"
+    ]);
+  });
+
+  it("rebuilds Go affected targets with full reanalysis", async () => {
+    const compiler = createPieceCompiler();
+    const previousSource = goSource();
+    const previousAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/Pricing.go",
+      source: previousSource
+    });
+    const nextSource = previousSource.replace('"Hello"', '"Hi"');
+    const editResult = await compiler.applyEdit({
+      filePath: "/repo/src/Pricing.go",
+      source: nextSource,
+      previousAnalysis,
+      changedRanges: [changedRange(previousSource, nextSource)]
+    });
+
+    expect(editResult.analysis.metrics.incremental).toBeUndefined();
+    expect(editResult.edit.changedSlices.map((id) => id.split("#")[1])).toEqual(["value:prefix"]);
+    expect(editResult.affectedTargets.map((id) => id.split("#")[1])).toEqual(["function:RenderGreeting"]);
   });
 
   it("adapts a Kotlin core JS bridge module into plain PiecePackage objects", () => {

@@ -13,5 +13,6 @@ export * from "./core/reconciler.js";
 export * from "./core/options.js";
 export * from "./core/status.js";
 export * from "./languages/index.js";
+export * from "./languages/go/declaration-extractor.js";
 export * from "./languages/kotlin/declaration-extractor.js";
 export * from "./languages/typescript/declaration-extractor.js";

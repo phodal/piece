@@ -58,6 +58,7 @@ function uniqueRulesForTargets(language, slices) {
 }
 
 function languageForManifest(manifest) {
+  if (manifest.parser?.includes("go")) return "go";
   if (manifest.parser?.includes("kotlin")) return "kotlin";
   if (manifest.parser?.includes("typescript")) return "typescript";
   if (manifest.parser?.includes("tree-sitter")) return "tree_sitter";

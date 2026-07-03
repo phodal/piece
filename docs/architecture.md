@@ -95,6 +95,8 @@ src/
     reconciler.js
     slice-graph.js
   languages/
+    go/
+      declaration-extractor.js
     kotlin/
       declaration-extractor.js
     typescript/
@@ -109,6 +111,7 @@ The current repository has not fully moved to this layout yet. Today:
 
 - TypeScript-family extraction lives in `src/core/typescript-declaration-extractor.js`.
 - `src/languages/typescript/declaration-extractor.js` exposes the TypeScript extractor through the language directory.
+- `src/languages/go/declaration-extractor.js` is the first Go single-file adapter; it emits the same manifest and Bazel-like `PiecePackage` shape without making Go a core dependency.
 - React preview entry generation lives in `src/core/virtual-modules.js`.
 - `src/adapters/react/virtual-modules.js` exposes the React virtual-module adapter through the adapter directory.
 - Kotlin extraction in `src/languages/kotlin/declaration-extractor.js` is a runnable npm-side adapter for single-file experiments.

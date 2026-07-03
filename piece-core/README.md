@@ -16,4 +16,7 @@ Use the checked-in Gradle wrapper for local validation:
 ./gradlew check wasmJsBrowserDistribution
 ```
 
+From the repository root, the same Gradle project is available through the
+delegating `./gradlew` script.
+
 The current JVM extractor is syntax-oriented. A later semantic slice should add Kotlin Analysis API resolution for overloads, imports, and cross-file symbols.

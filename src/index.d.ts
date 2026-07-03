@@ -652,6 +652,7 @@ export function createSingleFilePiecePackage(options: {
 }): SingleFilePiecePackage;
 export function createTreeSitterDeclarationExtractor(options?: { readonly name?: string; readonly parser?: unknown; readonly tree?: unknown }): PieceDeclarationExtractor;
 export function createFallbackDeclarationExtractor(): PieceDeclarationExtractor;
+export function createGoDeclarationExtractor(options?: { readonly name?: string }): PieceDeclarationExtractor;
 export function createKotlinDeclarationExtractor(options?: { readonly name?: string }): PieceDeclarationExtractor;
 export function createTypeScriptDeclarationExtractor(options?: { readonly name?: string }): Promise<PieceDeclarationExtractor>;
 export function analyzePieceFile(options: AnalyzePieceFileOptions): Promise<PieceFileAnalysis>;

@@ -1,8 +1,12 @@
 import { createFallbackDeclarationExtractor } from "../core/declaration-extractor.js";
+import { createGoDeclarationExtractor } from "./go/declaration-extractor.js";
 import { createKotlinDeclarationExtractor } from "./kotlin/declaration-extractor.js";
 import { createTypeScriptDeclarationExtractor } from "./typescript/declaration-extractor.js";
 
 export async function createDefaultDeclarationExtractorForFile(filePath) {
+  if (/\.go$/.test(filePath)) {
+    return createGoDeclarationExtractor();
+  }
   if (/\.(?:kt|kts)$/.test(filePath)) {
     return createKotlinDeclarationExtractor();
   }

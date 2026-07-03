@@ -18,15 +18,16 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck && npm test && npm pack --dry-run",
-    "core:check": "cd piece-core && ./gradlew check wasmJsBrowserDistribution jsNodeProductionLibraryDistribution && cd .. && node scripts/smoke-kotlin-core-bridge.mjs",
-    "core:js:build": "cd piece-core && ./gradlew jsNodeProductionLibraryDistribution",
+    "core:check": "./gradlew check wasmJsBrowserDistribution jsNodeProductionLibraryDistribution && node scripts/smoke-kotlin-core-bridge.mjs",
+    "core:js:build": "./gradlew jsNodeProductionLibraryDistribution",
     "core:bridge:smoke": "npm run core:js:build && node scripts/smoke-kotlin-core-bridge.mjs",
-    "core:wasm:build": "cd piece-core && ./gradlew wasmJsBrowserDistribution",
+    "core:wasm:build": "./gradlew wasmJsBrowserDistribution",
     "preview:build": "node preview/build.mjs",
     "preview": "npm run preview:build && node preview/serve.mjs",
     "pages:build": "npm run preview:build && npm run core:wasm:build && node scripts/build-pages.mjs"
   },
   "keywords": [
+    "go",
     "kotlin",
     "react",
     "typescript",
@@ -59,6 +60,8 @@
   },
   "files": [
     "docs",
+    "gradlew",
+    "gradlew.bat",
     "piece-core/README.md",
     "piece-core/build.gradle.kts",
     "piece-core/settings.gradle.kts",

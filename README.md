@@ -49,7 +49,7 @@ The important shift is not "React component preview". That is only one adapter. 
 
 Piece is not limited to TSX or React.
 
-The current package ships a TypeScript-family extractor for JavaScript, TypeScript, JSX, and TSX files. The same model can be extended through custom extractors for Vue, Svelte, MDX, Python notebooks, JVM languages, configuration files, or any source format that can expose stable semantic pieces.
+The current package ships TypeScript-family extraction for JavaScript, TypeScript, JSX, and TSX files, plus experimental single-file Kotlin and Go adapters that emit the same `PiecePackage` shape. The same model can be extended through custom extractors for Vue, Svelte, MDX, Python notebooks, JVM languages, configuration files, or any source format that can expose stable semantic pieces.
 
 The browser demo uses a React preview adapter because it is a useful first feedback surface. The core APIs are designed around manifests, graphs, closures, edits, updates, and host-provided build engines rather than a single framework.
 
@@ -152,6 +152,7 @@ Preview building is one feedback target. A host can map the same affected-piece 
 - `applyPieceEdit(options)` performs incremental analysis when an edit stays inside one declaration.
 - `rebuildAffectedPiecePreviews(options)` rebuilds affected feedback targets and keeps the last good artifact on errors.
 - `reconcilePieceSnapshot(options)` reports changed, dirty, reused, and invalidated declarations.
+- `createGoDeclarationExtractor()` exposes the npm-side Go single-file adapter.
 - `createKotlinCoreBridge(kotlinCoreModule)` adapts the Kotlin/JS core bridge into plain JavaScript `PiecePackage` and `PieceGraph` objects.
 - `piece-compiler/node` provides `createNodeEsbuildBuildEngine()` and `createNodeVirtualFileSystem()`.
 
@@ -194,9 +195,12 @@ npm run verify
 ```
 
 `npm run verify` runs type checks, unit tests, and an npm package dry run.
-`npm run core:check` uses the checked-in `piece-core/gradlew` wrapper, so local
-Kotlin Multiplatform development does not require a global Gradle installation.
-It also builds the Kotlin/JS bridge and runs the npm-side bridge smoke test.
+Kotlin Multiplatform tasks use the checked-in Gradle wrapper, so local
+development does not require a global Gradle installation. From the repository
+root, run `./gradlew check wasmJsBrowserDistribution`; the root wrapper
+delegates to `piece-core/gradlew` and keeps the single Gradle project under
+`piece-core/`. `npm run core:check` also uses that wrapper, builds the
+Kotlin/JS bridge, and runs the npm-side bridge smoke test.
 Gradle outputs stay local under ignored directories such as `piece-core/build`,
 `piece-core/.gradle`, and `piece-core/kotlin-js-store`.
 
