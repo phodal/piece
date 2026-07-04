@@ -9,6 +9,7 @@ export * from "./core/extractor-registry.js";
 export * from "./core/kotlin-core-bridge.js";
 export * from "./core/piece-package.js";
 export * from "./core/piece-pipeline.js";
+export * from "./core/pic-dsl.js";
 export * from "./core/reconciler.js";
 export * from "./core/options.js";
 export * from "./core/status.js";

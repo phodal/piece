@@ -430,6 +430,7 @@ export interface PieceFileAnalysis {
   readonly manifest: PieceFileManifest;
   readonly graph: PieceSliceGraph;
   readonly piecePackage: SingleFilePiecePackage;
+  readonly pieceDsl: string;
   readonly previewTargets: readonly string[];
   readonly metrics: PieceFileAnalysisMetrics;
   readonly snapshot: PieceSnapshot;
@@ -660,6 +661,7 @@ export function createSingleFilePiecePackage(options: {
   readonly manifest: PieceFileManifest;
   readonly graph: PieceSliceGraph;
 }): SingleFilePiecePackage;
+export function piecePackageToPicDsl(piecePackage: SingleFilePiecePackage): string;
 export function createTreeSitterDeclarationExtractor(options?: { readonly name?: string; readonly parser?: unknown; readonly tree?: unknown }): PieceDeclarationExtractor;
 export function createFallbackDeclarationExtractor(): PieceDeclarationExtractor;
 export function createGoDeclarationExtractor(options?: { readonly name?: string }): PieceDeclarationExtractor;

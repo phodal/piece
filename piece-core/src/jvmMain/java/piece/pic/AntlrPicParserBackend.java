@@ -100,16 +100,19 @@ public final class AntlrPicParserBackend {
         PicActionKind kind = actionKind(context.actionKind().getText());
         String mnemonic = null;
         String output = null;
+        String path = null;
 
         for (PieceParser.ActionMemberContext member : context.actionMember()) {
             if (member.mnemonicDeclaration() != null) {
                 mnemonic = stringValue(member.mnemonicDeclaration().STRING().getSymbol());
             } else if (member.outputDeclaration() != null) {
                 output = stringValue(member.outputDeclaration().STRING().getSymbol());
+            } else if (member.pathDeclaration() != null) {
+                path = stringValue(member.pathDeclaration().STRING().getSymbol());
             }
         }
 
-        return new PicAction(kind, mnemonic, output);
+        return new PicAction(kind, mnemonic, output, path);
     }
 
     private static PicTargetKind targetKind(String value) {

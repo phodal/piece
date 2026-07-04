@@ -21,6 +21,7 @@ data class PicAction(
     val kind: PicActionKind,
     val mnemonic: String? = null,
     val output: String? = null,
+    val path: String? = null,
 )
 
 enum class PicTargetKind {

@@ -56,6 +56,9 @@ jobs:
       - name: Kotlin Pic generation smoke
         run: npm run pic:kotlin:smoke
 
+      - name: Source Pic generation smoke
+        run: npm run pic:source:smoke
+
       - name: Language analysis smoke
         run: npm run language:analysis:smoke
 

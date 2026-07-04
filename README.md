@@ -66,6 +66,7 @@ The Bazel-like part is the package, target, action, dependency graph, and cachea
 - A Kotlin/JVM compile backend that generates a temporary Kotlin Multiplatform Gradle project and drives it through Gradle Tooling API, with wrapper fallback when the Tooling API distribution cannot be located. The JVM backend can resolve a selected `pieceTarget` through Kotlin PSI, compile companion Kotlin files from the same source set, and return the target/action/artifact identity so npm hosts can bind Kotlin toolchain output back to a Bazel-like action.
 - An ANTLR-backed `.pic` DSL parser on the JVM side. The parser returns the same `PiecePackage`, `PieceTarget`, `PieceAction`, and `PieceArtifact` model used by source extraction, while common AST/model conversion stays in Kotlin MPP `commonMain`.
 - A Kotlin PSI `.pic` generator. `piece-compiler/node` can ask the Kotlin/JVM backend to emit deterministic `.pic` from source extraction, then parse it back through the same ANTLR path for package and graph parity.
+- Go and TypeScript `.pic` generation through the normal `analyzePieceFile()` result. JS/TS and Go source extraction now expose deterministic `pieceDsl` text that can be parsed back through the ANTLR backend for package parity.
 - A Kotlin piece benchmark that verifies piece-level analysis is faster than whole-file analysis on a generated single-file fixture.
 
 React is only one feedback adapter. JS/TS, Go, and Kotlin use the same manifest, graph, reconciliation, target, action, and artifact vocabulary.
@@ -119,6 +120,7 @@ npm run core:check
 npm run core:bridge:smoke
 npm run pic:dsl:smoke
 npm run pic:kotlin:smoke
+npm run pic:source:smoke
 npm run language:analysis:smoke
 npm run language:compile:smoke
 npm run benchmark:kotlin-piece
@@ -128,7 +130,7 @@ npm run verify
 
 The repository includes a root Gradle wrapper. From the repository root, `./gradlew check wasmJsBrowserDistribution` delegates into the single Gradle project under `piece-core/`.
 
-`npm run pic:dsl:smoke` verifies that the Node entrypoint routes `.pic` DSL parsing through the JVM ANTLR backend and receives a normal `PiecePackage`. `npm run pic:kotlin:smoke` verifies that Kotlin PSI source extraction emits deterministic `.pic`, parses it back through `parsePieceDslFile()`, and gets the same package shape. `npm run language:analysis:smoke` verifies that the Node entrypoint routes Kotlin analysis through the JVM PSI backend and can opt into Kotlin compiler semantic diagnostics plus local, companion-file, and `sourceRoots` symbol refinement. It also checks that companion source-set declarations and host-provided external jars are visible to compiler diagnostics instead of being treated as unresolved single-file names. `npm run language:compile:smoke` requires a local Go toolchain. It compiles a real Go single-file module, then asks the Kotlin/JVM backend to compile a Kotlin source set with a companion file for JVM, JS, and Wasm.
+`npm run pic:dsl:smoke` verifies that the Node entrypoint routes `.pic` DSL parsing through the JVM ANTLR backend and receives a normal `PiecePackage`. `npm run pic:kotlin:smoke` verifies that Kotlin PSI source extraction emits deterministic `.pic`, parses it back through `parsePieceDslFile()`, and gets the same package shape. `npm run pic:source:smoke` verifies that Go and TypeScript extraction expose `analysis.pieceDsl`, parse that `.pic` back through ANTLR, and get the same package shape. `npm run language:analysis:smoke` verifies that the Node entrypoint routes Kotlin analysis through the JVM PSI backend and can opt into Kotlin compiler semantic diagnostics plus local, companion-file, and `sourceRoots` symbol refinement. It also checks that companion source-set declarations and host-provided external jars are visible to compiler diagnostics instead of being treated as unresolved single-file names. `npm run language:compile:smoke` requires a local Go toolchain. It compiles a real Go single-file module, then asks the Kotlin/JVM backend to compile a Kotlin source set with a companion file for JVM, JS, and Wasm.
 
 `npm run benchmark:kotlin-piece` writes `reports/kotlin-piece-benchmark.json` and checks that Kotlin piece analysis beats full-file analysis for the generated fixture. See [docs/kotlin-piece-benchmark.md](./docs/kotlin-piece-benchmark.md).
 

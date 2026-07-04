@@ -1,5 +1,6 @@
 import { resolveDefaultDeclarationExtractor } from "./extractor-registry.js";
 import { createSingleFilePiecePackage } from "./piece-package.js";
+import { piecePackageToPicDsl } from "./pic-dsl.js";
 import { buildPieceClosure } from "./closure-builder.js";
 import { buildPiecePreviewBundle } from "./build-orchestrator.js";
 import { createPieceVirtualModules } from "./virtual-modules.js";
@@ -103,6 +104,7 @@ export async function analyzePieceFile(options) {
     manifest: manifestResult.value,
     graph: graphResult.value,
     piecePackage,
+    pieceDsl: piecePackageToPicDsl(piecePackage),
     previewTargets,
     metrics: {
       totalMs: roundMs(nowMs() - startedAt),
@@ -285,6 +287,7 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     manifest,
     graph: graphResult.value,
     piecePackage,
+    pieceDsl: piecePackageToPicDsl(piecePackage),
     previewTargets,
     metrics: {
       totalMs: graphResult.ms,

@@ -79,6 +79,7 @@ actionKind
 actionMember
     : mnemonicDeclaration
     | outputDeclaration
+    | pathDeclaration
     ;
 
 mnemonicDeclaration
@@ -87,6 +88,10 @@ mnemonicDeclaration
 
 outputDeclaration
     : OUTPUT STRING
+    ;
+
+pathDeclaration
+    : PATH STRING
     ;
 
 PACKAGE: 'package';
@@ -100,6 +105,7 @@ EXTERNAL_DEPS: 'externalDeps';
 ACTION: 'action';
 MNEMONIC: 'mnemonic';
 OUTPUT: 'output';
+PATH: 'path';
 
 TYPE: 'type';
 CLASS: 'class';

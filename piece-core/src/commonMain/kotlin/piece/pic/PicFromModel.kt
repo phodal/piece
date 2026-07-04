@@ -2,6 +2,7 @@ package piece.pic
 
 import piece.model.PieceAction
 import piece.model.PieceActionKind
+import piece.model.PieceArtifact
 import piece.model.PiecePackage
 import piece.model.PieceTarget
 import piece.model.PieceTargetKind
@@ -9,6 +10,7 @@ import piece.model.PieceTargetKind
 fun piecePackageToPicDsl(piecePackage: PiecePackage): String {
     validatePicIdentifier(piecePackage.language, "language")
     val actionsById = piecePackage.actions.associateBy { it.id }
+    val artifactsById = piecePackage.artifacts.associateBy { it.id }
     val builder = StringBuilder()
     builder.append("package ")
         .append(piecePackage.label.picString())
@@ -27,7 +29,7 @@ fun piecePackageToPicDsl(piecePackage: PiecePackage): String {
         appendDeps(builder, "runtimeDeps", target.runtimeDeps)
         appendDeps(builder, "typeDeps", target.typeDeps)
         appendDeps(builder, "externalDeps", target.externalDeps)
-        appendActions(builder, target, actionsById)
+        appendActions(builder, target, actionsById, artifactsById)
         builder.append("  }\n")
     }
 
@@ -51,17 +53,25 @@ private fun PieceTarget.unclassifiedDeps(): List<String> {
     return deps.filterNot { it in classified }.distinct().sorted()
 }
 
-private fun appendActions(builder: StringBuilder, target: PieceTarget, actionsById: Map<String, PieceAction>) {
+private fun appendActions(
+    builder: StringBuilder,
+    target: PieceTarget,
+    actionsById: Map<String, PieceAction>,
+    artifactsById: Map<String, PieceArtifact>,
+) {
     val actionIds = target.actions.ifEmpty { listOf("${target.label}%feedback") }
     for (actionId in actionIds) {
         val action = actionsById[actionId]
         val kind = action?.kind ?: actionKindFromId(actionId)
+        val artifactId = defaultArtifactId(target.label, kind)
+        val artifact = artifactsById[artifactId]
         val defaultMnemonic = "Piece${kind.name}"
-        val defaultOutput = defaultArtifactId(target.label, kind)
+        val defaultPath = artifactId.replace("//", "").replace(":", "__")
         val mnemonic = action?.mnemonic?.takeIf { it != defaultMnemonic }
-        val output = action?.outputs?.singleOrNull()?.takeIf { it != defaultOutput }
+        val output = action?.outputs?.singleOrNull()?.takeIf { it != artifactId }
+        val path = artifact?.path?.takeIf { it != defaultPath && it != output }
 
-        if (mnemonic == null && output == null) {
+        if (mnemonic == null && output == null && path == null) {
             builder.append("    action ").append(kind.picToken()).append(" {}\n")
             continue
         }
@@ -72,6 +82,9 @@ private fun appendActions(builder: StringBuilder, target: PieceTarget, actionsBy
         }
         if (output != null) {
             builder.append("      output ").append(output.picString()).append('\n')
+        }
+        if (path != null) {
+            builder.append("      path ").append(path.picString()).append('\n')
         }
         builder.append("    }\n")
     }

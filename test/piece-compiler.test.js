@@ -140,6 +140,9 @@ describe("piece compiler", () => {
       "typescript_piece_function",
       "//repo/src:DashboardPage.tsx__function_UserCard"
     ]);
+    expect(analysis.pieceDsl).toContain("language typescript");
+    expect(analysis.pieceDsl).toContain('target function "UserCard"');
+    expect(analysis.pieceDsl).toContain('externalDeps "antd#Tag"');
   });
 
   it("creates a minimal closure module for a preview target", async () => {
@@ -446,6 +449,9 @@ export function UserCard() {
       "compile",
       "PieceCompile"
     ]);
+    expect(analysis.pieceDsl).toContain("language go");
+    expect(analysis.pieceDsl).toContain('target function "RenderGreeting"');
+    expect(analysis.pieceDsl).toContain('action compile {');
   });
 
   it("rebuilds Go affected targets with full reanalysis", async () => {
