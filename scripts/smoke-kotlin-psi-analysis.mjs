@@ -72,4 +72,22 @@ assert(
   `Kotlin PSI graph did not include Greeter -> renderGreeting: ${JSON.stringify(edgeTuples)}`
 );
 
+const semanticDiagnostics = await analyzeKotlinPieceFile({
+  filePath: "/repo/src/Broken.kt",
+  source: `package demo.broken
+
+fun broken(): String = 42
+`,
+  semanticDiagnostics: true
+});
+assert(
+  semanticDiagnostics.diagnostics.some(
+    (diagnostic) =>
+      diagnostic.severity === "error" &&
+      diagnostic.path === "/repo/src/Broken.kt" &&
+      (diagnostic.message.includes("String") || diagnostic.message.includes("Int"))
+  ),
+  `Kotlin compiler semantic diagnostics were not returned: ${JSON.stringify(semanticDiagnostics.diagnostics)}`
+);
+
 console.log("Kotlin PSI analysis smoke passed");

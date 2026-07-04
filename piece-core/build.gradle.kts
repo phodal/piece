@@ -82,6 +82,7 @@ tasks.register<JavaExec>("runKotlinPsiAnalysisBackend") {
                 "--sourceFile=$sourceFile",
                 "--outputReport=$outputReport",
                 "--parserName=${providers.gradleProperty("pieceAnalysis.parserName").orNull ?: "kotlin-psi-declaration-extractor"}",
+                "--semanticDiagnostics=${providers.gradleProperty("pieceAnalysis.semanticDiagnostics").orNull ?: "false"}",
             ),
         )
     }

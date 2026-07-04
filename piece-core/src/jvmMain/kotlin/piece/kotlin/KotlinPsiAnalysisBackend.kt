@@ -13,6 +13,7 @@ data class KotlinPsiAnalysisRequest(
     val filePath: String,
     val source: String,
     val parserName: String = DEFAULT_KOTLIN_PSI_PARSER_NAME,
+    val semanticDiagnostics: Boolean = false,
 )
 
 data class KotlinPsiImportBinding(
@@ -27,6 +28,11 @@ data class KotlinPsiDiagnostic(
     val code: String,
     val severity: String,
     val message: String,
+    val path: String? = null,
+    val line: Int? = null,
+    val column: Int? = null,
+    val lineEnd: Int? = null,
+    val columnEnd: Int? = null,
 )
 
 data class KotlinPsiManifestSymbol(
@@ -136,7 +142,16 @@ class KotlinPsiAnalysisBackend {
                 effects = effects,
                 importBindings = headers.flatMap { it.importBindings },
                 hasTopLevelEffect = effects.isNotEmpty(),
-                diagnostics = emptyList(),
+                diagnostics = if (request.semanticDiagnostics) {
+                    KotlinCompilerDiagnosticBackend().diagnostics(
+                        KotlinCompilerDiagnosticRequest(
+                            filePath = request.filePath,
+                            source = request.source,
+                        ),
+                    )
+                } else {
+                    emptyList()
+                },
             )
         }
     }
@@ -372,6 +387,11 @@ private fun KotlinPsiDiagnostic.toJson(): String = buildKotlinPsiJsonObject {
     field("code", code)
     field("severity", severity)
     field("message", message)
+    path?.let { field("path", it) }
+    line?.let { field("line", it) }
+    column?.let { field("column", it) }
+    lineEnd?.let { field("lineEnd", it) }
+    columnEnd?.let { field("columnEnd", it) }
 }
 
 private fun KotlinPsiManifestSymbol.toJson(): String = buildKotlinPsiJsonObject {

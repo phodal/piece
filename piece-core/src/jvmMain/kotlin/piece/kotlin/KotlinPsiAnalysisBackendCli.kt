@@ -21,6 +21,7 @@ fun main(args: Array<String>) {
         filePath = options["filePath"]?.takeIf { it.isNotBlank() } ?: "Main.kt",
         source = source,
         parserName = options["parserName"]?.takeIf { it.isNotBlank() } ?: "kotlin-psi-declaration-extractor",
+        semanticDiagnostics = options["semanticDiagnostics"] == "true",
     )
 
     val result = try {
@@ -31,7 +32,7 @@ fun main(args: Array<String>) {
 
     outputReport.parent?.createDirectories()
     outputReport.writeText(result.toJson() + "\n")
-    if (result.diagnostics.any { it.severity == "error" }) {
+    if (result.diagnostics.any { it.code in BACKEND_FAILURE_DIAGNOSTICS }) {
         exitProcess(1)
     }
 }
@@ -39,3 +40,10 @@ fun main(args: Array<String>) {
 private fun Map<String, String>.required(name: String): String {
     return this[name]?.takeIf { it.isNotBlank() } ?: error("Missing --$name=<value>")
 }
+
+private val BACKEND_FAILURE_DIAGNOSTICS = setOf(
+    "kotlin-psi-analysis-error",
+    "kotlin-compiler-diagnostic-error",
+    "kotlin-compiler-internal-error",
+    "kotlin-compiler-oom-error",
+)

@@ -73,11 +73,13 @@ export interface AnalyzeKotlinPieceFileOptions {
   readonly filePath?: string;
   readonly source?: string;
   readonly parserName?: string;
+  readonly semanticDiagnostics?: boolean;
   readonly env?: Record<string, string | undefined>;
 }
 
 export interface NodeKotlinPsiDeclarationExtractorOptions {
   readonly name?: string;
+  readonly semanticDiagnostics?: boolean;
   readonly env?: Record<string, string | undefined>;
 }
 

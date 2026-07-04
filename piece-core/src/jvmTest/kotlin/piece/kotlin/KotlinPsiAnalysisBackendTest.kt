@@ -52,4 +52,33 @@ class KotlinPsiAnalysisBackendTest {
         assertEquals(listOf("Greeting", "User"), renderGreeting.symbols.typeReferences)
         assertTrue("prefix" in renderGreeting.symbols.references)
     }
+
+    @Test
+    fun collectsCompilerDiagnosticsWhenSemanticPassIsEnabled() {
+        val source = """
+            package demo.broken
+
+            fun broken(): String = 42
+        """.trimIndent()
+
+        val defaultManifest = KotlinPsiAnalysisBackend().analyze(
+            KotlinPsiAnalysisRequest(
+                filePath = "/repo/src/Broken.kt",
+                source = source,
+            ),
+        )
+        val semanticManifest = KotlinPsiAnalysisBackend().analyze(
+            KotlinPsiAnalysisRequest(
+                filePath = "/repo/src/Broken.kt",
+                source = source,
+                semanticDiagnostics = true,
+            ),
+        )
+
+        assertEquals(emptyList(), defaultManifest.diagnostics)
+        val error = semanticManifest.diagnostics.firstOrNull { it.severity == "error" }
+        assertTrue(error != null, "Expected Kotlin compiler semantic diagnostics.")
+        assertEquals("/repo/src/Broken.kt", error.path)
+        assertTrue("String" in error.message || "Int" in error.message, error.message)
+    }
 }
