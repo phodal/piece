@@ -10,6 +10,74 @@ import { byteLength, measureAsync, measureSync, nowMs, roundMs } from "./metrics
 import { stableTextHash } from "./hash.js";
 import { collectIdentifierReferences, createSourceRange } from "./source-utils.js";
 
+const INCREMENTAL_MANIFEST_PARSERS = new Set(["typescript-declaration-extractor", "kotlin-declaration-extractor"]);
+
+const KOTLIN_INCREMENTAL_EXCLUDED = [
+  "abstract",
+  "actual",
+  "annotation",
+  "as",
+  "break",
+  "by",
+  "catch",
+  "class",
+  "companion",
+  "const",
+  "constructor",
+  "continue",
+  "data",
+  "do",
+  "dynamic",
+  "else",
+  "enum",
+  "expect",
+  "external",
+  "false",
+  "final",
+  "finally",
+  "for",
+  "fun",
+  "if",
+  "import",
+  "in",
+  "infix",
+  "init",
+  "inline",
+  "inner",
+  "interface",
+  "internal",
+  "is",
+  "lateinit",
+  "noinline",
+  "null",
+  "object",
+  "open",
+  "operator",
+  "out",
+  "override",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "reified",
+  "return",
+  "sealed",
+  "super",
+  "suspend",
+  "tailrec",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typealias",
+  "val",
+  "var",
+  "vararg",
+  "when",
+  "where",
+  "while"
+];
+
 export async function analyzePieceFile(options) {
   const startedAt = nowMs();
   const extractor = options.declarationExtractor ?? (await resolveDefaultDeclarationExtractor(options.filePath));
@@ -66,15 +134,43 @@ function changedSliceForRanges(manifest, changedRanges, delta) {
 }
 
 function shiftRange(source, range, delta, boundary) {
+  if (delta === 0) {
+    return range;
+  }
   if (range.startByte > boundary) {
     return createSourceRange(source, range.startByte + delta, range.endByte + delta);
   }
   return createSourceRange(source, range.startByte, range.endByte);
 }
 
-function updateSliceForSource(previousSlice, source, startByte, endByte) {
+function collectKotlinLocalNames(source) {
+  const names = new Set();
+  for (const match of source.matchAll(/\b(?:val|var|fun|class|object|interface|typealias)\s+([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    names.add(match[1]);
+  }
+  for (const group of source.matchAll(/\(([^)]*)\)/gs)) {
+    for (const part of group[1].split(",")) {
+      const name = part.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:/)?.[1];
+      if (name) {
+        names.add(name);
+      }
+    }
+  }
+  return [...names];
+}
+
+function collectReferencesForSlice(previousSlice, source, parser) {
+  if (parser === "kotlin-declaration-extractor") {
+    return collectIdentifierReferences(source, {
+      excluded: [previousSlice.name, ...KOTLIN_INCREMENTAL_EXCLUDED, ...collectKotlinLocalNames(source)]
+    });
+  }
+  return collectIdentifierReferences(source, { excluded: previousSlice.name ? [previousSlice.name] : [] });
+}
+
+function updateSliceForSource(previousSlice, source, startByte, endByte, parser) {
   const sliceSource = source.slice(startByte, endByte);
-  const references = collectIdentifierReferences(sliceSource, { excluded: previousSlice.name ? [previousSlice.name] : [] });
+  const references = collectReferencesForSlice(previousSlice, sliceSource, parser);
   const jsxReferences = [...new Set([...sliceSource.matchAll(/<([A-Z][A-Za-z0-9_$]*)/g)].map((match) => match[1]))].sort();
   const hasDynamicImport = /import\s*\(|require\s*\(/.test(sliceSource);
 
@@ -104,7 +200,7 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
   if (!options.previousAnalysis || !options.changedRanges?.length) {
     return undefined;
   }
-  if (options.previousAnalysis.manifest.parser !== "typescript-declaration-extractor") {
+  if (!INCREMENTAL_MANIFEST_PARSERS.has(options.previousAnalysis.manifest.parser)) {
     return undefined;
   }
 
@@ -128,7 +224,10 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
   const shiftBoundary = changedSlice.range.endByte;
   const slices = previousManifest.slices.map((slice) => {
     if (slice.id === changedSlice.id) {
-      return updateSliceForSource(slice, options.source, slice.range.startByte, nextSliceEndByte);
+      return updateSliceForSource(slice, options.source, slice.range.startByte, nextSliceEndByte, previousManifest.parser);
+    }
+    if (delta === 0) {
+      return slice;
     }
     const range = shiftRange(options.source, slice.range, delta, shiftBoundary);
     return {
@@ -138,6 +237,9 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     };
   });
   const headers = previousManifest.headers.map((header) => {
+    if (delta === 0) {
+      return header;
+    }
     const range = shiftRange(options.source, header.range, delta, shiftBoundary);
     return {
       ...header,
@@ -146,6 +248,9 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     };
   });
   const effects = previousManifest.effects.map((effect) => {
+    if (delta === 0) {
+      return effect;
+    }
     const range = shiftRange(options.source, effect.range, delta, shiftBoundary);
     const effectSource = options.source.slice(range.startByte, range.endByte);
     return {

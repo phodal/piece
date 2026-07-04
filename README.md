@@ -197,6 +197,7 @@ npm test
 npm run core:check
 npm run core:bridge:smoke
 npm run language:compile:smoke
+npm run benchmark:kotlin-piece
 npm run pages:build
 npm run verify
 ```
@@ -211,6 +212,9 @@ Kotlin/JS bridge, and runs the npm-side bridge smoke test.
 `npm run language:compile:smoke` requires a local Go toolchain. It compiles a
 real Go single-file main package and a Kotlin single-file MPP project for JVM,
 JS, and WASM.
+`npm run benchmark:kotlin-piece` verifies that Kotlin piece analysis is faster
+than whole-file analysis for a generated single-file fixture. See
+[docs/kotlin-piece-benchmark.md](./docs/kotlin-piece-benchmark.md).
 Gradle outputs stay local under ignored directories such as `piece-core/build`,
 `piece-core/.gradle`, and `piece-core/kotlin-js-store`.
 

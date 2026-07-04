@@ -348,7 +348,27 @@ export function UserCard() {
     ]);
   });
 
-  it("rebuilds Kotlin affected targets with full reanalysis while preserving React incremental behavior", async () => {
+  it("updates Kotlin function edits incrementally and preserves dependent targets", async () => {
+    const compiler = createPieceCompiler();
+    const previousSource = kotlinSource();
+    const previousAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/Pricing.kt",
+      source: previousSource
+    });
+    const nextSource = previousSource.replace("user.name)", "user.name.trim())");
+    const editResult = await compiler.applyEdit({
+      filePath: "/repo/src/Pricing.kt",
+      source: nextSource,
+      previousAnalysis,
+      changedRanges: [changedRange(previousSource, nextSource)]
+    });
+
+    expect(editResult.analysis.metrics.incremental).toBe(true);
+    expect(editResult.edit.changedSlices.map((id) => id.split("#")[1])).toEqual(["function:renderGreeting"]);
+    expect(editResult.affectedTargets.map((id) => id.split("#")[1])).toEqual(["class:Greeter", "function:renderGreeting"]);
+  });
+
+  it("updates Kotlin value edits incrementally and preserves dependent targets", async () => {
     const compiler = createPieceCompiler();
     const previousSource = kotlinSource();
     const previousAnalysis = await compiler.analyzeFile({
@@ -363,9 +383,29 @@ export function UserCard() {
       changedRanges: [changedRange(previousSource, nextSource)]
     });
 
-    expect(editResult.analysis.metrics.incremental).toBeUndefined();
+    expect(editResult.analysis.metrics.incremental).toBe(true);
     expect(editResult.edit.changedSlices.map((id) => id.split("#")[1])).toEqual(["value:prefix"]);
     expect(editResult.affectedTargets.map((id) => id.split("#")[1])).toEqual(["class:Greeter", "function:renderGreeting"]);
+  });
+
+  it("falls back to full Kotlin reanalysis for header edits", async () => {
+    const compiler = createPieceCompiler();
+    const previousSource = kotlinSource();
+    const previousAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/Pricing.kt",
+      source: previousSource
+    });
+    const nextSource = previousSource.replace("import demo.flags.FeatureFlag", "import demo.flags.OtherFlag");
+    const editResult = await compiler.applyEdit({
+      filePath: "/repo/src/Pricing.kt",
+      source: nextSource,
+      previousAnalysis,
+      changedRanges: [changedRange(previousSource, nextSource)]
+    });
+
+    expect(editResult.analysis.metrics.incremental).toBeUndefined();
+    expect(editResult.reconciliation.changedHeaders).toBe(true);
+    expect(editResult.affectedTargets.map((id) => id.split("#")[1])).toEqual(["class:User", "class:Greeting", "function:renderGreeting", "class:Greeter"]);
   });
 
   it("extracts Go single-file pieces and exposes Bazel-like targets", async () => {

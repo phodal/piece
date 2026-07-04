@@ -7,5 +7,6 @@ build/
 kotlin-js-store/
 site/
 preview/dist/
+reports/
 .DS_Store
 *.log
