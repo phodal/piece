@@ -499,6 +499,22 @@ export interface PieceFeedbackScope {
   };
 }
 
+export interface PieceDependencyArtifactInput {
+  readonly id?: string;
+  readonly path?: string;
+  readonly kind?: string;
+  readonly hash?: string;
+  readonly cacheKey?: string;
+}
+
+export interface PieceActionCacheMetadata {
+  readonly version: 1;
+  readonly compilerOptionsHash: string;
+  readonly dependencyArtifactsHash: string;
+  readonly dependencyArtifacts: readonly PieceDependencyArtifactInput[];
+  readonly inputs: readonly string[];
+}
+
 export interface PieceSliceGraph {
   readonly version: 1;
   readonly filePath: string;
@@ -594,6 +610,7 @@ export interface PieceFileAnalysis {
   readonly manifest: PieceFileManifest;
   readonly graph: PieceSliceGraph;
   readonly feedbackScope: PieceFeedbackScope;
+  readonly actionCache: PieceActionCacheMetadata;
   readonly piecePackage: SingleFilePiecePackage;
   readonly pieceDsl: string;
   readonly previewTargets: readonly string[];
@@ -636,6 +653,7 @@ export interface PieceSnapshot {
   readonly effectHash: string;
   readonly projectModelHash: string;
   readonly feedbackScope: PieceFeedbackScope;
+  readonly actionCache: PieceActionCacheMetadata;
   readonly declarations: Record<string, PieceDeclarationRecord>;
   readonly graph: PieceSliceGraph;
   readonly previewTargets: readonly string[];
@@ -647,6 +665,12 @@ export interface CreatePieceSnapshotOptions {
   readonly artifacts?: ReadonlyMap<string, PieceSnapshotArtifact> | Record<string, PieceSnapshotArtifact> | readonly PieceSnapshotArtifact[];
   readonly version?: number;
   readonly compilerOptionsHash?: string;
+  readonly compilerOptions?: Record<string, unknown>;
+  readonly dependencyArtifacts?:
+    | ReadonlyMap<string, PieceDependencyArtifactInput | string>
+    | Record<string, PieceDependencyArtifactInput | string>
+    | readonly (PieceDependencyArtifactInput | string)[];
+  readonly actionCache?: PieceActionCacheMetadata;
 }
 
 export interface ReconcilePieceSnapshotOptions {
@@ -655,6 +679,12 @@ export interface ReconcilePieceSnapshotOptions {
   readonly changedRanges?: readonly PieceSourceRange[];
   readonly artifacts?: ReadonlyMap<string, PieceSnapshotArtifact> | Record<string, PieceSnapshotArtifact> | readonly PieceSnapshotArtifact[];
   readonly compilerOptionsHash?: string;
+  readonly compilerOptions?: Record<string, unknown>;
+  readonly dependencyArtifacts?:
+    | ReadonlyMap<string, PieceDependencyArtifactInput | string>
+    | Record<string, PieceDependencyArtifactInput | string>
+    | readonly (PieceDependencyArtifactInput | string)[];
+  readonly actionCache?: PieceActionCacheMetadata;
 }
 
 export interface PieceReconcileResult {
@@ -698,6 +728,12 @@ export interface AnalyzePieceFileOptions {
   readonly cwd?: string;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;
+  readonly compilerOptions?: Record<string, unknown>;
+  readonly compilerOptionsHash?: string;
+  readonly dependencyArtifacts?:
+    | ReadonlyMap<string, PieceDependencyArtifactInput | string>
+    | Record<string, PieceDependencyArtifactInput | string>
+    | readonly (PieceDependencyArtifactInput | string)[];
   readonly globals?: readonly string[];
 }
 
@@ -837,7 +873,17 @@ export function createSingleFilePiecePackage(options: {
   readonly manifest: PieceFileManifest;
   readonly graph: PieceSliceGraph;
   readonly feedbackScope?: PieceFeedbackScope;
+  readonly actionCache?: PieceActionCacheMetadata;
 }): SingleFilePiecePackage;
+export function createPieceActionCacheMetadata(options?: {
+  readonly compilerOptions?: Record<string, unknown>;
+  readonly compilerOptionsHash?: string;
+  readonly dependencyArtifacts?:
+    | ReadonlyMap<string, PieceDependencyArtifactInput | string>
+    | Record<string, PieceDependencyArtifactInput | string>
+    | readonly (PieceDependencyArtifactInput | string)[];
+}): PieceActionCacheMetadata;
+export function pieceActionCacheInputs(actionCache: PieceActionCacheMetadata | undefined): readonly string[];
 export function explainPieceFeedbackScope(options: { readonly manifest: PieceFileManifest; readonly graph: PieceSliceGraph }): PieceFeedbackScope;
 export function pieceFeedbackScopeInput(feedbackScope: PieceFeedbackScope | undefined): string | undefined;
 export function pieceFeedbackSourceSetInput(feedbackScope: PieceFeedbackScope | undefined): string | undefined;

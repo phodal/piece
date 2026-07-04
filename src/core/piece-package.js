@@ -1,6 +1,7 @@
 import { sanitizeModulePart } from "./source-utils.js";
 import { hashParts } from "./hash.js";
 import { explainPieceFeedbackScope, pieceFeedbackScopeInput, pieceFeedbackSourceSetInput } from "./feedback-scope.js";
+import { createPieceActionCacheMetadata, pieceActionCacheInputs } from "./action-cache.js";
 
 function normalizePath(value) {
   return String(value ?? "")
@@ -114,14 +115,15 @@ function edgeDependencyInput(edge) {
     .join(":");
 }
 
-function targetActionCacheInputs(slice, sliceEdges, feedbackScope) {
+function targetActionCacheInputs(slice, sliceEdges, feedbackScope, actionCache) {
   return [
     `source-hash:${slice.hashes.bodyHash}`,
     `signature-hash:${slice.hashes.signatureHash}`,
     slice.hashes.typeHash ? `type-hash:${slice.hashes.typeHash}` : undefined,
     `deps-hash:${hashParts(sliceEdges.map(edgeDependencyInput).sort())}`,
     pieceFeedbackScopeInput(feedbackScope),
-    pieceFeedbackSourceSetInput(feedbackScope)
+    pieceFeedbackSourceSetInput(feedbackScope),
+    ...pieceActionCacheInputs(actionCache)
   ].filter(Boolean);
 }
 
@@ -134,7 +136,13 @@ function targetActionInputs(target, projectModelInput, cacheInputs) {
   ]);
 }
 
-export function createSingleFilePiecePackage({ filePath, manifest, graph, feedbackScope = explainPieceFeedbackScope({ manifest, graph }) }) {
+export function createSingleFilePiecePackage({
+  filePath,
+  manifest,
+  graph,
+  feedbackScope = explainPieceFeedbackScope({ manifest, graph }),
+  actionCache = createPieceActionCacheMetadata()
+}) {
   const packageName = bazelPackageName(filePath);
   const packageLabel = sourceLabel(filePath);
   const language = languageForManifest(manifest);
@@ -146,7 +154,7 @@ export function createSingleFilePiecePackage({ filePath, manifest, graph, feedba
   const actionCacheInputsByTarget = new Map();
   const targets = manifest.slices.map((slice) => {
     const sliceEdges = edges.get(slice.id) ?? [];
-    const actionCacheInputs = targetActionCacheInputs(slice, sliceEdges, feedbackScope);
+    const actionCacheInputs = targetActionCacheInputs(slice, sliceEdges, feedbackScope, actionCache);
     const directDeps = sliceEdges.filter((edge) => targetLabels.has(edge.to)).map((edge) => targetLabels.get(edge.to));
     const label = targetLabels.get(slice.id);
     actionCacheInputsByTarget.set(label, actionCacheInputs);

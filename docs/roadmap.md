@@ -35,7 +35,7 @@ The important gaps are:
 - Kotlin compile actions are real and owned by the JVM backend, with real-project `projectRoot` compile for saved files and generated temporary MPP projects for unsaved single-file buffers. The final shape should keep making Kotlin/JVM the rule owner and Node only the invoker.
 - Go semantics are still mostly JavaScript-side extraction plus official `go build`/`go test` for compile. The long-term Go rule should use `go list`, `go test`, and `go build` as the source of truth, or move the Go-specific backend into Go.
 - The root/browser-safe Kotlin extractor remains a lightweight fallback. Production Kotlin semantics should be routed through `piece-compiler/node` or a service/local agent.
-- Cache keys, artifact reuse, and fallback policy now include source, dependency, project-model, and fallback-scope identity for single-file feedback, but they are not yet a complete multi-language action cache.
+- Cache keys, artifact reuse, and fallback policy now include source, dependency, project-model, fallback-scope, source-set, compiler-options, and dependency-artifact identity for single-file feedback, but they are not yet a complete multi-language action cache.
 
 ## `.pic` DSL Direction
 
@@ -161,7 +161,7 @@ Definition of done: Piece defines targets/actions/artifacts, while each language
 - Done: introduce `feedbackScope` so Piece reports whether feedback is handled at piece, file, source-set, or project level, with reason codes for unknown edges, top-level effects, slice safety fallback, and Gradle project-model fallback.
 - Done: include target source hashes, dependency-edge hashes, and fallback-scope hashes in generated Piece action inputs, `.pic` round-trips, snapshots, and preview runtime cache identity.
 - Done: extend `feedbackScope.sourceSet` for selected Kotlin Gradle/KMP scopes with scoped source roots, classpath, dependency coordinates, project dependencies, target variants, and `source-set:<scopeHash>` action inputs.
-- Stabilize action cache keys across `.pic`, source hashes, dependency hashes, compiler options, and project model hashes.
+- Done: stabilize action cache metadata across `.pic`, source hashes, dependency hashes, compiler options, dependency artifact hashes, project model hashes, source-set hashes, and fallback-scope hashes.
 - Make unknown edges force documented fallback.
 - Expand from single-file package feedback to safe multi-file source-set feedback.
 - Preserve single-file speed as the default inner loop.
@@ -310,9 +310,19 @@ The second Phase 6 slice is now implemented:
 4. Snapshot feedback scope metadata retains the same source-set scope hash used by generated actions.
 5. `npm run language:project-model:smoke` verifies the selected `:app` `jvmMain` source-set boundary includes `:domain` but excludes the unrelated `:unused` project.
 
+## Completed Phase 6 Action Cache Metadata Slice
+
+The third Phase 6 slice is now implemented:
+
+1. `createPieceActionCacheMetadata()` normalizes host-provided `compilerOptions`, `compilerOptionsHash`, and `dependencyArtifacts`.
+2. `analyzePieceFile()` and incremental analysis carry `analysis.actionCache` through generated Piece packages and snapshots.
+3. Generated Piece action inputs include `compiler-options:<hash>` and `dependency-artifacts:<hash>` when hosts provide those cache dimensions.
+4. Snapshot artifact cache keys include both compiler options and dependency artifact hashes.
+5. `npm run pic:source:smoke` verifies compiler/dependency cache inputs round-trip through generated `.pic` text and the ANTLR parser.
+
 ## Next Small Slice
 
-The next implementation slice can continue Phase 6 or move to Phase 5:
+The next implementation slice should move to Phase 5:
 
-1. Keep refining action cache inputs toward a complete multi-language action cache, including compiler options and dependency artifact hashes across language backends.
-2. Move Go toward official `go list`-grounded extraction or a Go-owned backend while keeping Node as the host.
+1. Move Go toward official `go list`-grounded extraction or a Go-owned backend while keeping Node as the host.
+2. Keep JS/TS as a first-class language rule family without making React the core architecture.

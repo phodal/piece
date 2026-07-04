@@ -76,6 +76,9 @@ export async function compilePieceApp(options = {}) {
     source: normalized.source,
     previousTree: options.previousTree,
     declarationExtractor: options.declarationExtractor,
+    compilerOptions: options.compilerOptions,
+    compilerOptionsHash: options.compilerOptionsHash,
+    dependencyArtifacts: options.dependencyArtifacts,
     globals: options.globals
   });
   const target = selectPiecePreviewTarget(analysis, {

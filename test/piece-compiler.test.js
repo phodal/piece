@@ -154,6 +154,57 @@ describe("piece compiler", () => {
     expect(analysis.snapshot.feedbackScope.hashes.fallbackScopeHash).toBe(analysis.feedbackScope.hashes.fallbackScopeHash);
   });
 
+  it("includes compiler options and dependency artifacts in action cache identity", async () => {
+    const compiler = createPieceCompiler();
+    const analysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: sampleSource(),
+      compilerOptions: {
+        jsx: "react-jsx",
+        target: "es2022",
+        define: {
+          __DEV__: true
+        }
+      },
+      dependencyArtifacts: [
+        {
+          id: "react",
+          path: "/repo/node_modules/react/index.js",
+          hash: "react-source-hash",
+          cacheKey: "react-cache-key"
+        }
+      ]
+    });
+    const changedOptionsAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: sampleSource(),
+      compilerOptions: {
+        jsx: "react-jsx",
+        target: "es2022",
+        define: {
+          __DEV__: false
+        }
+      },
+      dependencyArtifacts: [
+        {
+          id: "react",
+          path: "/repo/node_modules/react/index.js",
+          hash: "react-source-hash",
+          cacheKey: "react-cache-key"
+        }
+      ]
+    });
+    const userCardId = analysis.manifest.slices.find((slice) => slice.name === "UserCard").id;
+    const userCardAction = analysis.piecePackage.actions.find((action) => action.id === "//repo/src:DashboardPage.tsx__function_UserCard%feedback");
+
+    expect(analysis.actionCache.compilerOptionsHash).toBeTruthy();
+    expect(analysis.actionCache.dependencyArtifactsHash).toBeTruthy();
+    expect(userCardAction.inputs).toContain(`compiler-options:${analysis.actionCache.compilerOptionsHash}`);
+    expect(userCardAction.inputs).toContain(`dependency-artifacts:${analysis.actionCache.dependencyArtifactsHash}`);
+    expect(analysis.snapshot.actionCache.compilerOptionsHash).toBe(analysis.actionCache.compilerOptionsHash);
+    expect(analysis.snapshot.artifacts[userCardId].cacheKey).not.toBe(changedOptionsAnalysis.snapshot.artifacts[userCardId].cacheKey);
+  });
+
   it("creates a minimal closure module for a preview target", async () => {
     const compiler = createPieceCompiler();
     const preview = await compiler.buildPreview({

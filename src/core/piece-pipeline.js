@@ -8,6 +8,7 @@ import { findAffectedPiecePreviewTargets } from "./impact-analyzer.js";
 import { buildPieceSliceGraph, updatePieceSliceGraph } from "./slice-graph.js";
 import { createPieceSnapshot, reconcilePieceSnapshot } from "./reconciler.js";
 import { explainPieceFeedbackScope } from "./feedback-scope.js";
+import { createPieceActionCacheMetadata } from "./action-cache.js";
 import { byteLength, measureAsync, measureSync, nowMs, roundMs } from "./metrics.js";
 import { stableTextHash } from "./hash.js";
 import { collectIdentifierReferences, createSourceRange } from "./source-utils.js";
@@ -93,12 +94,14 @@ export async function analyzePieceFile(options) {
   );
   const graphResult = measureSync(() => buildPieceSliceGraph(manifestResult.value, { globals: options.globals }));
   const feedbackScope = explainPieceFeedbackScope({ manifest: manifestResult.value, graph: graphResult.value });
+  const actionCache = createPieceActionCacheMetadata(options);
   const previewTargets = manifestResult.value.slices.filter((slice) => slice.preview.previewable).map((slice) => slice.id);
   const piecePackage = createSingleFilePiecePackage({
     filePath: options.filePath,
     manifest: manifestResult.value,
     graph: graphResult.value,
-    feedbackScope
+    feedbackScope,
+    actionCache
   });
 
   const analysis = {
@@ -107,6 +110,7 @@ export async function analyzePieceFile(options) {
     manifest: manifestResult.value,
     graph: graphResult.value,
     feedbackScope,
+    actionCache,
     piecePackage,
     pieceDsl: piecePackageToPicDsl(piecePackage),
     previewTargets,
@@ -279,12 +283,14 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
   };
   const graphResult = measureSync(() => updatePieceSliceGraph(options.previousAnalysis.graph, manifest, [changedSlice.id], { globals: options.globals }));
   const feedbackScope = explainPieceFeedbackScope({ manifest, graph: graphResult.value });
+  const actionCache = createPieceActionCacheMetadata(options);
   const previewTargets = manifest.slices.filter((slice) => slice.preview.previewable).map((slice) => slice.id);
   const piecePackage = createSingleFilePiecePackage({
     filePath: options.filePath,
     manifest,
     graph: graphResult.value,
-    feedbackScope
+    feedbackScope,
+    actionCache
   });
 
   const analysis = {
@@ -293,6 +299,7 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     manifest,
     graph: graphResult.value,
     feedbackScope,
+    actionCache,
     piecePackage,
     pieceDsl: piecePackageToPicDsl(piecePackage),
     previewTargets,

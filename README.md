@@ -67,6 +67,7 @@ The core vocabulary is intentionally small:
 - Kotlin PSI analysis through the JVM backend, with optional compiler diagnostics and project-model scoped fallback.
 - Kotlin compile feedback through Gradle-backed JVM tooling.
 - Generated `.pic` metadata and an ANTLR-backed JVM parser for the same package, target, action, and artifact model.
+- Action cache identity that includes target source, dependency edges, fallback scope, selected Kotlin source sets, host compiler options, and dependency artifact hashes.
 - Snapshot reconciliation for changed pieces, dirty propagation, reused artifacts, and invalidated artifacts.
 
 React is just one adapter. JS/TS, Go, Kotlin, and `.pic` metadata share the same manifest, graph, action, and artifact model.

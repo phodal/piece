@@ -4,6 +4,7 @@ import { createDefaultDeclarationExtractorForFile } from "./languages/index.js";
 setDefaultDeclarationExtractorResolver(createDefaultDeclarationExtractorForFile);
 
 export * from "./core/compiler.js";
+export * from "./core/action-cache.js";
 export * from "./core/declaration-extractor.js";
 export * from "./core/extractor-registry.js";
 export * from "./core/feedback-scope.js";

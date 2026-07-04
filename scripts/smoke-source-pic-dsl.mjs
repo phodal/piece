@@ -52,8 +52,8 @@ function assert(condition, message) {
   }
 }
 
-async function assertRoundTrip({ filePath, source, language, expectedSnippets }) {
-  const analysis = await analyzePieceFile({ filePath, source });
+async function assertRoundTrip({ filePath, source, language, expectedSnippets, analysisOptions = {} }) {
+  const analysis = await analyzePieceFile({ filePath, source, ...analysisOptions });
   assert(analysis.piecePackage.language === language, `Expected ${language} package, got ${analysis.piecePackage.language}`);
   assert(analysis.pieceDsl === piecePackageToPicDsl(analysis.piecePackage), `Expected analysis.pieceDsl to match package writer for ${filePath}`);
 
@@ -82,6 +82,32 @@ await assertRoundTrip({
     'typeDeps "//repo/src:DashboardPage.tsx__type_UserCardProps"',
     'externalDeps "antd#Tag"',
     'path "repo-src-DashboardPage.tsx__function_UserCard.piece.json"'
+  ]
+});
+
+await assertRoundTrip({
+  filePath: "/repo/src/CachedDashboardPage.tsx",
+  source: typescriptSource,
+  language: "typescript",
+  analysisOptions: {
+    compilerOptions: {
+      jsx: "react-jsx",
+      target: "es2022"
+    },
+    dependencyArtifacts: [
+      {
+        id: "react",
+        path: "/repo/node_modules/react/index.js",
+        hash: "react-source-hash",
+        cacheKey: "react-cache-key"
+      }
+    ]
+  },
+  expectedSnippets: [
+    "language typescript",
+    "compiler-options:",
+    "dependency-artifacts:",
+    'target function "UserCard"'
   ]
 });
 

@@ -1,6 +1,7 @@
 import { hashParts, stableTextHash } from "./hash.js";
 import { reversePieceGraph } from "./slice-graph.js";
 import { explainPieceFeedbackScope } from "./feedback-scope.js";
+import { createPieceActionCacheMetadata } from "./action-cache.js";
 
 function sortStrings(values) {
   return [...new Set(values.filter(Boolean))].sort();
@@ -165,10 +166,17 @@ function previewTargetsAffectedByDirtyPieces(graph, previewTargets, dirtyPieces)
   return previewTargets.filter((target) => candidates.has(target)).sort();
 }
 
-export function createPieceSnapshot({ analysis, artifacts, version = 1, compilerOptionsHash = "" }) {
+export function createPieceSnapshot({ analysis, artifacts, version = 1, compilerOptionsHash = "", compilerOptions, dependencyArtifacts, actionCache }) {
   const projectModelHash = analysis.manifest.projectModel?.analysisScope?.hashes?.scopeHash ?? analysis.manifest.projectModel?.hashes?.modelHash ?? "";
   const feedbackScope = analysis.feedbackScope ?? explainPieceFeedbackScope({ manifest: analysis.manifest, graph: analysis.graph });
-  const cacheKeySalt = [compilerOptionsHash, projectModelHash, feedbackScope.hashes.fallbackScopeHash];
+  const resolvedActionCache =
+    actionCache ?? analysis.actionCache ?? createPieceActionCacheMetadata({ compilerOptionsHash, compilerOptions, dependencyArtifacts });
+  const cacheKeySalt = [
+    resolvedActionCache.compilerOptionsHash,
+    resolvedActionCache.dependencyArtifactsHash,
+    projectModelHash,
+    feedbackScope.hashes.fallbackScopeHash
+  ];
   const declarations = withDependencyHashes(analysis.manifest.slices.map((slice) => createDeclarationRecord(slice, analysis.graph))).map((declaration) => ({
     ...declaration,
     artifactCacheKey: hashParts([declaration.artifactCacheKey, ...cacheKeySalt])
@@ -183,6 +191,7 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
     effectHash: changedEffectHash(analysis.manifest),
     projectModelHash,
     feedbackScope,
+    actionCache: resolvedActionCache,
     declarations: declarationRecord,
     graph: analysis.graph,
     previewTargets: [...analysis.previewTargets],
@@ -193,13 +202,16 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
   };
 }
 
-export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRanges = [], artifacts, compilerOptionsHash = "" }) {
+export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRanges = [], artifacts, compilerOptionsHash = "", compilerOptions, dependencyArtifacts, actionCache }) {
   const previous = previousSnapshot;
   const nextSnapshot = createPieceSnapshot({
     analysis,
     artifacts,
     version: (previous?.revision ?? 0) + 1,
-    compilerOptionsHash
+    compilerOptionsHash,
+    compilerOptions,
+    dependencyArtifacts,
+    actionCache
   });
 
   if (!previous) {

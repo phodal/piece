@@ -206,5 +206,5 @@ Keep the implementation honest:
 - unknown edges force fallback instead of pretending local feedback is safe;
 - `feedbackScope` records whether the current graph is safe at piece, file, source-set, or project level, with reason codes for unknown edges, top-level effects, slice safety fallback, and Gradle project-model scope fallback;
 - selected Kotlin Gradle/KMP source-set scopes carry their scoped source roots, classpath, dependency coordinates, project dependencies, target variants, and `source-set:<scopeHash>` action input without widening to unrelated projects;
-- generated Piece action inputs now include target source, dependency, and fallback-scope hashes, and snapshot plus preview runtime cache keys include the same fallback-scope identity;
+- generated Piece action inputs now include target source, dependency, fallback-scope, source-set, compiler-options, and dependency-artifact hashes, and snapshot plus preview runtime cache keys include the same fallback-scope identity;
 - Kotlin's production extractor and compile backend belong in Kotlin MPP, while the npm Kotlin extractor remains a bridge and test fixture until that core is complete.
