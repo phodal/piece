@@ -28,6 +28,8 @@ function withNodeDeclarationExtractor(options = {}) {
         classpath: options.classpath,
         cwd: options.cwd ?? options.fileSystem?.cwd,
         backend: options.kotlinAnalysisBackend,
+        analysisApiEnabled: options.kotlinAnalysisApiEnabled === true || options.analysisApiEnabled === true,
+        analysisApiVersion: options.kotlinAnalysisApiVersion ?? options.analysisApiVersion,
         semanticDiagnostics: options.semanticDiagnostics === true,
         semanticSymbols: options.semanticSymbols === true,
         env: options.env

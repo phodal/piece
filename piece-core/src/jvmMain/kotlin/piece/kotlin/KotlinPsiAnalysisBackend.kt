@@ -30,6 +30,9 @@ data class KotlinAnalysisBackendMetadata(
     val diagnostics: String,
     val status: String,
     val fallbackReason: String? = null,
+    val analysisApiEnabled: Boolean? = null,
+    val analysisApiAvailable: Boolean? = null,
+    val analysisApiVersion: String? = null,
 )
 
 data class KotlinPsiAnalysisRequest(
@@ -37,6 +40,8 @@ data class KotlinPsiAnalysisRequest(
     val source: String,
     val parserName: String = DEFAULT_KOTLIN_PSI_PARSER_NAME,
     val backend: KotlinAnalysisBackendKind? = null,
+    val analysisApiEnabled: Boolean = false,
+    val analysisApiVersion: String? = null,
     val semanticDiagnostics: Boolean = false,
     val semanticSymbols: Boolean = false,
     val companionFiles: List<KotlinPsiAnalysisSourceFile> = emptyList(),
@@ -264,6 +269,8 @@ fun errorKotlinPsiManifest(request: KotlinPsiAnalysisRequest, error: Throwable):
 
 fun kotlinPsiGenerationBackendMetadata(
     requestedBackend: KotlinAnalysisBackendKind = KotlinAnalysisBackendKind.Psi,
+    analysisApiEnabled: Boolean = false,
+    analysisApiVersion: String? = null,
 ): KotlinAnalysisBackendMetadata {
     return if (requestedBackend == KotlinAnalysisBackendKind.Psi) {
         KotlinAnalysisBackendMetadata(
@@ -273,6 +280,9 @@ fun kotlinPsiGenerationBackendMetadata(
             symbols = KotlinAnalysisBackendKind.Psi.wireName,
             diagnostics = "none",
             status = "ready",
+            analysisApiEnabled = analysisApiEnabled.takeIf { requestedBackend == KotlinAnalysisBackendKind.AnalysisApi },
+            analysisApiAvailable = null,
+            analysisApiVersion = analysisApiVersion.takeIf { requestedBackend == KotlinAnalysisBackendKind.AnalysisApi },
         )
     } else {
         KotlinAnalysisBackendMetadata(
@@ -283,6 +293,9 @@ fun kotlinPsiGenerationBackendMetadata(
             diagnostics = "none",
             status = "fallback",
             fallbackReason = "Kotlin .pic generation currently uses PSI declaration extraction only.",
+            analysisApiEnabled = analysisApiEnabled.takeIf { requestedBackend == KotlinAnalysisBackendKind.AnalysisApi },
+            analysisApiAvailable = isKotlinAnalysisApiRuntimeAvailable().takeIf { requestedBackend == KotlinAnalysisBackendKind.AnalysisApi && analysisApiEnabled },
+            analysisApiVersion = analysisApiVersion.takeIf { requestedBackend == KotlinAnalysisBackendKind.AnalysisApi },
         )
     }
 }
@@ -292,6 +305,9 @@ private data class KotlinAnalysisBackendResolution(
     val actual: KotlinAnalysisBackendKind,
     val useFe10Symbols: Boolean,
     val fallbackReason: String? = null,
+    val analysisApiEnabled: Boolean? = null,
+    val analysisApiAvailable: Boolean? = null,
+    val analysisApiVersion: String? = null,
 ) {
     val diagnostics: List<KotlinPsiDiagnostic>
         get() = fallbackReason?.let { reason ->
@@ -313,6 +329,9 @@ private data class KotlinAnalysisBackendResolution(
             diagnostics = if (semanticDiagnostics) "kotlin-compiler-diagnostics" else "none",
             status = if (fallbackReason == null) "ready" else "fallback",
             fallbackReason = fallbackReason,
+            analysisApiEnabled = analysisApiEnabled,
+            analysisApiAvailable = analysisApiAvailable,
+            analysisApiVersion = analysisApiVersion,
         )
     }
 }
@@ -340,9 +359,28 @@ private fun KotlinPsiAnalysisRequest.resolveBackend(): KotlinAnalysisBackendReso
             requested = requested,
             actual = KotlinAnalysisBackendKind.Fe10BindingContext,
             useFe10Symbols = true,
-            fallbackReason = "Kotlin Analysis API backend is not wired for this pinned Kotlin runtime yet; using explicit FE10 BindingContext fallback.",
+            fallbackReason = analysisApiFallbackReason(),
+            analysisApiEnabled = analysisApiEnabled,
+            analysisApiAvailable = isKotlinAnalysisApiRuntimeAvailable().takeIf { analysisApiEnabled },
+            analysisApiVersion = analysisApiVersion,
         )
     }
+}
+
+private fun KotlinPsiAnalysisRequest.analysisApiFallbackReason(): String {
+    if (!analysisApiEnabled) {
+        return "Kotlin Analysis API Gradle gate is disabled; enable -PpieceAnalysisApi.enabled=true before using the analysis-api backend."
+    }
+    if (!isKotlinAnalysisApiRuntimeAvailable()) {
+        return "Kotlin Analysis API Gradle gate is enabled, but Analysis API runtime classes were not found on the JVM backend classpath."
+    }
+    return "Kotlin Analysis API runtime is gated on, but the analysis-api backend implementation is not wired yet; using explicit FE10 BindingContext fallback."
+}
+
+private fun isKotlinAnalysisApiRuntimeAvailable(): Boolean {
+    return runCatching {
+        Class.forName("org.jetbrains.kotlin.analysis.api.KaSession")
+    }.isSuccess
 }
 
 private fun KotlinPieceDeclaration.toManifestSlice(
@@ -591,6 +629,9 @@ private fun KotlinAnalysisBackendMetadata.toJson(): String = buildKotlinPsiJsonO
     field("diagnostics", diagnostics)
     field("status", status)
     fallbackReason?.let { field("fallbackReason", it) }
+    analysisApiEnabled?.let { field("analysisApiEnabled", it) }
+    analysisApiAvailable?.let { field("analysisApiAvailable", it) }
+    analysisApiVersion?.let { field("analysisApiVersion", it) }
 }
 
 private fun KotlinPsiManifestSymbol.toJson(): String = buildKotlinPsiJsonObject {

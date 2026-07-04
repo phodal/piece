@@ -220,12 +220,14 @@ function normalizeKotlinAnalysisBackend(value) {
   throw new TypeError(`Unsupported Kotlin analysis backend: ${value}`);
 }
 
-function kotlinAnalysisBackendMetadata({ backend, semanticDiagnostics = false, semanticSymbols = false } = {}) {
+function kotlinAnalysisBackendMetadata({ backend, semanticDiagnostics = false, semanticSymbols = false, analysisApiEnabled = false, analysisApiVersion } = {}) {
   const requested = backend ?? (semanticSymbols ? "fe10-binding-context" : "psi");
   const actual = requested === "analysis-api" ? "fe10-binding-context" : requested;
   const fallbackReason =
     requested === "analysis-api"
-      ? "Kotlin Analysis API backend is not wired for this pinned Kotlin runtime yet; using explicit FE10 BindingContext fallback."
+      ? analysisApiEnabled
+        ? "Kotlin Analysis API runtime is gated on, but the analysis-api backend implementation is not wired yet; using explicit FE10 BindingContext fallback."
+        : "Kotlin Analysis API Gradle gate is disabled; enable -PpieceAnalysisApi.enabled=true before using the analysis-api backend."
       : undefined;
   return {
     requested,
@@ -234,11 +236,13 @@ function kotlinAnalysisBackendMetadata({ backend, semanticDiagnostics = false, s
     symbols: actual === "fe10-binding-context" ? "fe10-binding-context" : "psi",
     diagnostics: semanticDiagnostics ? "kotlin-compiler-diagnostics" : "none",
     status: fallbackReason ? "fallback" : "ready",
-    ...(fallbackReason ? { fallbackReason } : {})
+    ...(fallbackReason ? { fallbackReason } : {}),
+    ...(requested === "analysis-api" ? { analysisApiEnabled } : {}),
+    ...(requested === "analysis-api" && analysisApiVersion ? { analysisApiVersion } : {})
   };
 }
 
-function errorKotlinPsiManifest({ filePath, source, parserName, backend, semanticDiagnostics, semanticSymbols, commands }) {
+function errorKotlinPsiManifest({ filePath, source, parserName, backend, semanticDiagnostics, semanticSymbols, analysisApiEnabled, analysisApiVersion, commands }) {
   return {
     version: 1,
     filePath,
@@ -249,7 +253,7 @@ function errorKotlinPsiManifest({ filePath, source, parserName, backend, semanti
     effects: [],
     importBindings: [],
     hasTopLevelEffect: false,
-    analysisBackend: kotlinAnalysisBackendMetadata({ backend, semanticDiagnostics, semanticSymbols }),
+    analysisBackend: kotlinAnalysisBackendMetadata({ backend, semanticDiagnostics, semanticSymbols, analysisApiEnabled, analysisApiVersion }),
     diagnostics: diagnosticsFromCommands(commands)
   };
 }
@@ -357,6 +361,8 @@ export async function generateKotlinPieceDslFile(options = {}) {
   const filePath = options.filePath ?? "Main.kt";
   const source = options.source ?? "";
   const backend = normalizeKotlinAnalysisBackend(options.backend);
+  const analysisApiEnabled = options.analysisApiEnabled === true || options.kotlinAnalysisApiEnabled === true;
+  const analysisApiVersion = options.analysisApiVersion ?? options.kotlinAnalysisApiVersion;
   const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-pic-host-");
   const hostWorkspace = hostWorkspaceInfo.path;
   const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
@@ -369,6 +375,8 @@ export async function generateKotlinPieceDslFile(options = {}) {
       join(PACKAGE_ROOT, "piece-core"),
       "runKotlinPicGeneratorBackend",
       "--quiet",
+      `-PpieceAnalysisApi.enabled=${analysisApiEnabled ? "true" : "false"}`,
+      ...(analysisApiVersion ? [`-PpieceAnalysisApi.version=${analysisApiVersion}`] : []),
       `-PpiecePic.filePath=${filePath}`,
       `-PpiecePic.sourceFile=${sourceFile}`,
       `-PpiecePic.outputReport=${outputReport}`,
@@ -517,6 +525,8 @@ export async function analyzeKotlinPieceFile(options = {}) {
   const source = options.source ?? "";
   const parserName = options.parserName ?? "kotlin-psi-declaration-extractor";
   const backend = normalizeKotlinAnalysisBackend(options.backend ?? options.kotlinAnalysisBackend);
+  const analysisApiEnabled = options.analysisApiEnabled === true || options.kotlinAnalysisApiEnabled === true;
+  const analysisApiVersion = options.analysisApiVersion ?? options.kotlinAnalysisApiVersion;
   const semanticDiagnostics = options.semanticDiagnostics === true;
   const semanticSymbols = options.semanticSymbols === true;
   const companionSources = await collectKotlinCompanionSources(options, filePath);
@@ -553,6 +563,8 @@ export async function analyzeKotlinPieceFile(options = {}) {
       join(PACKAGE_ROOT, "piece-core"),
       "runKotlinPsiAnalysisBackend",
       "--quiet",
+      `-PpieceAnalysisApi.enabled=${analysisApiEnabled ? "true" : "false"}`,
+      ...(analysisApiVersion ? [`-PpieceAnalysisApi.version=${analysisApiVersion}`] : []),
       `-PpieceAnalysis.filePath=${filePath}`,
       `-PpieceAnalysis.sourceFile=${sourceFile}`,
       `-PpieceAnalysis.outputReport=${outputReport}`,
@@ -568,7 +580,17 @@ export async function analyzeKotlinPieceFile(options = {}) {
     if (await pathExists(outputReport)) {
       return readJsonFile(outputReport);
     }
-    return errorKotlinPsiManifest({ filePath, source, parserName, backend, semanticDiagnostics, semanticSymbols, commands: [backendCommand] });
+    return errorKotlinPsiManifest({
+      filePath,
+      source,
+      parserName,
+      backend,
+      semanticDiagnostics,
+      semanticSymbols,
+      analysisApiEnabled,
+      analysisApiVersion,
+      commands: [backendCommand]
+    });
   } finally {
     await cleanupWorkspace(hostWorkspace, false);
   }
@@ -584,6 +606,8 @@ export function createNodeKotlinPsiDeclarationExtractor(options = {}) {
         source,
         parserName: name,
         backend: options.backend,
+        analysisApiEnabled: options.analysisApiEnabled === true || options.kotlinAnalysisApiEnabled === true,
+        analysisApiVersion: options.analysisApiVersion ?? options.kotlinAnalysisApiVersion,
         semanticDiagnostics: options.semanticDiagnostics === true,
         semanticSymbols: options.semanticSymbols === true,
         sourceFiles: options.sourceFiles,

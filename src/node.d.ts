@@ -119,6 +119,10 @@ export interface GenerateKotlinPieceDslFileOptions {
   readonly filePath?: string;
   readonly source?: string;
   readonly backend?: KotlinAnalysisBackendKind;
+  readonly kotlinAnalysisApiEnabled?: boolean;
+  readonly kotlinAnalysisApiVersion?: string;
+  readonly analysisApiEnabled?: boolean;
+  readonly analysisApiVersion?: string;
   readonly env?: Record<string, string | undefined>;
 }
 
@@ -162,6 +166,10 @@ export interface AnalyzeKotlinPieceFileOptions {
   readonly cwd?: string;
   readonly parserName?: string;
   readonly backend?: KotlinAnalysisBackendKind;
+  readonly kotlinAnalysisApiEnabled?: boolean;
+  readonly kotlinAnalysisApiVersion?: string;
+  readonly analysisApiEnabled?: boolean;
+  readonly analysisApiVersion?: string;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;
   readonly env?: Record<string, string | undefined>;
@@ -179,6 +187,10 @@ export interface NodeKotlinPsiDeclarationExtractorOptions {
   readonly classpath?: readonly string[];
   readonly cwd?: string;
   readonly backend?: KotlinAnalysisBackendKind;
+  readonly kotlinAnalysisApiEnabled?: boolean;
+  readonly kotlinAnalysisApiVersion?: string;
+  readonly analysisApiEnabled?: boolean;
+  readonly analysisApiVersion?: string;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;
   readonly env?: Record<string, string | undefined>;

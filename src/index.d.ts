@@ -71,6 +71,10 @@ export interface CompilePieceAppOptions {
   readonly previousTree?: unknown;
   readonly declarationExtractor?: PieceDeclarationExtractor;
   readonly kotlinAnalysisBackend?: KotlinAnalysisBackendKind;
+  readonly kotlinAnalysisApiEnabled?: boolean;
+  readonly kotlinAnalysisApiVersion?: string;
+  readonly analysisApiEnabled?: boolean;
+  readonly analysisApiVersion?: string;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;
   readonly globals?: readonly string[];
@@ -339,6 +343,9 @@ export interface PieceAnalysisBackendMetadata {
   readonly diagnostics: string;
   readonly status: "ready" | "fallback" | (string & {});
   readonly fallbackReason?: string;
+  readonly analysisApiEnabled?: boolean;
+  readonly analysisApiAvailable?: boolean;
+  readonly analysisApiVersion?: string;
 }
 
 export interface PieceFileManifest {
@@ -543,6 +550,10 @@ export interface AnalyzePieceFileOptions {
   readonly previousTree?: unknown;
   readonly declarationExtractor?: PieceDeclarationExtractor;
   readonly kotlinAnalysisBackend?: KotlinAnalysisBackendKind;
+  readonly kotlinAnalysisApiEnabled?: boolean;
+  readonly kotlinAnalysisApiVersion?: string;
+  readonly analysisApiEnabled?: boolean;
+  readonly analysisApiVersion?: string;
   readonly sourceFiles?: readonly (string | { readonly filePath: string; readonly source: string })[];
   readonly sourceRoots?: readonly string[];
   readonly classpath?: readonly string[];

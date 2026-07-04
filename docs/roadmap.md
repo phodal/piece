@@ -29,7 +29,7 @@ The repository already has:
 
 The important gaps are:
 
-- Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API currently reports a visible fallback to FE10 until the standalone artifacts are stable enough for this package.
+- Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and reports a visible fallback to FE10 until the backend implementation is wired.
 - Kotlin project discovery is still host-provided. Source roots, companion files, and classpath can be passed in, but the backend does not yet discover full Gradle/KMP source sets, dependencies, and variants on its own.
 - Kotlin compile actions are real but still mediated by the npm function that creates a temporary Gradle project. The final shape should make Kotlin/JVM the rule owner and Node only the invoker.
 - Go semantics are still mostly JavaScript-side extraction plus official `go build`/`go test` for compile. The long-term Go rule should use `go list`, `go test`, and `go build` as the source of truth, or move the Go-specific backend into Go.
@@ -120,7 +120,7 @@ Definition of done: source extraction can produce a deterministic `.pic`, parse 
 - Done: add an explicit backend selector: `psi`, `fe10-binding-context`, `analysis-api`.
 - Done: keep FE10 as a documented fallback only by reporting `analysisBackend.requested`, `analysisBackend.actual`, `status`, and fallback diagnostics in manifests.
 - Done: return backend metadata in Kotlin manifests and `.pic` generation reports.
-- Add Analysis API dependencies behind a clear Gradle configuration once the standalone artifacts are available for the pinned Kotlin version.
+- Done: add Analysis API dependencies behind the opt-in `pieceAnalysisApiClasspath` Gradle configuration and `-PpieceAnalysisApi.enabled=true` gate, without making it the default backend.
 - Implement `KotlinAnalysisExtractor` for overloads, imports, aliases, extension functions, generics, and richer classpath/project models.
 
 Definition of done: Kotlin semantic symbols and diagnostics can run through Analysis API when available, and tests prove the FE10 fallback is not silently treated as the final backend.
@@ -173,11 +173,21 @@ The first Phase 3 slice is now implemented:
 4. Requesting `analysis-api` returns a visible fallback to `fe10-binding-context` instead of silently claiming Analysis API support.
 5. Kotlin `.pic` generation reports include the backend metadata used for source package extraction.
 
+## Completed Phase 3 Analysis API Gate Slice
+
+The second Phase 3 slice is now implemented:
+
+1. `piece-core` has a dedicated `pieceAnalysisApiClasspath` configuration for optional Analysis API runtime artifacts.
+2. The dependency and JetBrains package repository are added only when `-PpieceAnalysisApi.enabled=true` is passed.
+3. `checkKotlinAnalysisApiGate` verifies the gate without resolving external artifacts by default.
+4. JVM and Node analysis reports expose `analysisApiEnabled`, `analysisApiAvailable`, and `analysisApiVersion` metadata for `backend: "analysis-api"` requests.
+5. Gate-off Analysis API requests return an explicit fallback diagnostic instead of silently falling through.
+
 ## Next Small Slice
 
 The next implementation slice should continue Phase 3:
 
-1. Add a Gradle configuration gate for Kotlin Analysis API dependencies, without making it the default backend.
-2. Prototype an `analysis-api` backend behind that gate for one narrow symbol case.
-3. Keep `analysis-api` unavailable as an explicit fallback when the dependency set is not enabled.
-4. Add tests that prove the selector does not silently fall through when the gate is off.
+1. Prototype an `analysis-api` backend behind the gate for one narrow symbol case.
+2. Keep `analysis-api` unavailable as an explicit fallback when the dependency set is not enabled or the runtime classes are absent.
+3. Add tests that prove the Analysis API path is used only when the gate and runtime are both present.
+4. Expand the prototype toward overloads, imports, aliases, extension functions, generics, and richer classpath/project models.

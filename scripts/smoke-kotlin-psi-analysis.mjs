@@ -174,8 +174,13 @@ const analysisApiFallback = await analyzeKotlinPieceFile({
 assert(
   analysisApiFallback.analysisBackend?.requested === "analysis-api" &&
     analysisApiFallback.analysisBackend?.actual === "fe10-binding-context" &&
-    analysisApiFallback.analysisBackend?.status === "fallback",
+    analysisApiFallback.analysisBackend?.status === "fallback" &&
+    analysisApiFallback.analysisBackend?.analysisApiEnabled === false,
   `Kotlin Analysis API fallback metadata was not returned: ${JSON.stringify(analysisApiFallback.analysisBackend)}`
+);
+assert(
+  analysisApiFallback.analysisBackend?.fallbackReason?.includes("Gradle gate is disabled"),
+  `Kotlin Analysis API fallback reason did not mention the Gradle gate: ${JSON.stringify(analysisApiFallback.analysisBackend)}`
 );
 assert(
   analysisApiFallback.diagnostics.some((diagnostic) => diagnostic.code === "kotlin-analysis-backend-fallback" && diagnostic.severity === "warning"),

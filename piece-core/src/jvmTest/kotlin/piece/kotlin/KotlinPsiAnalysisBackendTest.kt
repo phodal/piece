@@ -153,10 +153,40 @@ class KotlinPsiAnalysisBackendTest {
         assertEquals("analysis-api", manifest.analysisBackend.requested)
         assertEquals("fe10-binding-context", manifest.analysisBackend.actual)
         assertEquals("fallback", manifest.analysisBackend.status)
-        assertTrue(manifest.analysisBackend.fallbackReason?.contains("Analysis API") == true)
+        assertEquals(false, manifest.analysisBackend.analysisApiEnabled)
+        assertTrue(manifest.analysisBackend.fallbackReason?.contains("Gradle gate is disabled") == true)
         assertTrue(manifest.diagnostics.any { it.code == "kotlin-analysis-backend-fallback" && it.severity == "warning" })
         assertEquals(emptyList(), render.symbols.references)
         assertEquals(emptyList(), render.symbols.typeReferences)
+    }
+
+    @Test
+    fun reportsAnalysisApiGateEnabledButUnavailableWhenRuntimeClassesAreMissing() {
+        val source = """
+            package demo.symbols
+
+            class User
+
+            fun <User> render(value: User): User = value
+        """.trimIndent()
+
+        val manifest = KotlinPsiAnalysisBackend().analyze(
+            KotlinPsiAnalysisRequest(
+                filePath = "/repo/src/Symbols.kt",
+                source = source,
+                backend = KotlinAnalysisBackendKind.AnalysisApi,
+                analysisApiEnabled = true,
+                analysisApiVersion = "test-version",
+            ),
+        )
+
+        assertEquals("analysis-api", manifest.analysisBackend.requested)
+        assertEquals("fe10-binding-context", manifest.analysisBackend.actual)
+        assertEquals("fallback", manifest.analysisBackend.status)
+        assertEquals(true, manifest.analysisBackend.analysisApiEnabled)
+        assertEquals(false, manifest.analysisBackend.analysisApiAvailable)
+        assertEquals("test-version", manifest.analysisBackend.analysisApiVersion)
+        assertTrue(manifest.analysisBackend.fallbackReason?.contains("runtime classes were not found") == true)
     }
 
     @Test

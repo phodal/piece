@@ -8,7 +8,28 @@ group = "cc.phodal.piece"
 version = "0.1.0"
 
 val antlrTool = configurations.create("antlrTool")
+val pieceAnalysisApiClasspath = configurations.create("pieceAnalysisApiClasspath") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    description = "Optional Kotlin Analysis API runtime for gated JVM analysis experiments."
+}
 val generatedPicAntlrDir = layout.buildDirectory.dir("generated/antlr/pic")
+val pieceAnalysisApiEnabled = providers.gradleProperty("pieceAnalysisApi.enabled")
+    .map { it.equals("true", ignoreCase = true) }
+    .orElse(false)
+val pieceAnalysisApiVersion = providers.gradleProperty("pieceAnalysisApi.version")
+    .orElse("2.2.21-484")
+val pieceAnalysisApiRepository = providers.gradleProperty("pieceAnalysisApi.repository")
+    .orElse("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
+
+repositories {
+    if (pieceAnalysisApiEnabled.get()) {
+        maven {
+            name = "JetBrainsIntelliJDependencies"
+            url = uri(pieceAnalysisApiRepository.get())
+        }
+    }
+}
 
 kotlin {
     jvm()
@@ -39,6 +60,9 @@ kotlin {
 
 dependencies {
     antlrTool("org.antlr:antlr4:4.13.2")
+    if (pieceAnalysisApiEnabled.get()) {
+        pieceAnalysisApiClasspath("org.jetbrains.kotlin:analysis-api-standalone-for-ide:${pieceAnalysisApiVersion.get()}")
+    }
 }
 
 val generatePicAntlr = tasks.register<JavaExec>("generatePicAntlr") {
@@ -138,7 +162,11 @@ tasks.register<JavaExec>("runKotlinPicGeneratorBackend") {
 
     val jvmCompilation = kotlin.targets.getByName("jvm").compilations.getByName("main")
     mainClass.set("piece.kotlin.KotlinPicGeneratorBackendCliKt")
-    classpath = files(jvmCompilation.output.allOutputs, jvmCompilation.runtimeDependencyFiles)
+    classpath = files(
+        jvmCompilation.output.allOutputs,
+        jvmCompilation.runtimeDependencyFiles,
+        if (pieceAnalysisApiEnabled.get()) pieceAnalysisApiClasspath else files(),
+    )
 
     doFirst {
         val sourceFile = providers.gradleProperty("piecePic.sourceFile").orNull
@@ -151,6 +179,8 @@ tasks.register<JavaExec>("runKotlinPicGeneratorBackend") {
                 "--sourceFile=$sourceFile",
                 "--outputReport=$outputReport",
                 "--backend=${providers.gradleProperty("piecePic.backend").orNull ?: ""}",
+                "--analysisApiEnabled=${pieceAnalysisApiEnabled.get()}",
+                "--analysisApiVersion=${pieceAnalysisApiVersion.get()}",
             ),
         )
     }
@@ -161,7 +191,11 @@ tasks.register<JavaExec>("runKotlinPsiAnalysisBackend") {
 
     val jvmCompilation = kotlin.targets.getByName("jvm").compilations.getByName("main")
     mainClass.set("piece.kotlin.KotlinPsiAnalysisBackendCliKt")
-    classpath = files(jvmCompilation.output.allOutputs, jvmCompilation.runtimeDependencyFiles)
+    classpath = files(
+        jvmCompilation.output.allOutputs,
+        jvmCompilation.runtimeDependencyFiles,
+        if (pieceAnalysisApiEnabled.get()) pieceAnalysisApiClasspath else files(),
+    )
 
     doFirst {
         val sourceFile = providers.gradleProperty("pieceAnalysis.sourceFile").orNull
@@ -175,11 +209,35 @@ tasks.register<JavaExec>("runKotlinPsiAnalysisBackend") {
                 "--outputReport=$outputReport",
                 "--parserName=${providers.gradleProperty("pieceAnalysis.parserName").orNull ?: "kotlin-psi-declaration-extractor"}",
                 "--backend=${providers.gradleProperty("pieceAnalysis.backend").orNull ?: ""}",
+                "--analysisApiEnabled=${pieceAnalysisApiEnabled.get()}",
+                "--analysisApiVersion=${pieceAnalysisApiVersion.get()}",
                 "--semanticDiagnostics=${providers.gradleProperty("pieceAnalysis.semanticDiagnostics").orNull ?: "false"}",
                 "--semanticSymbols=${providers.gradleProperty("pieceAnalysis.semanticSymbols").orNull ?: "false"}",
                 "--companionSources=${providers.gradleProperty("pieceAnalysis.companionSources").orNull ?: ""}",
                 "--classpathFile=${providers.gradleProperty("pieceAnalysis.classpathFile").orNull ?: ""}",
             ),
+        )
+    }
+}
+
+tasks.register("checkKotlinAnalysisApiGate") {
+    group = "verification"
+    description = "Verifies the optional Kotlin Analysis API dependency gate without enabling it by default."
+    doLast {
+        if (!pieceAnalysisApiEnabled.get()) {
+            logger.lifecycle(
+                "Kotlin Analysis API gate disabled. Enable with -PpieceAnalysisApi.enabled=true " +
+                    "and optionally -PpieceAnalysisApi.version=${pieceAnalysisApiVersion.get()}.",
+            )
+            return@doLast
+        }
+        val files = pieceAnalysisApiClasspath.resolve()
+        check(files.isNotEmpty()) {
+            "Kotlin Analysis API gate was enabled but no artifacts were resolved."
+        }
+        logger.lifecycle(
+            "Kotlin Analysis API gate resolved ${files.size} artifact(s) for version ${pieceAnalysisApiVersion.get()} " +
+                "from ${pieceAnalysisApiRepository.get()}.",
         )
     }
 }

@@ -29,7 +29,11 @@ fun main(args: Array<String>) {
         ?.takeIf { it.isNotBlank() }
         ?.let(KotlinAnalysisBackendKind::fromWireName)
         ?: KotlinAnalysisBackendKind.Psi
-    val analysisBackend = kotlinPsiGenerationBackendMetadata(requestedBackend)
+    val analysisBackend = kotlinPsiGenerationBackendMetadata(
+        requestedBackend = requestedBackend,
+        analysisApiEnabled = options["analysisApiEnabled"] == "true",
+        analysisApiVersion = options["analysisApiVersion"]?.takeIf { it.isNotBlank() },
+    )
     val backendDiagnostics = if (analysisBackend.status == "fallback") {
         listOf(
             PicGenerationDiagnostic(
@@ -185,6 +189,10 @@ private class PicJsonObjectBuilder {
     }
 
     fun field(name: String, value: Number) {
+        fields += "${name.picJsonString()}:$value"
+    }
+
+    fun field(name: String, value: Boolean) {
         fields += "${name.picJsonString()}:$value"
     }
 
