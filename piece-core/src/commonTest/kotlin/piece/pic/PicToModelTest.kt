@@ -2,6 +2,7 @@ package piece.pic
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import piece.model.PieceAction
 import piece.model.PieceActionKind
 import piece.model.PieceArtifact
@@ -158,5 +159,62 @@ class PicToModelTest {
             """.trimIndent() + "\n",
             piecePackageToPicDsl(pkg),
         )
+    }
+
+    @Test
+    fun appliesOverrideFieldsIntoPiecePackageAndPicDsl() {
+        val document = PicDocument(
+            packageLabel = "//repo/src:DashboardPage.tsx",
+            language = "typescript",
+            source = "/repo/src/DashboardPage.tsx",
+            targets = listOf(
+                PicTarget(PicTargetKind.Type, "UserCardProps"),
+                PicTarget(
+                    kind = PicTargetKind.Function,
+                    name = "UserCard",
+                    label = "//repo/src:dashboard_user_card",
+                    visibility = listOf("//visibility:public"),
+                    typeDeps = listOf(":UserCardProps"),
+                    externalDeps = listOf("antd#Tag"),
+                    actions = listOf(
+                        PicAction(
+                            kind = PicActionKind.Feedback,
+                            mnemonic = "UserCardFixture",
+                            path = "artifacts/user-card.fixture.json",
+                            inputs = listOf("fixtures/user-card.json"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val pkg = picDocumentToPiecePackage(document)
+        val target = pkg.targets.single { it.name == "UserCard" }
+        val action = pkg.actions.single { it.target == "//repo/src:dashboard_user_card" }
+        val artifact = pkg.artifacts.single { it.target == "//repo/src:dashboard_user_card" }
+
+        assertEquals("//repo/src:dashboard_user_card", target.label)
+        assertEquals(listOf("//visibility:public"), target.visibility)
+        assertEquals(
+            listOf("//repo/src:DashboardPage.tsx__type_UserCardProps"),
+            target.typeDeps,
+        )
+        assertEquals(
+            listOf(
+                "//repo/src:DashboardPage.tsx",
+                "//repo/src:DashboardPage.tsx__type_UserCardProps",
+                "antd#Tag",
+                "fixtures/user-card.json",
+            ),
+            action.inputs,
+        )
+        assertEquals("UserCardFixture", action.mnemonic)
+        assertEquals("artifacts/user-card.fixture.json", artifact.path)
+
+        val pic = piecePackageToPicDsl(pkg)
+        assertTrue(pic.contains("""label "//repo/src:dashboard_user_card""""))
+        assertTrue(pic.contains("""visibility "//visibility:public""""))
+        assertTrue(pic.contains("""inputs "fixtures/user-card.json""""))
+        assertTrue(pic.contains("""path "artifacts/user-card.fixture.json""""))
     }
 }

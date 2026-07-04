@@ -36,11 +36,21 @@ targetKind
     ;
 
 targetMember
-    : depsDeclaration
+    : labelDeclaration
+    | visibilityDeclaration
+    | depsDeclaration
     | runtimeDepsDeclaration
     | typeDepsDeclaration
     | externalDepsDeclaration
     | actionDeclaration
+    ;
+
+labelDeclaration
+    : LABEL STRING
+    ;
+
+visibilityDeclaration
+    : VISIBILITY stringList
     ;
 
 depsDeclaration
@@ -80,6 +90,7 @@ actionMember
     : mnemonicDeclaration
     | outputDeclaration
     | pathDeclaration
+    | inputsDeclaration
     ;
 
 mnemonicDeclaration
@@ -94,10 +105,16 @@ pathDeclaration
     : PATH STRING
     ;
 
+inputsDeclaration
+    : INPUTS stringList
+    ;
+
 PACKAGE: 'package';
 LANGUAGE: 'language';
 SOURCE: 'source';
 TARGET: 'target';
+LABEL: 'label';
+VISIBILITY: 'visibility';
 DEPS: 'deps';
 RUNTIME_DEPS: 'runtimeDeps';
 TYPE_DEPS: 'typeDeps';
@@ -106,6 +123,7 @@ ACTION: 'action';
 MNEMONIC: 'mnemonic';
 OUTPUT: 'output';
 PATH: 'path';
+INPUTS: 'inputs';
 
 TYPE: 'type';
 CLASS: 'class';

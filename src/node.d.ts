@@ -70,9 +70,28 @@ export interface PieceDslParseResult {
   readonly diagnostics: readonly PieceDslParseDiagnostic[];
 }
 
+export interface PieceDslMergeResult {
+  readonly version: 1;
+  readonly merger: "piece-dsl-merge";
+  readonly generatedFilePath: string;
+  readonly overrideFilePath: string;
+  readonly pieceDsl: string;
+  readonly piecePackage: SingleFilePiecePackage | null;
+  readonly diagnostics: readonly PieceDslParseDiagnostic[];
+}
+
 export interface ParsePieceDslFileOptions {
   readonly filePath?: string;
   readonly source?: string;
+  readonly cwd?: string;
+  readonly env?: Record<string, string | undefined>;
+}
+
+export interface MergePieceDslFilesOptions {
+  readonly generatedFilePath?: string;
+  readonly overrideFilePath?: string;
+  readonly generatedSource?: string;
+  readonly overrideSource?: string;
   readonly cwd?: string;
   readonly env?: Record<string, string | undefined>;
 }
@@ -169,5 +188,6 @@ export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise
 export function compileKotlinPieceFile(options?: CompileKotlinPieceFileOptions): Promise<KotlinPieceCompileResult>;
 export function analyzeKotlinPieceFile(options?: AnalyzeKotlinPieceFileOptions): Promise<PieceFileManifest>;
 export function parsePieceDslFile(options?: ParsePieceDslFileOptions): Promise<PieceDslParseResult>;
+export function mergePieceDslFiles(options?: MergePieceDslFilesOptions): Promise<PieceDslMergeResult>;
 export function generateKotlinPieceDslFile(options?: GenerateKotlinPieceDslFileOptions): Promise<KotlinPieceDslGenerationResult>;
 export function createNodeKotlinPsiDeclarationExtractor(options?: NodeKotlinPsiDeclarationExtractorOptions): PieceDeclarationExtractor;

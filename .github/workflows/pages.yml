@@ -59,6 +59,9 @@ jobs:
       - name: Source Pic generation smoke
         run: npm run pic:source:smoke
 
+      - name: Pic override merge smoke
+        run: npm run pic:override:smoke
+
       - name: Language analysis smoke
         run: npm run language:analysis:smoke
 

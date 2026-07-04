@@ -6,6 +6,7 @@ import piece.model.PieceArtifact
 import piece.model.PiecePackage
 import piece.model.PieceTarget
 import piece.model.PieceTargetKind
+import piece.model.pieceTargetLabel
 
 fun piecePackageToPicDsl(piecePackage: PiecePackage): String {
     validatePicIdentifier(piecePackage.language, "language")
@@ -25,6 +26,8 @@ fun piecePackageToPicDsl(piecePackage: PiecePackage): String {
             .append(' ')
             .append(target.name.picString())
             .append(" {\n")
+        appendLabel(builder, piecePackage, target)
+        appendVisibility(builder, target.visibility)
         appendDeps(builder, "deps", target.unclassifiedDeps())
         appendDeps(builder, "runtimeDeps", target.runtimeDeps)
         appendDeps(builder, "typeDeps", target.typeDeps)
@@ -38,6 +41,22 @@ fun piecePackageToPicDsl(piecePackage: PiecePackage): String {
 }
 
 fun PiecePackage.toPicDsl(): String = piecePackageToPicDsl(this)
+
+private fun appendLabel(builder: StringBuilder, piecePackage: PiecePackage, target: PieceTarget) {
+    val defaultLabel = pieceTargetLabel(piecePackage.filePath, target.kind, target.name)
+    if (target.label == defaultLabel) return
+    builder.append("    label ")
+        .append(target.label.picString())
+        .append('\n')
+}
+
+private fun appendVisibility(builder: StringBuilder, visibility: List<String>) {
+    val unique = visibility.distinct().sorted()
+    if (unique.isEmpty() || unique == listOf("//visibility:private")) return
+    builder.append("    visibility ")
+        .append(unique.joinToString(", ") { it.picString() })
+        .append('\n')
+}
 
 private fun appendDeps(builder: StringBuilder, name: String, values: List<String>) {
     if (values.isEmpty()) return
@@ -67,11 +86,17 @@ private fun appendActions(
         val artifact = artifactsById[artifactId]
         val defaultMnemonic = "Piece${kind.name}"
         val defaultPath = artifactId.replace("//", "").replace(":", "__")
+        val defaultInputs = (listOf(target.source) + target.deps + target.externalDeps).toSet()
         val mnemonic = action?.mnemonic?.takeIf { it != defaultMnemonic }
         val output = action?.outputs?.singleOrNull()?.takeIf { it != artifactId }
         val path = artifact?.path?.takeIf { it != defaultPath && it != output }
+        val inputs = action?.inputs
+            ?.filterNot { it in defaultInputs }
+            ?.distinct()
+            ?.sorted()
+            .orEmpty()
 
-        if (mnemonic == null && output == null && path == null) {
+        if (mnemonic == null && output == null && path == null && inputs.isEmpty()) {
             builder.append("    action ").append(kind.picToken()).append(" {}\n")
             continue
         }
@@ -86,8 +111,16 @@ private fun appendActions(
         if (path != null) {
             builder.append("      path ").append(path.picString()).append('\n')
         }
+        appendActionInputs(builder, inputs)
         builder.append("    }\n")
     }
+}
+
+private fun appendActionInputs(builder: StringBuilder, inputs: List<String>) {
+    if (inputs.isEmpty()) return
+    builder.append("      inputs ")
+        .append(inputs.joinToString(", ") { it.picString() })
+        .append('\n')
 }
 
 private fun actionKindFromId(actionId: String): PieceActionKind {

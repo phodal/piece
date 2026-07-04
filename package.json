@@ -25,6 +25,7 @@
     "pic:dsl:smoke": "node scripts/smoke-pic-dsl.mjs",
     "pic:kotlin:smoke": "node scripts/smoke-kotlin-pic-dsl.mjs",
     "pic:source:smoke": "node scripts/smoke-source-pic-dsl.mjs",
+    "pic:override:smoke": "node scripts/smoke-pic-override-merge.mjs",
     "language:analysis:smoke": "node scripts/smoke-kotlin-psi-analysis.mjs",
     "language:compile:smoke": "node scripts/smoke-language-compilers.mjs",
     "benchmark:kotlin-piece": "node scripts/benchmark-kotlin-piece.mjs",

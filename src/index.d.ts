@@ -204,6 +204,19 @@ export interface SingleFilePiecePackage {
   readonly artifacts: readonly PieceArtifact[];
 }
 
+export interface PiecePackageMergeDiagnostic {
+  readonly code: string;
+  readonly severity: "info" | "warning" | "error";
+  readonly message: string;
+}
+
+export interface PiecePackageMergeResult {
+  readonly version: 1;
+  readonly merger: "piece-package-merge";
+  readonly piecePackage: SingleFilePiecePackage | null;
+  readonly diagnostics: readonly PiecePackageMergeDiagnostic[];
+}
+
 export interface PieceGraphEdge {
   readonly from: string;
   readonly to: string;
@@ -662,6 +675,10 @@ export function createSingleFilePiecePackage(options: {
   readonly graph: PieceSliceGraph;
 }): SingleFilePiecePackage;
 export function piecePackageToPicDsl(piecePackage: SingleFilePiecePackage): string;
+export function mergePiecePackages(
+  generatedPackage: SingleFilePiecePackage,
+  overridePackage?: SingleFilePiecePackage | null
+): PiecePackageMergeResult;
 export function createTreeSitterDeclarationExtractor(options?: { readonly name?: string; readonly parser?: unknown; readonly tree?: unknown }): PieceDeclarationExtractor;
 export function createFallbackDeclarationExtractor(): PieceDeclarationExtractor;
 export function createGoDeclarationExtractor(options?: { readonly name?: string }): PieceDeclarationExtractor;

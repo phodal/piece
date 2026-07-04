@@ -10,6 +10,8 @@ data class PicDocument(
 data class PicTarget(
     val kind: PicTargetKind,
     val name: String,
+    val label: String? = null,
+    val visibility: List<String> = emptyList(),
     val deps: List<String> = emptyList(),
     val runtimeDeps: List<String> = emptyList(),
     val typeDeps: List<String> = emptyList(),
@@ -22,6 +24,7 @@ data class PicAction(
     val mnemonic: String? = null,
     val output: String? = null,
     val path: String? = null,
+    val inputs: List<String> = emptyList(),
 )
 
 enum class PicTargetKind {

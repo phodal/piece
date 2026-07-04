@@ -65,6 +65,8 @@ public final class AntlrPicParserBackend {
     private PicTarget toTarget(PieceParser.TargetDeclarationContext context) {
         PicTargetKind kind = targetKind(context.targetKind().getText());
         String name = stringValue(context.STRING().getSymbol());
+        String label = null;
+        List<String> visibility = new ArrayList<>();
         List<String> deps = new ArrayList<>();
         List<String> runtimeDeps = new ArrayList<>();
         List<String> typeDeps = new ArrayList<>();
@@ -72,7 +74,11 @@ public final class AntlrPicParserBackend {
         List<PicAction> actions = new ArrayList<>();
 
         for (PieceParser.TargetMemberContext member : context.targetMember()) {
-            if (member.depsDeclaration() != null) {
+            if (member.labelDeclaration() != null) {
+                label = stringValue(member.labelDeclaration().STRING().getSymbol());
+            } else if (member.visibilityDeclaration() != null) {
+                visibility.addAll(toStringList(member.visibilityDeclaration().stringList()));
+            } else if (member.depsDeclaration() != null) {
                 deps.addAll(toStringList(member.depsDeclaration().stringList()));
             } else if (member.runtimeDepsDeclaration() != null) {
                 runtimeDeps.addAll(toStringList(member.runtimeDepsDeclaration().stringList()));
@@ -85,7 +91,7 @@ public final class AntlrPicParserBackend {
             }
         }
 
-        return new PicTarget(kind, name, deps, runtimeDeps, typeDeps, externalDeps, actions);
+        return new PicTarget(kind, name, label, visibility, deps, runtimeDeps, typeDeps, externalDeps, actions);
     }
 
     private List<String> toStringList(PieceParser.StringListContext context) {
@@ -101,6 +107,7 @@ public final class AntlrPicParserBackend {
         String mnemonic = null;
         String output = null;
         String path = null;
+        List<String> inputs = new ArrayList<>();
 
         for (PieceParser.ActionMemberContext member : context.actionMember()) {
             if (member.mnemonicDeclaration() != null) {
@@ -109,10 +116,12 @@ public final class AntlrPicParserBackend {
                 output = stringValue(member.outputDeclaration().STRING().getSymbol());
             } else if (member.pathDeclaration() != null) {
                 path = stringValue(member.pathDeclaration().STRING().getSymbol());
+            } else if (member.inputsDeclaration() != null) {
+                inputs.addAll(toStringList(member.inputsDeclaration().stringList()));
             }
         }
 
-        return new PicAction(kind, mnemonic, output, path);
+        return new PicAction(kind, mnemonic, output, path, inputs);
     }
 
     private static PicTargetKind targetKind(String value) {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import { mergePiecePackages, piecePackageToPicDsl } from "./core/pic-dsl.js";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -249,6 +250,10 @@ function errorKotlinPicGenerationReport({ filePath, source, commands }) {
   };
 }
 
+function hasErrorDiagnostics(diagnostics = []) {
+  return diagnostics.some((diagnostic) => diagnostic.severity === "error");
+}
+
 export async function parsePieceDslFile(options = {}) {
   const filePath = options.filePath ?? "package.pic";
   const source = options.source ?? await readFile(resolveHostPath(filePath, options.cwd ?? process.cwd()), "utf8");
@@ -277,6 +282,48 @@ export async function parsePieceDslFile(options = {}) {
   } finally {
     await cleanupWorkspace(hostWorkspace, false);
   }
+}
+
+export async function mergePieceDslFiles(options = {}) {
+  const generatedFilePath = options.generatedFilePath ?? "generated.pic";
+  const overrideFilePath = options.overrideFilePath ?? "override.pic";
+  const generated = await parsePieceDslFile({
+    filePath: generatedFilePath,
+    source: options.generatedSource,
+    cwd: options.cwd,
+    env: options.env
+  });
+  const override = await parsePieceDslFile({
+    filePath: overrideFilePath,
+    source: options.overrideSource,
+    cwd: options.cwd,
+    env: options.env
+  });
+  const parseDiagnostics = [...(generated.diagnostics ?? []), ...(override.diagnostics ?? [])];
+
+  if (hasErrorDiagnostics(parseDiagnostics) || !generated.piecePackage || !override.piecePackage) {
+    return {
+      version: 1,
+      merger: "piece-dsl-merge",
+      generatedFilePath,
+      overrideFilePath,
+      pieceDsl: "",
+      piecePackage: null,
+      diagnostics: parseDiagnostics
+    };
+  }
+
+  const merged = mergePiecePackages(generated.piecePackage, override.piecePackage);
+  const pieceDsl = merged.piecePackage ? piecePackageToPicDsl(merged.piecePackage) : "";
+  return {
+    version: 1,
+    merger: "piece-dsl-merge",
+    generatedFilePath,
+    overrideFilePath,
+    pieceDsl,
+    piecePackage: merged.piecePackage,
+    diagnostics: [...parseDiagnostics, ...(merged.diagnostics ?? [])]
+  };
 }
 
 export async function generateKotlinPieceDslFile(options = {}) {
