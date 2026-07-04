@@ -26,6 +26,7 @@ The repository already has:
 - `piece-compiler/node` analysis can accept override `.pic` input and return merged primary `.pic` output plus merge diagnostics.
 - Merged override packages are metadata-only by default and can feed action/snapshot package views through explicit `pieceDslOverrideMode: "action-snapshot"`.
 - Node compile/build helpers retain explicit `actionPackage` metadata when override or action-snapshot options require Node analysis.
+- Go and Kotlin language compile helpers can resolve `pieceAction` from an explicit `actionPackage` target/action selection.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -338,8 +339,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Resolve `pieceAction` for language compile helpers from an explicit `actionPackage` target/action selection.
+1. Add a higher-level Node compile-action runner that accepts an analyzed `actionPackage` and dispatches the selected compile action to the matching language helper.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 5/6 Language Compile Action Selection Slice
+
+The language compile action selection slice is now implemented:
+
+1. `compileGoPieceFile()` and `compileKotlinPieceFile()` accept an explicit `actionPackage`.
+2. `pieceAction` remains the strongest caller override; `actionPackage` selection is used only when no direct `pieceAction` is supplied.
+3. Callers can select a package target by label, id, or name through `pieceTarget`, and can select the compile action through `pieceActionName`.
+4. Kotlin still delegates compilation to the JVM backend, but Node can pass the selected action identity from the external package graph.
+5. `npm run language:compile:smoke` verifies Go and Kotlin compile reports retain action identity resolved from the explicit action package.
 
 ## Completed Phase 2/6 Action Package Helper Propagation Slice
 

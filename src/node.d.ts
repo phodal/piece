@@ -171,6 +171,10 @@ export interface CompileGoPieceFileOptions {
   readonly goCommand?: string;
   readonly modulePath?: string;
   readonly runTests?: boolean;
+  readonly pieceAction?: PieceCompileActionReference;
+  readonly pieceTarget?: string;
+  readonly pieceActionName?: string;
+  readonly actionPackage?: SingleFilePiecePackage;
   readonly env?: Record<string, string | undefined>;
 }
 
@@ -193,6 +197,7 @@ export interface CompileKotlinPieceFileOptions {
   readonly pieceAction?: PieceCompileActionReference;
   readonly pieceTarget?: string;
   readonly pieceActionName?: string;
+  readonly actionPackage?: SingleFilePiecePackage;
   readonly env?: Record<string, string | undefined>;
 }
 

@@ -36,6 +36,91 @@ function packageNameFromGo(source) {
   return source.match(/^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)/m)?.[1] ?? "main";
 }
 
+function actionNameForId(id) {
+  return String(id ?? "").includes("%") ? String(id).split("%").pop() : "";
+}
+
+function isCompileAction(action) {
+  return String(action?.kind ?? "").toLowerCase() === "compile";
+}
+
+function actionPackageLabel(piecePackage) {
+  return piecePackage?.label ?? piecePackage?.filePath ?? "Piece action package";
+}
+
+function selectActionPackageTarget(piecePackage, pieceTarget) {
+  const targets = piecePackage?.targets ?? [];
+  const requestedTarget = String(pieceTarget ?? "").trim();
+  if (requestedTarget) {
+    const target = targets.find((candidate) =>
+      candidate.label === requestedTarget || candidate.id === requestedTarget || candidate.name === requestedTarget
+    );
+    if (!target) {
+      throw new Error(`${actionPackageLabel(piecePackage)} does not contain Piece target '${requestedTarget}'.`);
+    }
+    return target;
+  }
+
+  const actionsByTarget = new Map((piecePackage?.actions ?? []).map((action) => [action.id, action]));
+  const compileTargets = targets.filter((target) =>
+    (target.actions ?? []).some((actionId) => isCompileAction(actionsByTarget.get(actionId)))
+  );
+  if (compileTargets.length === 1) {
+    return compileTargets[0];
+  }
+  if (compileTargets.length > 1) {
+    throw new Error(`${actionPackageLabel(piecePackage)} contains multiple compile targets; pass pieceTarget to select one.`);
+  }
+  throw new Error(`${actionPackageLabel(piecePackage)} does not contain a compile target.`);
+}
+
+function selectActionPackageCompileAction(piecePackage, target, pieceActionName) {
+  const requestedAction = String(pieceActionName ?? "compile").trim() || "compile";
+  const targetActionIds = new Set(target.actions ?? []);
+  const actions = (piecePackage?.actions ?? []).filter(
+    (action) => targetActionIds.has(action.id) || action.target === target.label
+  );
+  const action = actions.find((candidate) =>
+    isCompileAction(candidate) &&
+      (candidate.id === requestedAction ||
+        candidate.id === `${target.label}%${requestedAction}` ||
+        actionNameForId(candidate.id) === requestedAction ||
+        String(candidate.kind ?? "").toLowerCase() === requestedAction)
+  );
+  if (!action) {
+    throw new Error(`${actionPackageLabel(piecePackage)} does not contain compile action '${requestedAction}' for ${target.label}.`);
+  }
+  return action;
+}
+
+function compileArtifactIdForAction(piecePackage, target, action) {
+  const output = action.outputs?.find((candidate) => typeof candidate === "string" && candidate.length > 0);
+  if (output) {
+    return output;
+  }
+  const artifact = (piecePackage?.artifacts ?? []).find((candidate) =>
+    candidate.target === target.label && String(candidate.kind ?? "").toLowerCase() === "piece-compile"
+  );
+  return artifact?.id ?? `${target.label}.compile.json`;
+}
+
+function resolveCompilePieceAction(options = {}) {
+  if (options.pieceAction) {
+    return options.pieceAction;
+  }
+  if (!options.actionPackage) {
+    return undefined;
+  }
+  const target = selectActionPackageTarget(options.actionPackage, options.pieceTarget);
+  const action = selectActionPackageCompileAction(options.actionPackage, target, options.pieceActionName);
+  return {
+    targetLabel: target.label,
+    actionId: action.id,
+    artifactId: compileArtifactIdForAction(options.actionPackage, target, action),
+    kind: "compile"
+  };
+}
+
 function parseConcatenatedJsonObjects(source) {
   const decoder = new TextDecoder();
   const bytes = new TextEncoder().encode(String(source ?? ""));
@@ -1267,6 +1352,7 @@ export async function generateKotlinPieceDslFile(options = {}) {
 export async function compileGoPieceFile(options = {}) {
   const filePath = options.filePath ?? "Main.go";
   const source = options.source ?? "";
+  const pieceAction = resolveCompilePieceAction(options);
   const workspaceInfo = await prepareWorkspace("piece-go-", options.workspace);
   const workspace = workspaceInfo.path;
   const outputDir = resolve(options.outDir ?? join(workspace, "piece-out"));
@@ -1299,6 +1385,7 @@ export async function compileGoPieceFile(options = {}) {
       status: compileStatus(commands),
       goList,
       workspace: options.keepWorkspace ? workspace : undefined,
+      ...(pieceAction ? { pieceAction } : {}),
       outputFiles,
       commands,
       diagnostics: diagnosticsFromCommands(commands)
@@ -1393,7 +1480,7 @@ export async function compileKotlinPieceFile(options = {}) {
   const sourcePath = resolveHostPath(filePath, cwd);
   const source = options.source ?? ((await pathExists(sourcePath)) ? await readFile(sourcePath, "utf8") : "");
   const target = options.target ?? "jvm";
-  const pieceAction = options.pieceAction;
+  const pieceAction = resolveCompilePieceAction(options);
   const projectRootOption = options.gradleProjectRoot ?? options.projectRoot;
   const projectRoot = projectRootOption ? resolveHostPath(String(projectRootOption), cwd) : undefined;
   const companionSources = await collectKotlinCompanionSources(options, filePath);

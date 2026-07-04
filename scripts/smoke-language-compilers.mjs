@@ -33,6 +33,71 @@ data class User(val name: String)
 data class Greeting(val message: String)
 `;
 
+function sourceLabelFor(filePath) {
+  const parts = filePath.replace(/\\/g, "/").split("/");
+  const sourceName = parts.pop();
+  const packageName = parts.filter(Boolean).join("/") || ".";
+  return `//${packageName}:${sourceName}`;
+}
+
+function compileActionPackage({ language, filePath, targetName, targetLabel, output }) {
+  const sourceLabel = sourceLabelFor(filePath);
+  const actionId = `${targetLabel}%compile`;
+  return {
+    version: 1,
+    kind: "single-file-package",
+    language,
+    packageName: sourceLabel.slice(2, sourceLabel.indexOf(":")),
+    label: sourceLabel,
+    filePath,
+    sourceFile: sourceLabel,
+    rules: [
+      {
+        name: `${language}_piece_function`,
+        language,
+        targetKind: "function",
+        actionKind: "compile",
+        implementation: `${language}.function.compile`
+      }
+    ],
+    targets: [
+      {
+        id: `${filePath}#function:${targetName}`,
+        label: targetLabel,
+        name: targetName,
+        kind: "function",
+        rule: `${language}_piece_function`,
+        source: sourceLabel,
+        deps: [],
+        runtimeDeps: [],
+        typeDeps: [],
+        externalDeps: [],
+        actions: [actionId],
+        artifacts: [output],
+        visibility: ["//visibility:private"]
+      }
+    ],
+    actions: [
+      {
+        id: actionId,
+        target: targetLabel,
+        kind: "compile",
+        mnemonic: "PieceCompile",
+        inputs: [sourceLabel],
+        outputs: [output]
+      }
+    ],
+    artifacts: [
+      {
+        id: output,
+        target: targetLabel,
+        kind: "piece-compile",
+        path: output
+      }
+    ]
+  };
+}
+
 function assertSuccess(result, label) {
   if (result.status !== "success") {
     const diagnostics = result.diagnostics.map((diagnostic) => diagnostic.message).join("\n");
@@ -40,11 +105,28 @@ function assertSuccess(result, label) {
   }
 }
 
+const goActionPackage = compileActionPackage({
+  language: "go",
+  filePath: "/repo/src/Pricing.go",
+  targetName: "RenderGreeting",
+  targetLabel: "//repo/src:pricing_go_render_greeting",
+  output: "go-render-greeting.compile.json"
+});
 const goResult = await compileGoPieceFile({
   filePath: "/repo/src/Pricing.go",
-  source: goSource
+  source: goSource,
+  actionPackage: goActionPackage,
+  pieceTarget: "RenderGreeting"
 });
 assertSuccess(goResult, "Go");
+if (JSON.stringify(goResult.pieceAction) !== JSON.stringify({
+  targetLabel: "//repo/src:pricing_go_render_greeting",
+  actionId: "//repo/src:pricing_go_render_greeting%compile",
+  artifactId: "go-render-greeting.compile.json",
+  kind: "compile"
+})) {
+  throw new Error(`Go compile did not resolve Piece action identity from actionPackage: ${JSON.stringify(goResult.pieceAction)}`);
+}
 if (!goResult.commands.some((command) => command.command === "go" && command.args.join(" ") === "list -json ./...")) {
   throw new Error(`Go compile did not run go list before build/test: ${JSON.stringify(goResult.commands)}`);
 }
@@ -63,6 +145,13 @@ if (!goResult.outputFiles.some((file) => file.path.endsWith("Pricing"))) {
 }
 
 const kotlinSourceRoot = await mkdtemp(join(tmpdir(), "piece-kotlin-compile-source-root-"));
+const kotlinActionPackage = compileActionPackage({
+  language: "kotlin",
+  filePath: "/repo/src/Pricing.kt",
+  targetName: "renderGreeting",
+  targetLabel: "//repo/src:pricing_kotlin_render_greeting",
+  output: "kotlin-render-greeting.compile.json"
+});
 let kotlinResult;
 try {
   await writeFile(join(kotlinSourceRoot, "Models.kt"), kotlinModelSource, "utf8");
@@ -71,7 +160,8 @@ try {
     source: kotlinSource,
     sourceRoots: [kotlinSourceRoot],
     target: "all",
-    pieceTarget: "renderGreeting"
+    pieceTarget: "renderGreeting",
+    actionPackage: kotlinActionPackage
   });
 } finally {
   await rm(kotlinSourceRoot, { recursive: true, force: true });
@@ -81,12 +171,12 @@ if (kotlinResult.backend !== "kotlin-jvm") {
   throw new Error(`Expected Kotlin compile backend to be kotlin-jvm, got ${kotlinResult.backend}.`);
 }
 if (JSON.stringify(kotlinResult.pieceAction) !== JSON.stringify({
-  targetLabel: "//repo/src:Pricing.kt__function_renderGreeting",
-  actionId: "//repo/src:Pricing.kt__function_renderGreeting%compile",
-  artifactId: "//repo/src:Pricing.kt__function_renderGreeting.compile.json",
+  targetLabel: "//repo/src:pricing_kotlin_render_greeting",
+  actionId: "//repo/src:pricing_kotlin_render_greeting%compile",
+  artifactId: "kotlin-render-greeting.compile.json",
   kind: "compile"
 })) {
-  throw new Error(`Kotlin compile did not preserve Piece action identity: ${JSON.stringify(kotlinResult.pieceAction)}`);
+  throw new Error(`Kotlin compile did not resolve Piece action identity from actionPackage: ${JSON.stringify(kotlinResult.pieceAction)}`);
 }
 if (!kotlinResult.commands.some((command) => command.command === "gradle-tooling-api")) {
   throw new Error(`Kotlin compile did not use Gradle Tooling API: ${kotlinResult.commands.map((command) => command.command).join(", ")}`);
