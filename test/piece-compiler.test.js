@@ -1,6 +1,6 @@
 import { transform } from "esbuild";
 import { describe, expect, it } from "vitest";
-import { createNodeEsbuildBuildEngine, createNodeVirtualFileSystem } from "piece-compiler/node";
+import { compilePieceApp as compileNodePieceApp, createNodeEsbuildBuildEngine, createNodeVirtualFileSystem } from "piece-compiler/node";
 import {
   compilePieceApp,
   createKotlinCoreBridge,
@@ -858,6 +858,164 @@ export function Other() {
       selection: "safe"
     });
     expect(projectModelFallback).toBeUndefined();
+  });
+
+  it("exposes source-set scope blockers on node app compile action selection", async () => {
+    const filePath = "/repo/app/src/jvmMain/kotlin/demo/app/Render.kt";
+    const source = "package demo.app\nfun render(): String = missing()\n";
+    const renderTargetLabel = "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt__function_render";
+    const analysis = {
+      version: 1,
+      filePath,
+      manifest: {
+        version: 1,
+        filePath,
+        source,
+        parser: "kotlin-psi-declaration-extractor",
+        slices: [],
+        headers: [],
+        effects: [],
+        importBindings: [],
+        hasTopLevelEffect: false,
+        diagnostics: []
+      },
+      graph: {
+        version: 1,
+        filePath,
+        slices: [],
+        edges: [],
+        symbolTable: { local: {}, imports: {}, importsByLocal: {}, exports: {} },
+        diagnostics: []
+      },
+      feedbackScope: {
+        version: 1,
+        level: "file",
+        fallbackRequired: true,
+        reasons: [
+          {
+            code: "unknown-edge-fallback",
+            severity: "warning",
+            message: "Unresolved reference keeps feedback at the file boundary."
+          }
+        ],
+        hashes: {
+          sourceHash: "source-hash",
+          dependencyHash: "dependency-hash",
+          projectModelHash: "project-model-hash",
+          fallbackScopeHash: "fallback-scope-hash"
+        }
+      },
+      piecePackage: {
+        version: 1,
+        kind: "single-file-package",
+        language: "kotlin",
+        packageName: "repo/app/src/jvmMain/kotlin/demo/app",
+        label: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+        filePath,
+        sourceFile: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+        rules: [],
+        targets: [
+          {
+            id: `${filePath}#function:render`,
+            label: renderTargetLabel,
+            name: "render",
+            kind: "function",
+            rule: "kotlin_piece_function",
+            source: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+            deps: [],
+            runtimeDeps: [],
+            typeDeps: [],
+            externalDeps: [],
+            actions: [`${renderTargetLabel}%compile`],
+            artifacts: [],
+            visibility: ["//visibility:private"]
+          }
+        ],
+        actions: [
+          {
+            id: `${renderTargetLabel}%compile`,
+            target: renderTargetLabel,
+            kind: "compile",
+            mnemonic: "PieceCompile",
+            inputs: ["//repo/app/src/jvmMain/kotlin/demo/app:Render.kt"],
+            outputs: [`${renderTargetLabel}.compile.json`]
+          }
+        ],
+        artifacts: []
+      },
+      sourceSetScope: {
+        version: 1,
+        kind: "source-set-scope-target-model",
+        status: "candidate",
+        language: "kotlin",
+        packageName: "repo/app/src/jvmMain/kotlin/demo/app",
+        label: "//repo/app/src/jvmMain/kotlin/demo/app:__source_set_scope",
+        filePath,
+        sourceFile: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+        sourceSetScopeHash: "source-set-scope-hash",
+        sourceSetScopeInput: "source-set:source-set-scope-hash",
+        projectModelInput: "project-model:source-set-scope-hash",
+        projectPath: ":app",
+        projectPaths: [":app", ":domain"],
+        sourceSet: "jvmMain",
+        requiredSourceSets: ["commonMain", "jvmMain"],
+        promotion: {
+          status: "candidate",
+          requested: "safe",
+          appliedToDefaultPackage: false,
+          appliedToPackageView: false,
+          reason: "Source-set companion targets are available as a candidate model while the default feedback package keeps the current-file fast path.",
+          blockedReasons: [
+            {
+              code: "source-set-scope-feedback-fallback",
+              severity: "warning",
+              message: "Source-set package view selection is disabled while feedback scope already requires file or project fallback.",
+              fallbackLevel: "file",
+              fallbackReasonCodes: ["unknown-edge-fallback"]
+            }
+          ]
+        },
+        sourceFiles: [],
+        currentTargets: [],
+        promotedTargets: [],
+        promotedEdges: [],
+        scopeInputs: ["project-model:source-set-scope-hash", "source-set:source-set-scope-hash"]
+      },
+      pieceDsl: "",
+      pieceDslSource: "current-file",
+      previewTargets: [],
+      metrics: {
+        totalMs: 0,
+        phases: { extractMs: 0, graphMs: 0 },
+        sourceBytes: source.length,
+        sliceCount: 0,
+        edgeCount: 0,
+        previewTargetCount: 0
+      }
+    };
+
+    const status = await compileNodePieceApp({
+      filePath,
+      source,
+      analysis,
+      target: "__no_preview__",
+      compileAction: true,
+      pieceTarget: "__missing_piece_target__"
+    });
+
+    expect(status.compileActionDiagnostics?.[0]?.code).toBe("piece-compile-action-dispatch-failed");
+    expect(status.compileActionSelection?.sourceSetScope).toMatchObject({
+      status: "candidate",
+      requested: "safe",
+      appliedToPackageView: false,
+      blockers: [
+        expect.objectContaining({
+          code: "source-set-scope-feedback-fallback",
+          fallbackLevel: "file",
+          fallbackReasonCodes: ["unknown-edge-fallback"]
+        })
+      ]
+    });
   });
 
   it("compiles virtual closure modules with node esbuild", async () => {

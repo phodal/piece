@@ -196,6 +196,13 @@ export interface NodeCompileActionSelection {
     readonly reason?: string;
     readonly blockers: readonly NodeCompileActionSelectionReason[];
   };
+  readonly sourceSetScope?: {
+    readonly status?: string;
+    readonly requested?: string;
+    readonly appliedToPackageView: boolean;
+    readonly reason?: string;
+    readonly blockers: readonly NodeCompileActionSelectionReason[];
+  };
   readonly sourceSet?: {
     readonly status?: string;
     readonly projectPath?: string;

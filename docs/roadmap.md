@@ -346,7 +346,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Add app-level source-set fallback diagnostics so hosts can see why selected source-set package views were not applied.
+1. Extend app-level source-set diagnostics to real Gradle/KMP fallback scopes in `language:project-model:smoke`.
+
+## Completed Phase 5/6 App-Level Source-Set Fallback Diagnostics Slice
+
+The app-level source-set fallback diagnostics slice is now implemented:
+
+1. App-level `compileActionSelection` now includes `sourceSetScope` selection metadata when analysis carries a source-set scope target model.
+2. The metadata reports status, requested selection mode, whether a package view was applied, reason text, and non-info blockers.
+3. Hosts can see source-set fallback blockers such as `source-set-scope-feedback-fallback` without inspecting the full analysis object.
+4. Package action precedence remains unchanged; this is diagnostics-only metadata.
+5. `npm test` verifies source-set fallback blockers appear on Node app-level compile action selection.
 
 ## Completed Phase 5/6 Source-Set Package View Fallback Coverage Slice
 

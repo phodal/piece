@@ -143,6 +143,8 @@ function compileActionSelectionForStatus(options = {}, status = {}) {
   const analysis = status.analysis;
   const packageScope = analysis?.packageScope;
   const packagePromotion = packageScope?.promotion;
+  const sourceSetScope = analysis?.sourceSetScope;
+  const sourceSetPromotion = sourceSetScope?.promotion;
   const sourceSet = compileActionSourceSetSelection(analysis);
   return {
     actionPackageSource: actionPackageSource(options, analysis),
@@ -160,6 +162,17 @@ function compileActionSelectionForStatus(options = {}, status = {}) {
             appliedToPackageView: packagePromotion?.appliedToPackageView === true,
             reason: packagePromotion?.reason,
             blockers: nonInfoReasons(packagePromotion?.blockedReasons ?? [])
+          }
+        }
+      : {}),
+    ...(sourceSetScope
+      ? {
+          sourceSetScope: {
+            status: sourceSetScope.status,
+            requested: sourceSetPromotion?.requested,
+            appliedToPackageView: sourceSetPromotion?.appliedToPackageView === true,
+            reason: sourceSetPromotion?.reason,
+            blockers: nonInfoReasons(sourceSetPromotion?.blockedReasons ?? [])
           }
         }
       : {}),
