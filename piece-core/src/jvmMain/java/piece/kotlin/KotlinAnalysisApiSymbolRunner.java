@@ -2,9 +2,9 @@ package piece.kotlin;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -210,7 +210,7 @@ public final class KotlinAnalysisApiSymbolRunner {
                     }
                     if (!symbol.source.equals(primarySourcePath)) {
                         buckets.externalBindings.add(new ExternalBinding(
-                            symbol.name,
+                            referencedName,
                             symbol.name,
                             symbol.source,
                             "named",
@@ -278,8 +278,8 @@ public final class KotlinAnalysisApiSymbolRunner {
             Object current = psi;
             while (current != null) {
                 Object parent = psiElementClass.getMethod("getParent").invoke(current);
-                if (parent != null && ktFileClass.isInstance(parent)) {
-                    if (!ktDeclarationClass.isInstance(current)) {
+                if (ktDeclarationClass.isInstance(current)) {
+                    if (parent == null || !ktFileClass.isInstance(parent)) {
                         return null;
                     }
                     String name = nameOfDeclaration(current);
@@ -287,6 +287,9 @@ public final class KotlinAnalysisApiSymbolRunner {
                         return null;
                     }
                     return new TopLevelSymbol(name, sourcePathOfKtFile(parent));
+                }
+                if (parent != null && ktFileClass.isInstance(parent)) {
+                    return null;
                 }
                 current = parent;
             }

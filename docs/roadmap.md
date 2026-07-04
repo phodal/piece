@@ -29,7 +29,7 @@ The repository already has:
 
 The important gaps are:
 
-- Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing plus companion source-set external bindings, but imported aliases, jar-backed symbols, overloads, generics, and project-model-aware resolution still need expansion.
+- Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing, companion source-set external bindings, and imported aliases, but jar-backed symbols, overloads, constructors, extension functions, generics, and project-model-aware resolution still need expansion.
 - Kotlin project discovery is still host-provided. Source roots, companion files, and classpath can be passed in, but the backend does not yet discover full Gradle/KMP source sets, dependencies, and variants on its own.
 - Kotlin compile actions are real but still mediated by the npm function that creates a temporary Gradle project. The final shape should make Kotlin/JVM the rule owner and Node only the invoker.
 - Go semantics are still mostly JavaScript-side extraction plus official `go build`/`go test` for compile. The long-term Go rule should use `go list`, `go test`, and `go build` as the source of truth, or move the Go-specific backend into Go.
@@ -123,6 +123,7 @@ Definition of done: source extraction can produce a deterministic `.pic`, parse 
 - Done: add Analysis API dependencies behind the opt-in `pieceAnalysisApiClasspath` Gradle configuration and `-PpieceAnalysisApi.enabled=true` gate, without making it the default backend.
 - Done: prototype an `analysis-api` symbol backend behind the gate for one same-file shadowed-symbol case.
 - Done: return Analysis API companion source-set external bindings so the normal graph builder can produce external edges.
+- Done: preserve imported alias locals while binding them to Analysis API-resolved source-set declarations.
 - Continue `KotlinAnalysisExtractor` toward overloads, imports, aliases, extension functions, generics, and richer classpath/project models.
 
 Definition of done: Kotlin semantic symbols and diagnostics can run through Analysis API when available, and tests prove the FE10 fallback is not silently treated as the final backend.
@@ -205,11 +206,21 @@ The fourth Phase 3 slice is now implemented:
 4. The normal graph builder can turn those bindings into external edges such as `/repo/src/Models.kt#User`.
 5. `npm run language:analysis-api:smoke` verifies both the same-file shadowing case and the companion source-set external edge case.
 
+## Completed Phase 3 Analysis API Imported Alias Slice
+
+The fifth Phase 3 slice is now implemented:
+
+1. Analysis API external bindings now keep the source reference name as `local` and the resolved declaration name as `imported`.
+2. Imported aliases such as `DomainUser` can override the PSI header-only package binding with a source-set binding to `/repo/src/Models.kt#User`.
+3. Member references such as `user.name` are no longer promoted to the enclosing top-level class as false external bindings.
+4. The graph builder now emits an external edge with alias symbols while keeping the resolved source-set declaration identity.
+5. `npm run language:analysis-api:smoke` verifies the alias case and rejects fallback to the package-only `demo.symbols#User` edge.
+
 ## Next Small Slice
 
 The next implementation slice should continue Phase 3:
 
-1. Expand the Analysis API runner from source-set declarations to imported aliases and jar-backed classpath symbols.
-2. Return enough symbol identity metadata to distinguish imported aliases, top-level functions, constructors, and extension functions.
+1. Expand the Analysis API runner from source-set declarations to jar-backed classpath symbols.
+2. Return enough symbol identity metadata to distinguish top-level functions, constructors, member properties, and extension functions.
 3. Add classpath/project-model fixtures that prove Analysis API and FE10 agree for simple cases and diverge only when Analysis API has stronger evidence.
 4. Keep FE10 fallback explicit whenever the gate is disabled, runtime classes are absent, or the Analysis API runner cannot prove a safe result.

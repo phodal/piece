@@ -94,4 +94,48 @@ assert(
   `Kotlin Analysis API companion binding did not become an external graph edge: ${JSON.stringify(crossFileAnalysis.graph.edges)}`
 );
 
+const aliasSource = `package demo.app
+
+import demo.symbols.User as DomainUser
+
+fun render(user: DomainUser): String = user.name
+`;
+const aliasManifest = await analyzeKotlinPieceFile({
+  filePath: "/repo/src/AliasRender.kt",
+  source: aliasSource,
+  sourceFiles: crossFileCompanions,
+  backend: "analysis-api",
+  analysisApiEnabled: true
+});
+const aliasBinding = aliasManifest.importBindings.find(
+  (binding) => binding.local === "DomainUser" && binding.imported === "User" && binding.source === "/repo/src/Models.kt"
+);
+assert(
+  aliasBinding,
+  `Kotlin Analysis API did not map the imported alias to the companion source declaration: ${JSON.stringify(aliasManifest.importBindings)}`
+);
+const aliasAnalysis = await analyzePieceFile({
+  filePath: "/repo/src/AliasRender.kt",
+  source: aliasSource,
+  declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
+    sourceFiles: crossFileCompanions,
+    backend: "analysis-api",
+    analysisApiEnabled: true
+  })
+});
+assert(
+  aliasAnalysis.graph.edges.some(
+    (edge) =>
+      edge.kind === "external" &&
+      edge.to === "/repo/src/Models.kt#User" &&
+      edge.symbols.includes("DomainUser") &&
+      edge.import?.local === "DomainUser"
+  ),
+  `Kotlin Analysis API imported alias did not prefer the companion source external edge: ${JSON.stringify(aliasAnalysis.graph.edges)}`
+);
+assert(
+  !aliasAnalysis.graph.edges.some((edge) => edge.to === "demo.symbols#User"),
+  `Kotlin Analysis API imported alias should override the PSI package-only edge: ${JSON.stringify(aliasAnalysis.graph.edges)}`
+);
+
 console.log("Kotlin Analysis API smoke passed");
