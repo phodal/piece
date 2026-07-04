@@ -238,6 +238,30 @@ if (
 ) {
   throw new Error(`compilePieceApp did not expose package-scope selection metadata: ${JSON.stringify(goPackageScopeStatus.compileActionSelection)}`);
 }
+const selectedGoPackageScopeStatus = await compilePieceApp({
+  filePath: "/repo/src/Pricing.go",
+  source: goPricingSource,
+  sourceFiles: [
+    {
+      filePath: "/repo/src/Discount.go",
+      source: goPricingCompanionSource
+    }
+  ],
+  target: "Discount",
+  compileAction: true,
+  packageScopeSelection: "safe"
+});
+assertSuccess(selectedGoPackageScopeStatus.compileAction, "Go selected package-view compile action");
+if (
+  selectedGoPackageScopeStatus.compileActionSelection?.actionPackageSource !== "selected-package-view" ||
+  selectedGoPackageScopeStatus.compileActionSelection.packageScope?.status !== "selected" ||
+  selectedGoPackageScopeStatus.compileAction?.pieceAction?.targetLabel !== "//repo/src:Discount.go__type_Discount"
+) {
+  throw new Error(`compilePieceApp did not use selected package-view action metadata: ${JSON.stringify({
+    selection: selectedGoPackageScopeStatus.compileActionSelection,
+    pieceAction: selectedGoPackageScopeStatus.compileAction?.pieceAction
+  })}`);
+}
 
 const kotlinSourceRoot = await mkdtemp(join(tmpdir(), "piece-kotlin-compile-source-root-"));
 let kotlinResult;

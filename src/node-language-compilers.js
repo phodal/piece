@@ -122,7 +122,13 @@ function resolveCompilePieceAction(options = {}) {
 }
 
 function actionPackageForCompileAction(options = {}) {
-  return options.actionPackage ?? options.analysis?.actionPackage ?? options.analysis?.snapshot?.actionPackage ?? options.analysis?.piecePackage;
+  return (
+    options.actionPackage ??
+    options.analysis?.actionPackage ??
+    options.analysis?.snapshot?.actionPackage ??
+    (options.analysis?.packageScope?.status === "selected" ? options.analysis.packageScope.packageView : undefined) ??
+    options.analysis?.piecePackage
+  );
 }
 
 function filePathForCompileAction(options = {}, actionPackage) {

@@ -21,7 +21,7 @@ The repository already has:
 - An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain`, target-level source preservation, and a Node smoke entrypoint.
 - A Kotlin PSI `.pic` generator that emits deterministic package text and verifies the generated file by parsing it back through the same ANTLR backend.
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
-- Safe selected Go package-scope package views can become the primary generated `.pic` output while default analysis keeps the current-file `.pic` output.
+- Safe selected Go package-scope package views can become the primary generated `.pic` output and app-level compile action package while default analysis keeps the current-file `.pic` output.
 - User override `.pic` merging can use a selected package-scope package view as its generated merge base.
 - `piece-compiler/node` analysis can accept override `.pic` input and return merged primary `.pic` output plus merge diagnostics.
 - Merged override packages are metadata-only by default and can feed action/snapshot package views through explicit `pieceDslOverrideMode: "action-snapshot"`.
@@ -343,8 +343,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Let app-level Go compile action dispatch opt into the selected package-view action package when `packageScopeSelection: "safe"` proves it.
+1. Carry selected package-view action package identity into app-level compile status snapshots without changing default preview graph behavior.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 5/6 Selected Package-View Compile Action Slice
+
+The selected package-view compile action slice is now implemented:
+
+1. `compilePieceAction()` can use `analysis.packageScope.packageView` as its action package when package-scope status is `selected`.
+2. Explicit `actionPackage`, `analysis.actionPackage`, and `snapshot.actionPackage` still take precedence over selected package views.
+3. `compilePieceApp({ compileAction: true, packageScopeSelection: "safe" })` reports `compileActionSelection.actionPackageSource: "selected-package-view"` when safe Go package-scope selection passes.
+4. The selected package view can dispatch a promoted same-package companion target action such as `//repo/src:Discount.go__type_Discount`.
+5. `npm run language:compile:smoke` verifies selected package-view Go action metadata and companion compile success.
 
 ## Completed Phase 5/6 Go Companion Compile Slice
 

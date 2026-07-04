@@ -101,6 +101,7 @@ function actionPackageSource(options = {}, analysis) {
   if (options.actionPackage) return "explicit";
   if (analysis?.actionPackage) return "analysis-action-package";
   if (analysis?.snapshot?.actionPackage) return "snapshot-action-package";
+  if (analysis?.packageScope?.status === "selected" && analysis.packageScope.packageView) return "selected-package-view";
   if (analysis?.piecePackage) return "analysis-piece-package";
   return "missing";
 }
