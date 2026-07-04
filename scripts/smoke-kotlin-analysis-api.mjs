@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { analyzeKotlinPieceFile, analyzePieceFile, createNodeKotlinPsiDeclarationExtractor } from "../src/node.js";
+import { analyzeKotlinPieceFile, analyzePieceFile, compileKotlinPieceFile, createNodeKotlinPsiDeclarationExtractor } from "../src/node.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,6 +34,26 @@ public class ExternalUser {
   await execFileAsync("javac", ["-d", classesDir, sourceFile]);
   const jarPath = join(workspace, "external-user.jar");
   await execFileAsync("jar", ["cf", jarPath, "-C", classesDir, "."]);
+  return jarPath;
+}
+
+async function createExternalFormatterJar(workspace) {
+  const result = await compileKotlinPieceFile({
+    filePath: "/repo/lib/Formatters.kt",
+    source: `package demo.external
+
+fun formatName(name: String): String = "External: $name"
+`,
+    target: "jvm",
+    workspace
+  });
+  if (result.status !== "success") {
+    throw new Error(`Kotlin formatter fixture compile failed: ${JSON.stringify(result.diagnostics)}`);
+  }
+  const jarPath = result.outputFiles.find((file) => file.path.endsWith(".jar") && !file.path.endsWith("-sources.jar"))?.path;
+  if (!jarPath) {
+    throw new Error(`Kotlin formatter fixture did not produce a jar: ${JSON.stringify(result.outputFiles)}`);
+  }
   return jarPath;
 }
 
@@ -222,6 +242,55 @@ fun render(user: ExternalUser): String = user.name
         edge.symbols.includes("ExternalUser")
     ),
     `Kotlin Analysis API classpath binding did not become a jar-backed external graph edge: ${JSON.stringify(classpathAnalysis.graph.edges)}`
+  );
+
+  const formatterJar = await createExternalFormatterJar(join(classpathWorkspace, "formatter-lib"));
+  const topLevelFunctionSource = `package demo.externaluse
+
+import demo.external.formatName
+
+fun render(name: String): String = formatName(name)
+`;
+  const topLevelFunctionManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/UseFormatter.kt",
+    source: topLevelFunctionSource,
+    backend: "analysis-api",
+    analysisApiEnabled: true,
+    classpath: [formatterJar]
+  });
+  assert(
+    topLevelFunctionManifest.analysisBackend?.actual === "analysis-api" &&
+      topLevelFunctionManifest.analysisBackend?.symbols === "analysis-api",
+    `Kotlin Analysis API top-level function backend was not used: ${JSON.stringify(topLevelFunctionManifest.analysisBackend)}`
+  );
+  const topLevelFunctionBinding = topLevelFunctionManifest.importBindings.find(
+    (binding) =>
+      binding.local === "formatName" &&
+      binding.imported === "formatName" &&
+      binding.source === `classpath:${formatterJar}!demo/external`
+  );
+  assert(
+    topLevelFunctionBinding,
+    `Kotlin Analysis API did not map the top-level function to its jar-backed classpath binding: ${JSON.stringify(topLevelFunctionManifest.importBindings)}`
+  );
+
+  const topLevelFunctionAnalysis = await analyzePieceFile({
+    filePath: "/repo/src/UseFormatter.kt",
+    source: topLevelFunctionSource,
+    declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
+      backend: "analysis-api",
+      analysisApiEnabled: true,
+      classpath: [formatterJar]
+    })
+  });
+  assert(
+    topLevelFunctionAnalysis.graph.edges.some(
+      (edge) =>
+        edge.kind === "external" &&
+        edge.to === `classpath:${formatterJar}!demo/external#formatName` &&
+        edge.symbols.includes("formatName")
+    ),
+    `Kotlin Analysis API top-level function binding did not become a jar-backed external graph edge: ${JSON.stringify(topLevelFunctionAnalysis.graph.edges)}`
   );
 } finally {
   await rm(classpathWorkspace, { recursive: true, force: true });

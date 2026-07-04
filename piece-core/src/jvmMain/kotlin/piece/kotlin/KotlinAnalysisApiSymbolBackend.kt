@@ -27,6 +27,7 @@ internal class KotlinAnalysisApiSymbolBackend {
                 sourceFile = AnalysisApiSourceFile(sourceFile, request.filePath),
                 companionSourceFiles = companionSourceFiles,
                 classpath = request.classpath,
+                identityClasspath = request.hostProvidedClasspath(),
             )
         } catch (error: Throwable) {
             KotlinBindingSymbolResult(
@@ -49,6 +50,7 @@ internal class KotlinAnalysisApiSymbolBackend {
         sourceFile: AnalysisApiSourceFile,
         companionSourceFiles: List<AnalysisApiSourceFile>,
         classpath: List<String>,
+        identityClasspath: List<String>,
     ): KotlinBindingSymbolResult {
         val javaExecutable = File(System.getProperty("java.home"), "bin/java").absolutePath
         val childClasspath = analysisApiChildClasspath()
@@ -67,6 +69,11 @@ internal class KotlinAnalysisApiSymbolBackend {
             .distinct()
             .flatMap {
                 listOf("--classpath", it)
+        } + identityClasspath
+            .filter { it.isNotBlank() }
+            .distinct()
+            .flatMap {
+                listOf("--identity-classpath", it)
         }
         val process = ProcessBuilder(command)
             .redirectErrorStream(true)
@@ -155,6 +162,21 @@ private data class MutableAnalysisApiSymbols(
     val resolvedTypeNames: List<String> = emptyList(),
     val importBindings: MutableList<KotlinPsiImportBinding> = mutableListOf(),
 )
+
+private fun KotlinBindingSymbolRequest.hostProvidedClasspath(): List<String> {
+    val defaultEntries = defaultKotlinSemanticClasspath()
+        .map(::normalizedClasspathEntry)
+        .toSet()
+    return classpath.filter { entry ->
+        entry.isNotBlank() && normalizedClasspathEntry(entry) !in defaultEntries
+    }
+}
+
+private fun normalizedClasspathEntry(path: String): String {
+    return runCatching {
+        Path.of(path).toAbsolutePath().normalize().toString()
+    }.getOrElse { path }
+}
 
 private fun String.csvNames(): List<String> {
     return split(',')

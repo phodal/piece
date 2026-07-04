@@ -11,6 +11,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.jar.JarFile;
 
 /**
  * Isolated JVM runner for the opt-in Kotlin Analysis API prototype.
@@ -39,6 +40,7 @@ public final class KotlinAnalysisApiSymbolRunner {
     private static final class Runner {
         private final List<SourceInput> sources = new ArrayList<>();
         private final List<String> classpathEntries = new ArrayList<>();
+        private final List<String> identityClasspathEntries = new ArrayList<>();
         private final Map<String, String> virtualPathByPhysicalPath = new LinkedHashMap<>();
         private final Class<?> compilerConfigurationClass;
         private final Class<?> compilerConfigurationKeyClass;
@@ -61,14 +63,20 @@ public final class KotlinAnalysisApiSymbolRunner {
 
         Runner(String[] args) throws ClassNotFoundException {
             List<String> sourcePaths = new ArrayList<>();
-            boolean readingClasspath = false;
+            int mode = 0;
             for (String arg : args) {
                 if ("--classpath".equals(arg)) {
-                    readingClasspath = true;
+                    mode = 1;
                     continue;
                 }
-                if (readingClasspath) {
+                if ("--identity-classpath".equals(arg)) {
+                    mode = 2;
+                    continue;
+                }
+                if (mode == 1) {
                     classpathEntries.add(arg);
+                } else if (mode == 2) {
+                    identityClasspathEntries.add(arg);
                 } else {
                     sourcePaths.add(arg);
                 }
@@ -388,7 +396,7 @@ public final class KotlinAnalysisApiSymbolRunner {
         private String classpathSource(Object psi, String packageName) throws Exception {
             String virtualPath = psiVirtualPath(psi);
             String ownerPath = packageName.isBlank() ? "" : packageName.replace('.', '/');
-            String classpathArtifact = classpathArtifactPath(virtualPath);
+            String classpathArtifact = classpathArtifactPath(virtualPath, ownerPath);
             if (classpathArtifact != null) {
                 return "classpath:" + classpathArtifact + (ownerPath.isBlank() ? "" : "!" + ownerPath);
             }
@@ -411,32 +419,54 @@ public final class KotlinAnalysisApiSymbolRunner {
             return path == null ? null : path.toString();
         }
 
-        private String classpathArtifactPath(String virtualPath) {
-            if (virtualPath == null || virtualPath.isBlank()) {
+        private String classpathArtifactPath(String virtualPath, String ownerPath) {
+            if (virtualPath != null && !virtualPath.isBlank()) {
+                String path = virtualPath;
+                if (path.startsWith("jar://")) {
+                    path = path.substring("jar://".length());
+                } else if (path.startsWith("file://")) {
+                    path = path.substring("file://".length());
+                }
+                int jarIndex = path.indexOf(".jar!");
+                if (jarIndex >= 0) {
+                    return normalizePath(path.substring(0, jarIndex + ".jar".length()));
+                }
+                if (path.endsWith(".jar")) {
+                    return normalizePath(path);
+                }
+                String normalizedPath = normalizePath(path);
+                for (String classpathEntry : classpathEntries) {
+                    String normalizedEntry = normalizePath(classpathEntry);
+                    File entry = new File(normalizedEntry);
+                    if (entry.isDirectory() && normalizedPath.startsWith(normalizedEntry + File.separator)) {
+                        return normalizedEntry;
+                    }
+                }
+            }
+            if (ownerPath == null || ownerPath.isBlank()) {
                 return null;
             }
-            String path = virtualPath;
-            if (path.startsWith("jar://")) {
-                path = path.substring("jar://".length());
-            } else if (path.startsWith("file://")) {
-                path = path.substring("file://".length());
-            }
-            int jarIndex = path.indexOf(".jar!");
-            if (jarIndex >= 0) {
-                return normalizePath(path.substring(0, jarIndex + ".jar".length()));
-            }
-            if (path.endsWith(".jar")) {
-                return normalizePath(path);
-            }
-            String normalizedPath = normalizePath(path);
-            for (String classpathEntry : classpathEntries) {
+            for (String classpathEntry : identityClasspathEntries) {
                 String normalizedEntry = normalizePath(classpathEntry);
                 File entry = new File(normalizedEntry);
-                if (entry.isDirectory() && normalizedPath.startsWith(normalizedEntry + File.separator)) {
+                if (entry.isFile() && entry.getName().endsWith(".jar") && jarContainsPackage(entry, ownerPath)) {
+                    return normalizedEntry;
+                }
+                if (entry.isDirectory() && new File(entry, ownerPath).exists()) {
                     return normalizedEntry;
                 }
             }
             return null;
+        }
+
+        private static boolean jarContainsPackage(File jarFile, String ownerPath) {
+            try (JarFile jar = new JarFile(jarFile)) {
+                return jar.stream().anyMatch(entry ->
+                    !entry.isDirectory() && entry.getName().startsWith(ownerPath + "/")
+                );
+            } catch (Exception ignored) {
+                return false;
+            }
         }
 
         private static String nameString(Object name) throws Exception {
