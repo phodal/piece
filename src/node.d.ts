@@ -1,6 +1,9 @@
 export * from "./index.js";
 import type {
   AnalyzePieceFileOptions,
+  BuildPiecePreviewOptions,
+  CompilePieceAppOptions,
+  CompilePieceAppStatus,
   KotlinAnalysisBackendKind,
   PieceAnalysisBackendMetadata,
   PieceBuildEngine,
@@ -8,6 +11,7 @@ import type {
   PieceFileAnalysis,
   PieceFileManifest,
   PieceGoListMetadata,
+  PiecePreviewBuild,
   SingleFilePiecePackage,
   VirtualFileSystem
 } from "./index.js";
@@ -112,6 +116,20 @@ export interface MergePieceDslFilesOptions {
 export type PieceDslOverrideMode = "metadata-only" | "action-snapshot" | (string & {});
 
 export interface NodeAnalyzePieceFileOptions extends AnalyzePieceFileOptions {
+  readonly generatedFilePath?: string;
+  readonly overrideFilePath?: string;
+  readonly overrideSource?: string;
+  readonly pieceDslOverrideMode?: PieceDslOverrideMode;
+}
+
+export interface NodeCompilePieceAppOptions extends CompilePieceAppOptions {
+  readonly generatedFilePath?: string;
+  readonly overrideFilePath?: string;
+  readonly overrideSource?: string;
+  readonly pieceDslOverrideMode?: PieceDslOverrideMode;
+}
+
+export interface NodeBuildPiecePreviewOptions extends BuildPiecePreviewOptions {
   readonly generatedFilePath?: string;
   readonly overrideFilePath?: string;
   readonly overrideSource?: string;
@@ -256,6 +274,8 @@ export interface GoPieceCompileResult extends PieceLanguageCompileResult {
 export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise<GoPieceCompileResult>;
 export function compileKotlinPieceFile(options?: CompileKotlinPieceFileOptions): Promise<KotlinPieceCompileResult>;
 export function analyzePieceFile(options?: NodeAnalyzePieceFileOptions): Promise<NodePieceFileAnalysis>;
+export function compilePieceApp(options?: NodeCompilePieceAppOptions): Promise<CompilePieceAppStatus>;
+export function buildPiecePreview(options?: NodeBuildPiecePreviewOptions): Promise<PiecePreviewBuild>;
 export function analyzeKotlinPieceFile(options?: AnalyzeKotlinPieceFileOptions): Promise<PieceFileManifest>;
 export function parsePieceDslFile(options?: ParsePieceDslFileOptions): Promise<PieceDslParseResult>;
 export function mergePieceDslFiles(options?: MergePieceDslFilesOptions): Promise<PieceDslMergeResult>;

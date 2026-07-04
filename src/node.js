@@ -64,6 +64,10 @@ function hasPieceDslOverride(options = {}) {
   return options.overrideSource !== undefined || options.overrideFilePath !== undefined;
 }
 
+function needsNodeAnalysisForActionPackage(options = {}) {
+  return !options.analysis && (hasPieceDslOverride(options) || options.pieceDslOverrideMode !== undefined);
+}
+
 function primaryGeneratedPackageForAnalysis(analysis) {
   if (analysis.pieceDslSource === "selected-package-view" && analysis.packageScope?.packageView) {
     return analysis.packageScope.packageView;
@@ -121,12 +125,20 @@ export async function analyzePieceFile(options = {}) {
   return applyPieceDslOverride(analysis, options);
 }
 
-export function compilePieceApp(options = {}) {
-  return compileCorePieceApp(withNodeDeclarationExtractor(options));
+export async function compilePieceApp(options = {}) {
+  if (!needsNodeAnalysisForActionPackage(options)) {
+    return compileCorePieceApp(withNodeDeclarationExtractor(options));
+  }
+  const analysis = await analyzePieceFile(options);
+  return compileCorePieceApp(withNodeDeclarationExtractor({ ...options, analysis }));
 }
 
-export function buildPiecePreview(options = {}) {
-  return buildCorePiecePreview(withNodeDeclarationExtractor(options));
+export async function buildPiecePreview(options = {}) {
+  if (!needsNodeAnalysisForActionPackage(options)) {
+    return buildCorePiecePreview(withNodeDeclarationExtractor(options));
+  }
+  const analysis = await analyzePieceFile(options);
+  return buildCorePiecePreview(withNodeDeclarationExtractor({ ...options, analysis }));
 }
 
 export function applyPieceEdit(options = {}) {

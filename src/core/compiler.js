@@ -71,16 +71,19 @@ export async function normalizePieceAppInput(options = {}, fileSystem) {
 export async function compilePieceApp(options = {}) {
   const normalized = await normalizePieceAppInput(options);
   const { piece } = splitPieceCompilerOptions(options);
-  const analysis = await analyzePieceFile({
-    filePath: normalized.filePath,
-    source: normalized.source,
-    previousTree: options.previousTree,
-    declarationExtractor: options.declarationExtractor,
-    compilerOptions: options.compilerOptions,
-    compilerOptionsHash: options.compilerOptionsHash,
-    dependencyArtifacts: options.dependencyArtifacts,
-    globals: options.globals
-  });
+  const analysis =
+    options.analysis ??
+    (await analyzePieceFile({
+      filePath: normalized.filePath,
+      source: normalized.source,
+      previousTree: options.previousTree,
+      declarationExtractor: options.declarationExtractor,
+      compilerOptions: options.compilerOptions,
+      compilerOptionsHash: options.compilerOptionsHash,
+      dependencyArtifacts: options.dependencyArtifacts,
+      globals: options.globals,
+      packageScopeSelection: options.packageScopeSelection
+    }));
   const target = selectPiecePreviewTarget(analysis, {
     target: options.target ?? piece.target?.id,
     cursorByte: options.cursorByte

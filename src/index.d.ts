@@ -78,6 +78,7 @@ export interface CompilePieceAppOptions {
   readonly goAnalysisBackend?: "go-ast" | "javascript" | (string & {});
   readonly env?: Record<string, string | undefined>;
   readonly fileSystem?: VirtualFileSystem;
+  readonly analysis?: PieceFileAnalysis;
   readonly previousTree?: unknown;
   readonly declarationExtractor?: PieceDeclarationExtractor;
   readonly kotlinAnalysisBackend?: KotlinAnalysisBackendKind;

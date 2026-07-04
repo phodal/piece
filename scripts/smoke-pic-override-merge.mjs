@@ -1,4 +1,4 @@
-import { analyzePieceFile, mergePieceDslFiles, parsePieceDslFile } from "../src/node.js";
+import { analyzePieceFile, buildPiecePreview, compilePieceApp, mergePieceDslFiles, parsePieceDslFile } from "../src/node.js";
 
 const source = `import { Tag } from "antd";
 
@@ -142,6 +142,40 @@ assert(
 assert(
   JSON.stringify(analysisWithActionSnapshotOverride.snapshot.actionPackage) === JSON.stringify(analysisWithActionSnapshotOverride.actionPackage),
   `Expected snapshot to retain the merged action package: ${JSON.stringify(analysisWithActionSnapshotOverride.snapshot.actionPackage)}`
+);
+
+const previewWithActionSnapshotOverride = await buildPiecePreview({
+  filePath: "/repo/src/DashboardPage.tsx",
+  source,
+  target: "UserCard",
+  overrideFilePath: "/repo/src/DashboardPage.override.pic",
+  overrideSource: override,
+  pieceDslOverrideMode: "action-snapshot"
+});
+assert(
+  previewWithActionSnapshotOverride.target === "/repo/src/DashboardPage.tsx#function:UserCard",
+  `Expected preview graph target to stay unchanged: ${previewWithActionSnapshotOverride.target}`
+);
+assert(
+  previewWithActionSnapshotOverride.analysis.actionPackage?.targets.some((target) => target.label === "//repo/src:dashboard_user_card"),
+  `Expected build preview to retain explicit action package: ${JSON.stringify(previewWithActionSnapshotOverride.analysis.actionPackage)}`
+);
+
+const compileStatusWithActionSnapshotOverride = await compilePieceApp({
+  filePath: "/repo/src/DashboardPage.tsx",
+  source,
+  target: "UserCard",
+  overrideFilePath: "/repo/src/DashboardPage.override.pic",
+  overrideSource: override,
+  pieceDslOverrideMode: "action-snapshot"
+});
+assert(
+  compileStatusWithActionSnapshotOverride.analysis?.actionPackage?.targets.some((target) => target.label === "//repo/src:dashboard_user_card"),
+  `Expected compile status analysis to retain explicit action package: ${JSON.stringify(compileStatusWithActionSnapshotOverride.analysis?.actionPackage)}`
+);
+assert(
+  compileStatusWithActionSnapshotOverride.preview?.analysis.actionPackage?.targets.some((target) => target.label === "//repo/src:dashboard_user_card"),
+  `Expected compile status preview to retain explicit action package: ${JSON.stringify(compileStatusWithActionSnapshotOverride.preview?.analysis.actionPackage)}`
 );
 
 const analysisWithBrokenOverride = await analyzePieceFile({

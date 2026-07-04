@@ -25,6 +25,7 @@ The repository already has:
 - User override `.pic` merging can use a selected package-scope package view as its generated merge base.
 - `piece-compiler/node` analysis can accept override `.pic` input and return merged primary `.pic` output plus merge diagnostics.
 - Merged override packages are metadata-only by default and can feed action/snapshot package views through explicit `pieceDslOverrideMode: "action-snapshot"`.
+- Node compile/build helpers retain explicit `actionPackage` metadata when override or action-snapshot options require Node analysis.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -337,8 +338,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Thread explicit `actionPackage` views into compile/build helpers that need selected action metadata, without changing default preview graph behavior.
+1. Resolve `pieceAction` for language compile helpers from an explicit `actionPackage` target/action selection.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 2/6 Action Package Helper Propagation Slice
+
+The action package helper propagation slice is now implemented:
+
+1. Core `compilePieceApp()` can reuse an already computed analysis result.
+2. `piece-compiler/node` `compilePieceApp()` and `buildPiecePreview()` precompute Node analysis only when override or action-snapshot options require it.
+3. Explicit `actionPackage` metadata flows into compile status analysis and preview analysis in helper results.
+4. Preview target selection still uses the normal source graph, so override labels do not silently change preview graph behavior.
+5. `npm run pic:override:smoke` verifies helper-level action package propagation for analysis, build preview, and compile status.
 
 ## Completed Phase 2/6 Explicit Override Action Package Slice
 
