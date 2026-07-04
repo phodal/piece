@@ -71,6 +71,9 @@ jobs:
       - name: Language analysis API smoke
         run: npm run language:analysis-api:smoke
 
+      - name: Language project model smoke
+        run: npm run language:project-model:smoke
+
       - name: Language compile smoke
         run: npm run language:compile:smoke
 

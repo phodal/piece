@@ -262,6 +262,29 @@ tasks.register<JavaExec>("runKotlinPsiAnalysisBackend") {
     }
 }
 
+tasks.register<JavaExec>("runKotlinGradleProjectModelBackend") {
+    dependsOn("jvmMainClasses")
+
+    val jvmCompilation = kotlin.targets.getByName("jvm").compilations.getByName("main")
+    mainClass.set("piece.kotlin.KotlinGradleProjectModelBackendCliKt")
+    classpath = files(jvmCompilation.output.allOutputs, jvmCompilation.runtimeDependencyFiles)
+
+    doFirst {
+        val projectRoot = providers.gradleProperty("pieceGradleProjectModel.projectRoot").orNull
+            ?: error("Missing -PpieceGradleProjectModel.projectRoot=<path>")
+        val outputReport = providers.gradleProperty("pieceGradleProjectModel.outputReport").orNull
+            ?: error("Missing -PpieceGradleProjectModel.outputReport=<path>")
+        setArgs(
+            listOf(
+                "--projectRoot=$projectRoot",
+                "--outputReport=$outputReport",
+                "--gradleCommand=${providers.gradleProperty("pieceGradleProjectModel.gradleCommand").orNull ?: rootProject.file("gradlew").absolutePath}",
+                "--gradleVersion=${providers.gradleProperty("pieceGradleProjectModel.gradleVersion").orNull ?: gradle.gradleVersion}",
+            ),
+        )
+    }
+}
+
 tasks.register("checkKotlinAnalysisApiGate") {
     group = "verification"
     description = "Verifies the optional Kotlin Analysis API dependency gate without enabling it by default."

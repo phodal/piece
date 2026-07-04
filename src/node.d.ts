@@ -163,6 +163,10 @@ export interface AnalyzeKotlinPieceFileOptions {
   readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
   readonly sourceRoots?: readonly string[];
   readonly classpath?: readonly string[];
+  readonly projectRoot?: string;
+  readonly gradleProjectRoot?: string;
+  readonly gradleCommand?: string;
+  readonly gradleVersion?: string;
   readonly cwd?: string;
   readonly parserName?: string;
   readonly backend?: KotlinAnalysisBackendKind;
@@ -185,6 +189,10 @@ export interface NodeKotlinPsiDeclarationExtractorOptions {
   readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
   readonly sourceRoots?: readonly string[];
   readonly classpath?: readonly string[];
+  readonly projectRoot?: string;
+  readonly gradleProjectRoot?: string;
+  readonly gradleCommand?: string;
+  readonly gradleVersion?: string;
   readonly cwd?: string;
   readonly backend?: KotlinAnalysisBackendKind;
   readonly kotlinAnalysisApiEnabled?: boolean;

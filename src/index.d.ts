@@ -67,6 +67,10 @@ export interface CompilePieceAppOptions {
   readonly sourceRoots?: readonly string[];
   readonly sourceFiles?: readonly string[];
   readonly classpath?: readonly string[];
+  readonly projectRoot?: string;
+  readonly gradleProjectRoot?: string;
+  readonly gradleCommand?: string;
+  readonly gradleVersion?: string;
   readonly fileSystem?: VirtualFileSystem;
   readonly previousTree?: unknown;
   readonly declarationExtractor?: PieceDeclarationExtractor;
@@ -349,6 +353,30 @@ export interface PieceAnalysisBackendMetadata {
   readonly analysisApiVersion?: string;
 }
 
+export interface PieceProjectModelSourceSet {
+  readonly projectPath: string;
+  readonly projectDir: string;
+  readonly name: string;
+  readonly sourceRoots: readonly string[];
+  readonly targetNames: readonly string[];
+}
+
+export interface PieceProjectModelClasspath {
+  readonly projectPath: string;
+  readonly name: string;
+  readonly files: readonly string[];
+}
+
+export interface PieceProjectModelMetadata {
+  readonly kind: "gradle-kmp" | (string & {});
+  readonly projectRoot: string;
+  readonly status: "success" | "fallback" | (string & {});
+  readonly sourceRoots: readonly string[];
+  readonly classpath: readonly string[];
+  readonly sourceSets: readonly PieceProjectModelSourceSet[];
+  readonly classpaths: readonly PieceProjectModelClasspath[];
+}
+
 export interface PieceFileManifest {
   readonly version: 1;
   readonly filePath: string;
@@ -360,6 +388,7 @@ export interface PieceFileManifest {
   readonly importBindings: readonly PieceImportBinding[];
   readonly hasTopLevelEffect: boolean;
   readonly analysisBackend?: PieceAnalysisBackendMetadata;
+  readonly projectModel?: PieceProjectModelMetadata;
   readonly diagnostics: readonly PieceDiagnostic[];
 }
 
@@ -558,6 +587,10 @@ export interface AnalyzePieceFileOptions {
   readonly sourceFiles?: readonly (string | { readonly filePath: string; readonly source: string })[];
   readonly sourceRoots?: readonly string[];
   readonly classpath?: readonly string[];
+  readonly projectRoot?: string;
+  readonly gradleProjectRoot?: string;
+  readonly gradleCommand?: string;
+  readonly gradleVersion?: string;
   readonly cwd?: string;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;

@@ -43,6 +43,16 @@ function sameSourceIdentity(left, right, cwd) {
   return resolveHostPath(String(left), cwd) === resolveHostPath(String(right), cwd);
 }
 
+function uniqueResolvedPaths(entries, cwd) {
+  return [
+    ...new Set(
+      entries
+        .filter(Boolean)
+        .map((entry) => resolveHostPath(String(entry), cwd))
+    )
+  ];
+}
+
 async function runCommand(command, args, options = {}) {
   const startedAt = performance.now();
   return new Promise((resolveResult) => {
@@ -134,10 +144,10 @@ async function collectKotlinCompanionSources(options, primaryFilePath) {
     if (!filePath || !isKotlinSourcePath(filePath) || sameSourceIdentity(filePath, primaryFilePath, cwd)) {
       return;
     }
-    const key = String(filePath);
+    const key = resolveHostPath(String(filePath), cwd);
     if (seen.has(key)) return;
     seen.add(key);
-    companions.push({ filePath: key, source: source ?? "" });
+    companions.push({ filePath: String(filePath), source: source ?? "" });
   }
 
   for (const sourceFile of Array.isArray(options.sourceFiles) ? options.sourceFiles : []) {
@@ -168,13 +178,13 @@ async function collectKotlinCompanionSources(options, primaryFilePath) {
 
 function collectKotlinClasspath(options) {
   const cwd = resolve(options.cwd ?? process.cwd());
-  return [
-    ...new Set(
-      (Array.isArray(options.classpath) ? options.classpath : [])
-        .filter(Boolean)
-        .map((entry) => resolveHostPath(String(entry), cwd))
-    )
-  ];
+  return uniqueResolvedPaths(Array.isArray(options.classpath) ? options.classpath : [], cwd);
+}
+
+function resolveProjectGradleCommand(command, projectRoot) {
+  if (!command) return defaultGradleCommand();
+  if (!command.includes("/") && !command.includes("\\")) return command;
+  return isAbsolute(command) ? command : resolve(projectRoot ?? PACKAGE_ROOT, command);
 }
 
 function diagnosticsFromCommands(commands) {
@@ -210,6 +220,85 @@ function resolveGradleCommand(command) {
 
 async function readJsonFile(path) {
   return JSON.parse(await readFile(path, "utf8"));
+}
+
+async function collectKotlinGradleProjectModel(options = {}) {
+  const projectRootOption = options.gradleProjectRoot ?? options.projectRoot;
+  if (!projectRootOption) return null;
+
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const projectRoot = resolveHostPath(String(projectRootOption), cwd);
+  const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-gradle-model-host-");
+  const hostWorkspace = hostWorkspaceInfo.path;
+  const outputReport = join(hostWorkspace, "gradle-project-model.json");
+
+  try {
+    const args = [
+      "-p",
+      join(PACKAGE_ROOT, "piece-core"),
+      "runKotlinGradleProjectModelBackend",
+      "--quiet",
+      `-PpieceGradleProjectModel.projectRoot=${projectRoot}`,
+      `-PpieceGradleProjectModel.outputReport=${outputReport}`,
+      `-PpieceGradleProjectModel.gradleCommand=${resolveProjectGradleCommand(options.gradleCommand, projectRoot)}`,
+      `-PpieceGradleProjectModel.gradleVersion=${options.gradleVersion ?? ""}`
+    ];
+    const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
+    if (await pathExists(outputReport)) {
+      return readJsonFile(outputReport);
+    }
+    return {
+      version: 1,
+      projectRoot,
+      status: "fallback",
+      sourceSets: [],
+      classpaths: [],
+      sourceRoots: [],
+      classpath: [],
+      commands: [backendCommand],
+      diagnostics: [
+        {
+          code: backendCommand.errorCode === "ENOENT" ? "tool-not-found" : "kotlin-gradle-project-model-error",
+          severity: "warning",
+          message:
+            backendCommand.stderr.trim() ||
+            backendCommand.stdout.trim() ||
+            `${backendCommand.command} exited with code ${backendCommand.exitCode}`,
+          command: [backendCommand.command, ...backendCommand.args].join(" ")
+        }
+      ]
+    };
+  } finally {
+    await cleanupWorkspace(hostWorkspace, false);
+  }
+}
+
+function mergeKotlinProjectModelOptions(options, projectModel) {
+  if (!projectModel) return options;
+
+  const cwd = resolve(options.cwd ?? process.cwd());
+  return {
+    ...options,
+    sourceRoots: uniqueResolvedPaths([...(projectModel.sourceRoots ?? []), ...(Array.isArray(options.sourceRoots) ? options.sourceRoots : [])], cwd),
+    classpath: uniqueResolvedPaths([...(projectModel.classpath ?? []), ...(Array.isArray(options.classpath) ? options.classpath : [])], cwd)
+  };
+}
+
+function attachKotlinProjectModel(manifest, projectModel) {
+  if (!projectModel) return manifest;
+  return {
+    ...manifest,
+    projectModel: {
+      kind: "gradle-kmp",
+      projectRoot: projectModel.projectRoot,
+      status: projectModel.status,
+      sourceRoots: projectModel.sourceRoots ?? [],
+      classpath: projectModel.classpath ?? [],
+      sourceSets: projectModel.sourceSets ?? [],
+      classpaths: projectModel.classpaths ?? []
+    },
+    diagnostics: [...(manifest.diagnostics ?? []), ...(projectModel.diagnostics ?? [])]
+  };
 }
 
 function normalizeKotlinAnalysisBackend(value) {
@@ -529,7 +618,9 @@ export async function analyzeKotlinPieceFile(options = {}) {
   const analysisApiVersion = options.analysisApiVersion ?? options.kotlinAnalysisApiVersion;
   const semanticDiagnostics = options.semanticDiagnostics === true;
   const semanticSymbols = options.semanticSymbols === true;
-  const companionSources = await collectKotlinCompanionSources(options, filePath);
+  const projectModel = await collectKotlinGradleProjectModel(options);
+  const analysisOptions = mergeKotlinProjectModelOptions(options, projectModel);
+  const companionSources = await collectKotlinCompanionSources(analysisOptions, filePath);
   const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-analysis-host-");
   const hostWorkspace = hostWorkspaceInfo.path;
   const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
@@ -554,7 +645,7 @@ export async function analyzeKotlinPieceFile(options = {}) {
         await writeFile(companionSourcesFile, `${companionLines.join("\n")}\n`, "utf8");
       }
     }
-    const classpath = collectKotlinClasspath(options);
+    const classpath = collectKotlinClasspath(analysisOptions);
     if (classpath.length > 0) {
       await writeFile(classpathFile, `${classpath.join("\n")}\n`, "utf8");
     }
@@ -578,19 +669,22 @@ export async function analyzeKotlinPieceFile(options = {}) {
 
     const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
     if (await pathExists(outputReport)) {
-      return readJsonFile(outputReport);
+      return attachKotlinProjectModel(await readJsonFile(outputReport), projectModel);
     }
-    return errorKotlinPsiManifest({
-      filePath,
-      source,
-      parserName,
-      backend,
-      semanticDiagnostics,
-      semanticSymbols,
-      analysisApiEnabled,
-      analysisApiVersion,
-      commands: [backendCommand]
-    });
+    return attachKotlinProjectModel(
+      errorKotlinPsiManifest({
+        filePath,
+        source,
+        parserName,
+        backend,
+        semanticDiagnostics,
+        semanticSymbols,
+        analysisApiEnabled,
+        analysisApiVersion,
+        commands: [backendCommand]
+      }),
+      projectModel
+    );
   } finally {
     await cleanupWorkspace(hostWorkspace, false);
   }
@@ -613,6 +707,10 @@ export function createNodeKotlinPsiDeclarationExtractor(options = {}) {
         sourceFiles: options.sourceFiles,
         sourceRoots: options.sourceRoots,
         classpath: options.classpath,
+        projectRoot: options.projectRoot,
+        gradleProjectRoot: options.gradleProjectRoot,
+        gradleCommand: options.gradleCommand,
+        gradleVersion: options.gradleVersion,
         cwd: options.cwd,
         env: options.env
       });

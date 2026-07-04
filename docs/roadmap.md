@@ -17,7 +17,7 @@ The repository already has:
 - TypeScript-family extraction and React preview as one feedback adapter, not the core abstraction.
 - A Go single-file adapter plus `compileGoPieceFile()` using `go build` and `go test`.
 - `piece-core` as a Kotlin Multiplatform core with model, builder DSL, graph, and reconcile contracts in `commonMain`.
-- Kotlin/JVM PSI extraction, compiler diagnostics, BindingContext-backed symbol refinement, source-set companion files, host-provided classpath entries, and a Gradle/KMP compile backend.
+- Kotlin/JVM PSI extraction, compiler diagnostics, BindingContext-backed symbol refinement, source-set companion files, host-provided classpath entries, Gradle/KMP `projectRoot` analysis input discovery, and a Gradle/KMP compile backend.
 - An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain` and a Node smoke entrypoint.
 - A Kotlin PSI `.pic` generator that emits deterministic package text and verifies the generated file by parsing it back through the same ANTLR backend.
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
@@ -29,8 +29,8 @@ The repository already has:
 
 The important gaps are:
 
-- Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing, companion source-set external bindings, imported aliases, simple jar-backed classpath classes, Kotlin constructors, Kotlin top-level jar functions, Kotlin extension jar functions, owner-qualified member properties, and callable signatures for overload and generic fixtures, but project-model-aware resolution and multi-call overload graph disambiguation still need expansion.
-- Kotlin project discovery is still host-provided. Source roots, companion files, and classpath can be passed in, but the backend does not yet discover full Gradle/KMP source sets, dependencies, and variants on its own.
+- Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing, companion source-set external bindings, imported aliases, simple jar-backed classpath classes, Kotlin constructors, Kotlin top-level jar functions, Kotlin extension jar functions, owner-qualified member properties, and callable signatures for overload and generic fixtures, but multi-call overload graph disambiguation still needs expansion.
+- Kotlin project discovery has an initial JVM Gradle Tooling API path for analysis inputs. `projectRoot` can discover KMP source roots and compile classpaths, but compile action variant selection, project model hashing, and complete dependency/target modeling still need expansion.
 - Kotlin compile actions are real but still mediated by the npm function that creates a temporary Gradle project. The final shape should make Kotlin/JVM the rule owner and Node only the invoker.
 - Go semantics are still mostly JavaScript-side extraction plus official `go build`/`go test` for compile. The long-term Go rule should use `go list`, `go test`, and `go build` as the source of truth, or move the Go-specific backend into Go.
 - The root/browser-safe Kotlin extractor remains a lightweight fallback. Production Kotlin semantics should be routed through `piece-compiler/node` or a service/local agent.
@@ -132,8 +132,11 @@ Definition of done: Kotlin semantic symbols and diagnostics can run through Anal
 
 ### Phase 4: Gradle/KMP Project Model
 
-- Use Gradle Tooling API to discover source sets, dependencies, classpaths, and target variants.
-- Replace manual `sourceRoots`, companion files, and `classpath` wiring with project-model discovery where possible.
+- Done: add a JVM Gradle Tooling API backend that discovers Kotlin source sets and compile classpath configurations from a real Gradle/KMP project.
+- Done: expose `projectRoot` / `gradleProjectRoot` through `analyzeKotlinPieceFile()`, `createNodeKotlinPsiDeclarationExtractor()`, and default Node Kotlin analysis.
+- Done: merge discovered source roots and classpath entries with manual `sourceFiles`, `sourceRoots`, and `classpath` overrides, then return `manifest.projectModel` metadata.
+- Done: add `npm run language:project-model:smoke` with a temporary KMP project that proves discovered `commonMain` source and JVM jar classpath entries become Analysis API graph edges.
+- Continue from source sets and classpaths toward dependency coordinates, target variants, project model hashes, and compile action variant ownership.
 - Keep manual inputs as override hooks for editor buffers and unsaved files.
 
 Definition of done: a Kotlin file inside a real Gradle/KMP project can be analyzed and compiled with the correct source set and classpath without hand-supplied dependency lists.
@@ -270,9 +273,17 @@ The tenth Phase 3 slice is now implemented:
 
 ## Next Small Slice
 
-The next implementation slice should start Phase 4:
+The first Phase 4 analysis-input slice is now implemented:
 
-1. Add a minimal Gradle/KMP project-model discovery path for Kotlin analysis inputs.
-2. Discover source roots and compile classpath from a real Gradle project instead of requiring every caller to pass `sourceRoots`, companion files, and `classpath` manually.
-3. Keep manual inputs as explicit editor-buffer override hooks.
-4. Preserve FE10 fallback and Analysis API gate diagnostics when project discovery cannot prove a safe result.
+1. `KotlinGradleProjectModelBackend` runs on the JVM side and invokes Gradle through Tooling API, with wrapper fallback when the Tooling API distribution is unavailable.
+2. `analyzeKotlinPieceFile({ projectRoot })` discovers Kotlin source roots and compile classpaths from a real Gradle/KMP project before invoking PSI, FE10, or Analysis API.
+3. Manual `sourceFiles`, `sourceRoots`, and `classpath` remain explicit editor-buffer override hooks.
+4. `manifest.projectModel` records discovered source sets, classpath configurations, flattened source roots, flattened classpath entries, and fallback diagnostics.
+5. `npm run language:project-model:smoke` verifies a real temporary KMP project where discovered `commonMain` source and `jvmMain` jar dependency become Analysis API external graph edges.
+
+The next implementation slice should continue Phase 4:
+
+1. Move compile actions from generated temporary projects toward real Gradle/KMP project variants when `projectRoot` is available.
+2. Preserve single-file speed by selecting only the source set and classpath required for the edited file.
+3. Add project model hashes to action/cache keys.
+4. Keep FE10 fallback and Analysis API gate diagnostics visible when project discovery cannot prove a safe result.
