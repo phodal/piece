@@ -22,6 +22,7 @@ fun main(args: Array<String>) {
         source = source,
         parserName = options["parserName"]?.takeIf { it.isNotBlank() } ?: "kotlin-psi-declaration-extractor",
         semanticDiagnostics = options["semanticDiagnostics"] == "true",
+        semanticSymbols = options["semanticSymbols"] == "true",
     )
 
     val result = try {

@@ -112,7 +112,7 @@ private class CollectingMessageCollector(
     }
 }
 
-private fun defaultKotlinSemanticClasspath(): List<String> {
+internal fun defaultKotlinSemanticClasspath(): List<String> {
     return System.getProperty("java.class.path")
         .split(File.pathSeparator)
         .filter { path ->

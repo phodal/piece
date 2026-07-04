@@ -14,6 +14,7 @@ data class KotlinPsiAnalysisRequest(
     val source: String,
     val parserName: String = DEFAULT_KOTLIN_PSI_PARSER_NAME,
     val semanticDiagnostics: Boolean = false,
+    val semanticSymbols: Boolean = false,
 )
 
 data class KotlinPsiImportBinding(
@@ -127,11 +128,38 @@ class KotlinPsiAnalysisBackend {
             val declarations = ktFile.declarations.mapNotNull { declaration ->
                 declaration.toPieceDeclaration(file)
             }
-            val slices = declarations.map { declaration ->
-                declaration.toManifestSlice(file)
-            }
             val headers = ktFile.toHeaders(file)
+            val importLocals = headers.flatMap { header -> header.importBindings }.map { binding -> binding.local }.toSet()
+            val localTargetNames = declarations.map { declaration -> declaration.name }.toSet()
+            val semanticResult = if (request.semanticSymbols) {
+                KotlinBindingSymbolBackend().symbols(
+                    KotlinBindingSymbolRequest(
+                        filePath = request.filePath,
+                        source = request.source,
+                    ),
+                )
+            } else {
+                KotlinBindingSymbolResult(emptyMap())
+            }
+            val slices = declarations.map { declaration ->
+                declaration.toManifestSlice(
+                    file = file,
+                    semanticSymbols = semanticResult.symbolsByDeclaration[declaration.name],
+                    localTargetNames = localTargetNames,
+                    importLocals = importLocals,
+                )
+            }
             val effects = ktFile.toEffects(file, declarations, headers)
+            val diagnostics = semanticResult.diagnostics + if (request.semanticDiagnostics) {
+                KotlinCompilerDiagnosticBackend().diagnostics(
+                    KotlinCompilerDiagnosticRequest(
+                        filePath = request.filePath,
+                        source = request.source,
+                    ),
+                )
+            } else {
+                emptyList()
+            }
 
             KotlinPsiManifest(
                 filePath = request.filePath,
@@ -142,16 +170,7 @@ class KotlinPsiAnalysisBackend {
                 effects = effects,
                 importBindings = headers.flatMap { it.importBindings },
                 hasTopLevelEffect = effects.isNotEmpty(),
-                diagnostics = if (request.semanticDiagnostics) {
-                    KotlinCompilerDiagnosticBackend().diagnostics(
-                        KotlinCompilerDiagnosticRequest(
-                            filePath = request.filePath,
-                            source = request.source,
-                        ),
-                    )
-                } else {
-                    emptyList()
-                },
+                diagnostics = diagnostics,
             )
         }
     }
@@ -191,11 +210,30 @@ fun errorKotlinPsiManifest(request: KotlinPsiAnalysisRequest, error: Throwable):
     )
 }
 
-private fun KotlinPieceDeclaration.toManifestSlice(file: SourceFile): KotlinPsiManifestSlice {
+private fun KotlinPieceDeclaration.toManifestSlice(
+    file: SourceFile,
+    semanticSymbols: KotlinSemanticSymbols? = null,
+    localTargetNames: Set<String> = emptySet(),
+    importLocals: Set<String> = emptySet(),
+): KotlinPsiManifestSlice {
     val kindName = kind.name.lowercase()
     val sliceSource = file.source.substring(range.startByte, range.endByte)
-    val typeReferenceSet = typeReferences.toSet()
-    val references = (runtimeReferences + typeReferences).distinct().sorted()
+    val mergedRuntimeReferences = mergeSemanticReferences(
+        psiReferences = runtimeReferences,
+        semanticReferences = semanticSymbols?.runtimeReferences,
+        resolvedNames = semanticSymbols?.resolvedRuntimeNames.orEmpty(),
+        localTargetNames = localTargetNames,
+        importLocals = importLocals,
+    )
+    val mergedTypeReferences = mergeSemanticReferences(
+        psiReferences = typeReferences,
+        semanticReferences = semanticSymbols?.typeReferences,
+        resolvedNames = semanticSymbols?.resolvedTypeNames.orEmpty(),
+        localTargetNames = localTargetNames,
+        importLocals = importLocals,
+    )
+    val typeReferenceSet = mergedTypeReferences.toSet()
+    val references = (mergedRuntimeReferences + mergedTypeReferences).distinct().sorted()
     val signature = declarationSignature(sliceSource)
 
     return KotlinPsiManifestSlice(
@@ -228,6 +266,22 @@ private fun KotlinPieceDeclaration.toManifestSlice(file: SourceFile): KotlinPsiM
             fallbackRequired = false,
         ),
     )
+}
+
+private fun mergeSemanticReferences(
+    psiReferences: List<String>,
+    semanticReferences: List<String>?,
+    resolvedNames: List<String>,
+    localTargetNames: Set<String>,
+    importLocals: Set<String>,
+): List<String> {
+    if (semanticReferences == null) return psiReferences
+    val resolvedNameSet = resolvedNames.toSet()
+    return (semanticReferences + psiReferences.filter { reference ->
+        reference !in localTargetNames && (reference in importLocals || reference !in resolvedNameSet)
+    })
+        .distinct()
+        .sorted()
 }
 
 private fun KtFile.toHeaders(file: SourceFile): List<KotlinPsiManifestHeader> {

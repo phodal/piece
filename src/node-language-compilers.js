@@ -266,6 +266,7 @@ export async function analyzeKotlinPieceFile(options = {}) {
   const source = options.source ?? "";
   const parserName = options.parserName ?? "kotlin-psi-declaration-extractor";
   const semanticDiagnostics = options.semanticDiagnostics === true;
+  const semanticSymbols = options.semanticSymbols === true;
   const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-analysis-host-");
   const hostWorkspace = hostWorkspaceInfo.path;
   const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
@@ -282,7 +283,8 @@ export async function analyzeKotlinPieceFile(options = {}) {
       `-PpieceAnalysis.sourceFile=${sourceFile}`,
       `-PpieceAnalysis.outputReport=${outputReport}`,
       `-PpieceAnalysis.parserName=${parserName}`,
-      `-PpieceAnalysis.semanticDiagnostics=${semanticDiagnostics ? "true" : "false"}`
+      `-PpieceAnalysis.semanticDiagnostics=${semanticDiagnostics ? "true" : "false"}`,
+      `-PpieceAnalysis.semanticSymbols=${semanticSymbols ? "true" : "false"}`
     ];
 
     const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
@@ -305,6 +307,7 @@ export function createNodeKotlinPsiDeclarationExtractor(options = {}) {
         source,
         parserName: name,
         semanticDiagnostics: options.semanticDiagnostics === true,
+        semanticSymbols: options.semanticSymbols === true,
         env: options.env
       });
     }

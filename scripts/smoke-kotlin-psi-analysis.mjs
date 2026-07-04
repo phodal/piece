@@ -90,4 +90,23 @@ assert(
   `Kotlin compiler semantic diagnostics were not returned: ${JSON.stringify(semanticDiagnostics.diagnostics)}`
 );
 
+const symbolSource = `package demo.symbols
+
+class User
+
+fun <User> render(value: User): User = value
+`;
+const semanticSymbols = await analyzeKotlinPieceFile({
+  filePath: "/repo/src/Symbols.kt",
+  source: symbolSource,
+  semanticSymbols: true
+});
+const symbolRender = semanticSymbols.slices.find((slice) => slice.name === "render");
+assert(symbolRender, `Kotlin semantic symbol manifest did not include render: ${JSON.stringify(semanticSymbols.slices)}`);
+assert(
+  JSON.stringify(symbolRender.symbols.references) === JSON.stringify([]) &&
+    JSON.stringify(symbolRender.symbols.typeReferences) === JSON.stringify([]),
+  `Kotlin semantic symbols did not remove type-parameter shadowed User references: ${JSON.stringify(symbolRender.symbols)}`
+);
+
 console.log("Kotlin PSI analysis smoke passed");
