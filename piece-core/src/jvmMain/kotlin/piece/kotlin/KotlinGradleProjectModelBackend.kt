@@ -44,6 +44,13 @@ data class KotlinGradleProjectModelDependency(
     val coordinates: String,
 )
 
+data class KotlinGradleProjectModelProjectDependency(
+    val projectPath: String,
+    val configuration: String,
+    val dependencyProjectPath: String,
+    val dependencyProjectDir: String,
+)
+
 data class KotlinGradleProjectModelTargetVariant(
     val projectPath: String,
     val sourceSet: String,
@@ -73,6 +80,7 @@ data class KotlinGradleProjectModelResult(
     val sourceSets: List<KotlinGradleProjectModelSourceSet>,
     val classpaths: List<KotlinGradleProjectModelClasspath>,
     val dependencies: List<KotlinGradleProjectModelDependency>,
+    val projectDependencies: List<KotlinGradleProjectModelProjectDependency>,
     val targetVariants: List<KotlinGradleProjectModelTargetVariant>,
     val sourceRoots: List<String>,
     val classpath: List<String>,
@@ -87,6 +95,7 @@ data class KotlinGradleProjectModelResult(
         field("sourceSets", sourceSets) { it.toJson() }
         field("classpaths", classpaths) { it.toJson() }
         field("dependencies", dependencies) { it.toJson() }
+        field("projectDependencies", projectDependencies) { it.toJson() }
         field("targetVariants", targetVariants) { it.toJson() }
         field("sourceRoots", sourceRoots)
         field("classpath", classpath)
@@ -118,8 +127,17 @@ class KotlinGradleProjectModelBackend {
             val sourceSets = mutableListOf<KotlinGradleProjectModelSourceSet>()
             val classpaths = mutableListOf<KotlinGradleProjectModelClasspath>()
             val dependencies = mutableListOf<KotlinGradleProjectModelDependency>()
+            val projectDependencies = mutableListOf<KotlinGradleProjectModelProjectDependency>()
             val targetVariants = mutableListOf<KotlinGradleProjectModelTargetVariant>()
-            parseProjectModelOutput(modelCommand.stdout, sourceSets, classpaths, dependencies, targetVariants, parsedDiagnostics)
+            parseProjectModelOutput(
+                modelCommand.stdout,
+                sourceSets,
+                classpaths,
+                dependencies,
+                projectDependencies,
+                targetVariants,
+                parsedDiagnostics,
+            )
 
             val sourceRoots = sourceSets
                 .flatMap { it.sourceRoots }
@@ -152,6 +170,9 @@ class KotlinGradleProjectModelBackend {
             val sortedSourceSets = sourceSets.sortedWith(compareBy({ it.projectPath }, { it.name }))
             val sortedClasspaths = classpaths.sortedWith(compareBy({ it.projectPath }, { it.name }))
             val sortedDependencies = dependencies.sortedWith(compareBy({ it.projectPath }, { it.configuration }, { it.coordinates }))
+            val sortedProjectDependencies = projectDependencies
+                .distinct()
+                .sortedWith(compareBy({ it.projectPath }, { it.configuration }, { it.dependencyProjectPath }))
             val sortedTargetVariants = targetVariants.sortedWith(compareBy({ it.projectPath }, { it.sourceSet }, { it.targetName }))
             val hashes = projectModelHashes(
                 projectRoot = projectRoot.toString(),
@@ -159,6 +180,7 @@ class KotlinGradleProjectModelBackend {
                 sourceSets = sortedSourceSets,
                 classpaths = sortedClasspaths,
                 dependencies = sortedDependencies,
+                projectDependencies = sortedProjectDependencies,
                 targetVariants = sortedTargetVariants,
                 sourceRoots = sourceRoots,
                 classpath = classpath,
@@ -170,6 +192,7 @@ class KotlinGradleProjectModelBackend {
                 sourceSets = sortedSourceSets,
                 classpaths = sortedClasspaths,
                 dependencies = sortedDependencies,
+                projectDependencies = sortedProjectDependencies,
                 targetVariants = sortedTargetVariants,
                 sourceRoots = sourceRoots,
                 classpath = classpath,
@@ -188,6 +211,7 @@ private fun parseProjectModelOutput(
     sourceSets: MutableList<KotlinGradleProjectModelSourceSet>,
     classpaths: MutableList<KotlinGradleProjectModelClasspath>,
     dependencies: MutableList<KotlinGradleProjectModelDependency>,
+    projectDependencies: MutableList<KotlinGradleProjectModelProjectDependency>,
     targetVariants: MutableList<KotlinGradleProjectModelTargetVariant>,
     diagnostics: MutableList<KotlinGradleProjectModelDiagnostic>,
 ) {
@@ -228,6 +252,18 @@ private fun parseProjectModelOutput(
                         name = parts[4],
                         version = parts[5],
                         coordinates = parts[6],
+                    )
+                }
+            }
+
+            line.startsWith("PIECE_KOTLIN_PROJECT_DEPENDENCY\t") -> {
+                val parts = line.split('\t')
+                if (parts.size >= 5) {
+                    projectDependencies += KotlinGradleProjectModelProjectDependency(
+                        projectPath = parts[1],
+                        configuration = parts[2],
+                        dependencyProjectPath = parts[3],
+                        dependencyProjectDir = parts[4],
                     )
                 }
             }
@@ -273,6 +309,7 @@ internal fun projectModelHashes(
     sourceSets: List<KotlinGradleProjectModelSourceSet>,
     classpaths: List<KotlinGradleProjectModelClasspath>,
     dependencies: List<KotlinGradleProjectModelDependency>,
+    projectDependencies: List<KotlinGradleProjectModelProjectDependency>,
     targetVariants: List<KotlinGradleProjectModelTargetVariant>,
     sourceRoots: List<String>,
     classpath: List<String>,
@@ -305,6 +342,15 @@ internal fun projectModelHashes(
             dependency.coordinates,
         )
     }
+    val projectDependencyParts = projectDependencies.flatMap { dependency ->
+        listOf(
+            "projectDependency",
+            dependency.projectPath,
+            dependency.configuration,
+            dependency.dependencyProjectPath,
+            dependency.dependencyProjectDir,
+        )
+    }
     val targetVariantParts = targetVariants.flatMap { variant ->
         listOf(
             "targetVariant",
@@ -321,6 +367,7 @@ internal fun projectModelHashes(
             sourceSetParts +
             classpathParts +
             dependencyParts +
+            projectDependencyParts +
             targetVariantParts
     )
     return KotlinGradleProjectModelHashes(
@@ -603,6 +650,18 @@ gradle.projectsLoaded {
                     project.configurations.findAll { cfg -> pieceShouldResolveClasspath(cfg) }.each { cfg ->
                         try {
                             def files = cfg.resolve().findAll { file -> file.exists() }.collect { file -> file.absolutePath }.sort()
+                            try {
+                                cfg.incoming.resolutionResult.allComponents.each { component ->
+                                    def componentId = component.id
+                                    if (componentId instanceof org.gradle.api.artifacts.component.ProjectComponentIdentifier && componentId.projectPath != project.path) {
+                                        def dependencyProject = root.findProject(componentId.projectPath)
+                                        def dependencyProjectDir = dependencyProject == null ? '' : dependencyProject.projectDir.absolutePath
+                                        println('PIECE_KOTLIN_PROJECT_DEPENDENCY\t' + pieceEscape(project.path) + '\t' + pieceEscape(cfg.name) + '\t' + pieceEscape(componentId.projectPath) + '\t' + pieceEscape(dependencyProjectDir))
+                                    }
+                                }
+                            } catch (Throwable error) {
+                                println('PIECE_KOTLIN_DIAGNOSTIC\twarning\tkotlin-gradle-project-dependencies-unavailable\t' + pieceEscape(cfg.name + ': ' + error.message))
+                            }
                             println('PIECE_KOTLIN_CLASSPATH\t' + pieceEscape(project.path) + '\t' + pieceEscape(cfg.name) + '\t' + pieceJoinPaths(files))
                             def variant = pieceVariantForClasspath(project, cfg)
                             if (variant != null) {
@@ -690,6 +749,13 @@ private fun KotlinGradleProjectModelDependency.toJson(): String = buildGradleMod
     field("name", name)
     field("version", version)
     field("coordinates", coordinates)
+}
+
+private fun KotlinGradleProjectModelProjectDependency.toJson(): String = buildGradleModelJsonObject {
+    field("projectPath", projectPath)
+    field("configuration", configuration)
+    field("dependencyProjectPath", dependencyProjectPath)
+    field("dependencyProjectDir", dependencyProjectDir)
 }
 
 private fun KotlinGradleProjectModelTargetVariant.toJson(): String = buildGradleModelJsonObject {

@@ -82,23 +82,34 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "piece-gradle-model-fixture"
+include("app", "domain", "unused")
 `,
     "utf8"
   );
   await writeFile(
     join(projectRoot, "build.gradle.kts"),
     `plugins {
-  kotlin("multiplatform") version "2.2.21"
+  kotlin("multiplatform") version "2.2.21" apply false
+}
+`,
+    "utf8"
+  );
+  await mkdir(join(projectRoot, "app"), { recursive: true });
+  await mkdir(join(projectRoot, "domain"), { recursive: true });
+  await mkdir(join(projectRoot, "unused"), { recursive: true });
+  await writeFile(
+    join(projectRoot, "app", "build.gradle.kts"),
+    `plugins {
+  kotlin("multiplatform")
 }
 
 kotlin {
   jvm()
 
   sourceSets {
-    val unusedMain by creating
-
     val jvmMain by getting {
       dependencies {
+        implementation(project(":domain"))
         implementation("demo.external:external-user:1.0.0")
       }
     }
@@ -107,10 +118,34 @@ kotlin {
 `,
     "utf8"
   );
+  await writeFile(
+    join(projectRoot, "domain", "build.gradle.kts"),
+    `plugins {
+  kotlin("multiplatform")
+}
 
-  const modelDir = join(projectRoot, "src", "commonMain", "kotlin", "demo", "model");
-  const appDir = join(projectRoot, "src", "jvmMain", "kotlin", "demo", "app");
-  const unusedDir = join(projectRoot, "src", "unusedMain", "kotlin", "demo", "unused");
+kotlin {
+  jvm()
+}
+`,
+    "utf8"
+  );
+  await writeFile(
+    join(projectRoot, "unused", "build.gradle.kts"),
+    `plugins {
+  kotlin("multiplatform")
+}
+
+kotlin {
+  jvm()
+}
+`,
+    "utf8"
+  );
+
+  const modelDir = join(projectRoot, "domain", "src", "commonMain", "kotlin", "demo", "model");
+  const appDir = join(projectRoot, "app", "src", "jvmMain", "kotlin", "demo", "app");
+  const unusedDir = join(projectRoot, "unused", "src", "jvmMain", "kotlin", "demo", "unused");
   await mkdir(modelDir, { recursive: true });
   await mkdir(appDir, { recursive: true });
   await mkdir(unusedDir, { recursive: true });
@@ -163,8 +198,9 @@ try {
 
   assert(manifest.projectModel?.status === "success", `Gradle project model discovery did not succeed: ${JSON.stringify(manifest.projectModel)}`);
   assert(
-    manifest.projectModel.sourceRoots.some((root) => root.endsWith("/src/commonMain/kotlin")) &&
-      manifest.projectModel.sourceRoots.some((root) => root.endsWith("/src/jvmMain/kotlin")),
+    manifest.projectModel.sourceRoots.some((root) => root.endsWith("/domain/src/commonMain/kotlin")) &&
+      manifest.projectModel.sourceRoots.some((root) => root.endsWith("/app/src/jvmMain/kotlin")) &&
+      manifest.projectModel.sourceRoots.some((root) => root.endsWith("/unused/src/jvmMain/kotlin")),
     `Gradle project model did not discover KMP source roots: ${JSON.stringify(manifest.projectModel.sourceRoots)}`
   );
   const projectJar = manifest.projectModel.classpath.find((file) => file.endsWith("external-user-1.0.0.jar"));
@@ -178,8 +214,22 @@ try {
     `Gradle project model did not expose dependency coordinates: ${JSON.stringify(manifest.projectModel.dependencies)}`
   );
   assert(
+    manifest.projectModel.projectDependencies.some(
+      (dependency) =>
+        dependency.projectPath === ":app" &&
+        dependency.configuration === "jvmCompileClasspath" &&
+        dependency.dependencyProjectPath === ":domain" &&
+        dependency.dependencyProjectDir.endsWith("/domain")
+    ),
+    `Gradle project model did not expose project dependencies: ${JSON.stringify({
+      projectDependencies: manifest.projectModel.projectDependencies,
+      diagnostics: manifest.diagnostics
+    })}`
+  );
+  assert(
     manifest.projectModel.targetVariants.some(
       (variant) =>
+        variant.projectPath === ":app" &&
         variant.sourceSet === "jvmMain" &&
         variant.targetName === "jvm" &&
         variant.compileTask === "compileKotlinJvm" &&
@@ -194,19 +244,21 @@ try {
     `Gradle project model did not include stable hashes: ${JSON.stringify(manifest.projectModel)}`
   );
   assert(
-    manifest.projectModel.sourceSets.some((sourceSet) => sourceSet.name === "unusedMain"),
-    `Full Gradle project model did not retain the unused source set: ${JSON.stringify(manifest.projectModel.sourceSets)}`
+    manifest.projectModel.sourceSets.some((sourceSet) => sourceSet.projectPath === ":unused" && sourceSet.name === "jvmMain"),
+    `Full Gradle project model did not retain the unused project source set: ${JSON.stringify(manifest.projectModel.sourceSets)}`
   );
   assert(
     manifest.projectModel.analysisScope?.status === "selected" &&
+      manifest.projectModel.analysisScope?.projectPath === ":app" &&
+      JSON.stringify(manifest.projectModel.analysisScope?.projectPaths) === JSON.stringify([":app", ":domain"]) &&
       manifest.projectModel.analysisScope?.sourceSet === "jvmMain" &&
       JSON.stringify(manifest.projectModel.analysisScope?.requiredSourceSets) === JSON.stringify(["commonMain", "jvmMain"]),
     `Gradle project model did not select the jvmMain analysis scope: ${JSON.stringify(manifest.projectModel.analysisScope)}`
   );
   assert(
-    manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/src/commonMain/kotlin")) &&
-      manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/src/jvmMain/kotlin")) &&
-      !manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/src/unusedMain/kotlin")),
+    manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/domain/src/commonMain/kotlin")) &&
+      manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/app/src/jvmMain/kotlin")) &&
+      !manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/unused/src/jvmMain/kotlin")),
     `Gradle project model analysis scope did not narrow source roots: ${JSON.stringify(manifest.projectModel.analysisScope.sourceRoots)}`
   );
   assert(
@@ -218,7 +270,14 @@ try {
     `Gradle project model analysis scope did not retain dependency coordinates: ${JSON.stringify(manifest.projectModel.analysisScope.dependencyCoordinates)}`
   );
   assert(
-    manifest.projectModel.analysisScope.targetVariants.some((variant) => variant.compileTask === "compileKotlinJvm"),
+    manifest.projectModel.analysisScope.projectDependencies.some(
+      (dependency) => dependency.projectPath === ":app" && dependency.dependencyProjectPath === ":domain"
+    ),
+    `Gradle project model analysis scope did not retain project dependencies: ${JSON.stringify(manifest.projectModel.analysisScope.projectDependencies)}`
+  );
+  assert(
+    manifest.projectModel.analysisScope.targetVariants.some((variant) => variant.projectPath === ":app" && variant.compileTask === "compileKotlinJvm") &&
+      manifest.projectModel.analysisScope.targetVariants.some((variant) => variant.projectPath === ":domain" && variant.compileTask === "compileKotlinJvm"),
     `Gradle project model analysis scope did not retain target variants: ${JSON.stringify(manifest.projectModel.analysisScope.targetVariants)}`
   );
   assert(

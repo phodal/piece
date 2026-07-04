@@ -269,12 +269,20 @@ private fun sourceSetForProjectFile(projectRoot: Path, filePath: String): String
 }
 
 private fun collectProjectCompileOutputs(projectRoot: Path): List<KotlinOutputFile> {
-    val buildDir = projectRoot.resolve("build")
-    return (
-        collectFiles(buildDir.resolve("classes")) +
-            collectFiles(buildDir.resolve("libs")) +
-            collectFiles(buildDir.resolve("dist"))
-        ).sortedBy { it.path }
+    val buildDirs = Files.walk(projectRoot).use { stream ->
+        stream
+            .filter { Files.isDirectory(it) && it.fileName.toString() == "build" }
+            .filter { !it.startsWith(projectRoot.resolve(".gradle")) }
+            .toList()
+            .sortedBy { it.toString() }
+    }
+    return buildDirs
+        .flatMap { buildDir ->
+            collectFiles(buildDir.resolve("classes")) +
+                collectFiles(buildDir.resolve("libs")) +
+                collectFiles(buildDir.resolve("dist"))
+        }
+        .sortedBy { it.path }
 }
 
 private fun sourceBasename(filePath: String): String {

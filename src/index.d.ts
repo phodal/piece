@@ -377,6 +377,13 @@ export interface PieceProjectModelDependency {
   readonly coordinates: string;
 }
 
+export interface PieceProjectModelProjectDependency {
+  readonly projectPath: string;
+  readonly configuration: string;
+  readonly dependencyProjectPath: string;
+  readonly dependencyProjectDir: string;
+}
+
 export interface PieceProjectModelTargetVariant {
   readonly projectPath: string;
   readonly sourceSet: string;
@@ -400,12 +407,15 @@ export interface PieceProjectModelAnalysisScopeHashes {
 
 export interface PieceProjectModelAnalysisScope {
   readonly status: "selected" | "fallback" | (string & {});
+  readonly projectPath?: string;
+  readonly projectPaths: readonly string[];
   readonly sourceSet?: string;
   readonly requiredSourceSets: readonly string[];
   readonly sourceRoots: readonly string[];
   readonly classpath: readonly string[];
   readonly classpathConfigurations: readonly string[];
   readonly dependencyCoordinates: readonly string[];
+  readonly projectDependencies: readonly PieceProjectModelProjectDependency[];
   readonly targetVariants: readonly PieceProjectModelTargetVariant[];
   readonly hashes: PieceProjectModelAnalysisScopeHashes;
 }
@@ -419,6 +429,7 @@ export interface PieceProjectModelMetadata {
   readonly sourceSets: readonly PieceProjectModelSourceSet[];
   readonly classpaths: readonly PieceProjectModelClasspath[];
   readonly dependencies: readonly PieceProjectModelDependency[];
+  readonly projectDependencies: readonly PieceProjectModelProjectDependency[];
   readonly targetVariants: readonly PieceProjectModelTargetVariant[];
   readonly hashes: PieceProjectModelHashes;
   readonly analysisScope?: PieceProjectModelAnalysisScope;
