@@ -2,6 +2,8 @@ package piece.kotlin;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.nio.file.Paths;
+import java.util.LinkedHashMap;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -22,8 +24,8 @@ public final class KotlinAnalysisApiSymbolRunner {
 
     public static void main(String[] args) {
         try {
-            if (args.length == 0) {
-                throw new IllegalArgumentException("Usage: KotlinAnalysisApiSymbolRunner <primary-source> [source...]");
+            if (args.length == 0 || args.length % 2 != 0) {
+                throw new IllegalArgumentException("Usage: KotlinAnalysisApiSymbolRunner <physical-source> <virtual-source> [physical-source virtual-source...]");
             }
             new Runner(args).run();
             System.exit(0);
@@ -34,7 +36,8 @@ public final class KotlinAnalysisApiSymbolRunner {
     }
 
     private static final class Runner {
-        private final String[] sourcePaths;
+        private final List<SourceInput> sources = new ArrayList<>();
+        private final Map<String, String> virtualPathByPhysicalPath = new LinkedHashMap<>();
         private final Class<?> compilerConfigurationClass;
         private final Class<?> compilerConfigurationKeyClass;
         private final Class<?> function1Class;
@@ -51,7 +54,11 @@ public final class KotlinAnalysisApiSymbolRunner {
         private final Class<?> psiTreeUtilClass;
 
         Runner(String[] sourcePaths) throws ClassNotFoundException {
-            this.sourcePaths = sourcePaths;
+            for (int i = 0; i < sourcePaths.length; i += 2) {
+                SourceInput source = new SourceInput(sourcePaths[i], sourcePaths[i + 1]);
+                sources.add(source);
+                virtualPathByPhysicalPath.put(normalizePath(source.physicalPath), source.virtualPath);
+            }
             compilerConfigurationClass = cls("org.jetbrains.kotlin.config.CompilerConfiguration");
             compilerConfigurationKeyClass = cls("org.jetbrains.kotlin.config.CompilerConfigurationKey");
             function1Class = cls("kotlin.jvm.functions.Function1");
@@ -78,8 +85,8 @@ public final class KotlinAnalysisApiSymbolRunner {
                 .invoke(config, moduleNameKey, "piece-analysis-api-prototype");
             Method addSourceRoot = cls("org.jetbrains.kotlin.cli.common.config.ContentRootsKt")
                 .getMethod("addKotlinSourceRoot", compilerConfigurationClass, String.class);
-            for (String sourcePath : sourcePaths) {
-                addSourceRoot.invoke(null, config, sourcePath);
+            for (SourceInput source : sources) {
+                addSourceRoot.invoke(null, config, source.physicalPath);
             }
 
             Object disposable = cls("com.intellij.openapi.util.Disposer")
@@ -87,7 +94,7 @@ public final class KotlinAnalysisApiSymbolRunner {
                 .invoke(null);
             try {
                 Object session = buildSession(config, disposable);
-                Object ktFile = findPrimaryKtFile(session, Path.of(sourcePaths[0]).getFileName().toString());
+                Object ktFile = findPrimaryKtFile(session, Path.of(sources.get(0).physicalPath).getFileName().toString());
                 emitSymbols(ktFile);
             } finally {
                 cls("com.intellij.openapi.util.Disposer")
@@ -154,7 +161,7 @@ public final class KotlinAnalysisApiSymbolRunner {
                 if (declarationName == null || declarationName.isBlank()) {
                     continue;
                 }
-                SymbolBuckets symbols = collectDeclarationSymbols(declaration, declarationName);
+                SymbolBuckets symbols = collectDeclarationSymbols(declaration, declarationName, sourcePathOfKtFile(ktFile));
                 System.out.println(
                     "DECL\t" + declarationName +
                         "\t" + join(symbols.runtimeReferences) +
@@ -162,10 +169,24 @@ public final class KotlinAnalysisApiSymbolRunner {
                         "\t" + join(symbols.resolvedRuntimeNames) +
                         "\t" + join(symbols.resolvedTypeNames)
                 );
+                for (ExternalBinding binding : symbols.externalBindings) {
+                    System.out.println(
+                        "BIND\t" + declarationName +
+                            "\t" + binding.local +
+                            "\t" + binding.imported +
+                            "\t" + binding.source +
+                            "\t" + binding.kind +
+                            "\t" + binding.typeOnly
+                    );
+                }
             }
         }
 
-        private SymbolBuckets collectDeclarationSymbols(Object declaration, String declarationName) throws Exception {
+        private SymbolBuckets collectDeclarationSymbols(
+            Object declaration,
+            String declarationName,
+            String primarySourcePath
+        ) throws Exception {
             SymbolBuckets buckets = new SymbolBuckets();
             Collection<?> references = (Collection<?>) psiTreeUtilClass
                 .getMethod("findChildrenOfType", psiElementClass, Class.class)
@@ -183,14 +204,24 @@ public final class KotlinAnalysisApiSymbolRunner {
                         buckets.resolvedRuntimeNames.add(referencedName);
                     }
                 }
-                for (String topLevelName : resolution.topLevelNames) {
-                    if (declarationName.equals(topLevelName)) {
+                for (TopLevelSymbol symbol : resolution.topLevelSymbols) {
+                    if (symbol.source.equals(primarySourcePath) && declarationName.equals(symbol.name)) {
                         continue;
                     }
-                    if (typeReference) {
-                        buckets.typeReferences.add(topLevelName);
+                    if (!symbol.source.equals(primarySourcePath)) {
+                        buckets.externalBindings.add(new ExternalBinding(
+                            symbol.name,
+                            symbol.name,
+                            symbol.source,
+                            "named",
+                            false
+                        ));
                     } else {
-                        buckets.runtimeReferences.add(topLevelName);
+                        if (typeReference) {
+                            buckets.typeReferences.add(symbol.name);
+                        } else {
+                            buckets.runtimeReferences.add(symbol.name);
+                        }
                     }
                 }
             }
@@ -222,9 +253,9 @@ public final class KotlinAnalysisApiSymbolRunner {
                         }
                         for (Object symbol : symbols) {
                             Object psi = kaSymbolClass.getMethod("getPsi").invoke(symbol);
-                            String topLevelName = topLevelDeclarationName(psi);
-                            if (topLevelName != null) {
-                                resolution.topLevelNames.add(topLevelName);
+                            TopLevelSymbol topLevelSymbol = topLevelDeclaration(psi);
+                            if (topLevelSymbol != null) {
+                                resolution.topLevelSymbols.add(topLevelSymbol);
                             }
                         }
                     }
@@ -243,16 +274,29 @@ public final class KotlinAnalysisApiSymbolRunner {
             return parent != null;
         }
 
-        private String topLevelDeclarationName(Object psi) throws Exception {
+        private TopLevelSymbol topLevelDeclaration(Object psi) throws Exception {
             Object current = psi;
             while (current != null) {
                 Object parent = psiElementClass.getMethod("getParent").invoke(current);
                 if (parent != null && ktFileClass.isInstance(parent)) {
-                    return ktDeclarationClass.isInstance(current) ? nameOfDeclaration(current) : null;
+                    if (!ktDeclarationClass.isInstance(current)) {
+                        return null;
+                    }
+                    String name = nameOfDeclaration(current);
+                    if (name == null) {
+                        return null;
+                    }
+                    return new TopLevelSymbol(name, sourcePathOfKtFile(parent));
                 }
                 current = parent;
             }
             return null;
+        }
+
+        private String sourcePathOfKtFile(Object ktFile) throws Exception {
+            Object virtualFilePath = ktFileClass.getMethod("getVirtualFilePath").invoke(ktFile);
+            String physicalPath = normalizePath(virtualFilePath.toString());
+            return virtualPathByPhysicalPath.getOrDefault(physicalPath, physicalPath);
         }
 
         private String nameOfDeclaration(Object declaration) throws Exception {
@@ -267,6 +311,10 @@ public final class KotlinAnalysisApiSymbolRunner {
         private static String join(TreeSet<String> values) {
             return String.join(",", values);
         }
+
+        private static String normalizePath(String path) {
+            return Paths.get(path).toAbsolutePath().normalize().toString();
+        }
     }
 
     private static final class SymbolBuckets {
@@ -274,10 +322,31 @@ public final class KotlinAnalysisApiSymbolRunner {
         final TreeSet<String> typeReferences = new TreeSet<>();
         final TreeSet<String> resolvedRuntimeNames = new TreeSet<>();
         final TreeSet<String> resolvedTypeNames = new TreeSet<>();
+        final TreeSet<ExternalBinding> externalBindings = new TreeSet<>();
     }
 
     private static final class ReferenceResolution {
         boolean resolved = false;
-        final List<String> topLevelNames = new ArrayList<>();
+        final List<TopLevelSymbol> topLevelSymbols = new ArrayList<>();
+    }
+
+    private record SourceInput(String physicalPath, String virtualPath) {
+    }
+
+    private record TopLevelSymbol(String name, String source) {
+    }
+
+    private record ExternalBinding(String local, String imported, String source, String kind, boolean typeOnly)
+        implements Comparable<ExternalBinding> {
+        @Override
+        public int compareTo(ExternalBinding other) {
+            int sourceCompare = source.compareTo(other.source);
+            if (sourceCompare != 0) return sourceCompare;
+            int importedCompare = imported.compareTo(other.imported);
+            if (importedCompare != 0) return importedCompare;
+            int localCompare = local.compareTo(other.local);
+            if (localCompare != 0) return localCompare;
+            return Boolean.compare(typeOnly, other.typeOnly);
+        }
     }
 }

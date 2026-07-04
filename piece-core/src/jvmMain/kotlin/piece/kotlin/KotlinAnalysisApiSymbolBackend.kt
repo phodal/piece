@@ -21,11 +21,11 @@ internal class KotlinAnalysisApiSymbolBackend {
                         .resolve("$index-${analysisApiSourceName(companion.filePath, "Companion.kt")}")
                     companionFile.parent.createDirectories()
                     companionFile.writeText(companion.source)
-                    companionFile
+                    AnalysisApiSourceFile(companionFile, companion.filePath)
                 }
-            val report = runIsolatedAnalysisApi(sourceFile, companionSourceFiles)
-            KotlinBindingSymbolResult(
-                symbolsByDeclaration = report,
+            runIsolatedAnalysisApi(
+                sourceFile = AnalysisApiSourceFile(sourceFile, request.filePath),
+                companionSourceFiles = companionSourceFiles,
             )
         } catch (error: Throwable) {
             KotlinBindingSymbolResult(
@@ -45,9 +45,9 @@ internal class KotlinAnalysisApiSymbolBackend {
     }
 
     private fun runIsolatedAnalysisApi(
-        sourceFile: Path,
-        companionSourceFiles: List<Path>,
-    ): Map<String, KotlinSemanticSymbols> {
+        sourceFile: AnalysisApiSourceFile,
+        companionSourceFiles: List<AnalysisApiSourceFile>,
+    ): KotlinBindingSymbolResult {
         val javaExecutable = File(System.getProperty("java.home"), "bin/java").absolutePath
         val childClasspath = analysisApiChildClasspath()
         val command = listOf(
@@ -56,8 +56,11 @@ internal class KotlinAnalysisApiSymbolBackend {
             "-cp",
             childClasspath,
             "piece.kotlin.KotlinAnalysisApiSymbolRunner",
-            sourceFile.toAbsolutePath().normalize().toString(),
-        ) + companionSourceFiles.map { it.toAbsolutePath().normalize().toString() }
+            sourceFile.physicalPath.toAbsolutePath().normalize().toString(),
+            sourceFile.virtualPath,
+        ) + companionSourceFiles.flatMap {
+            listOf(it.physicalPath.toAbsolutePath().normalize().toString(), it.virtualPath)
+        }
         val process = ProcessBuilder(command)
             .redirectErrorStream(true)
             .start()
@@ -83,23 +86,68 @@ internal class KotlinAnalysisApiSymbolBackend {
             .joinToString(File.pathSeparator)
     }
 
-    private fun parseAnalysisApiReport(stdout: String): Map<String, KotlinSemanticSymbols> {
-        return stdout
-            .lineSequence()
-            .filter { it.startsWith("DECL\t") }
-            .mapNotNull { line ->
-                val parts = line.split('\t')
-                if (parts.size < 6) return@mapNotNull null
-                parts[1] to KotlinSemanticSymbols(
-                    runtimeReferences = parts[2].csvNames(),
-                    typeReferences = parts[3].csvNames(),
-                    resolvedRuntimeNames = parts[4].csvNames(),
-                    resolvedTypeNames = parts[5].csvNames(),
-                )
+    private fun parseAnalysisApiReport(stdout: String): KotlinBindingSymbolResult {
+        val symbolsByDeclaration = linkedMapOf<String, MutableAnalysisApiSymbols>()
+        for (line in stdout.lineSequence()) {
+            val parts = line.split('\t')
+            when {
+                parts.firstOrNull() == "DECL" && parts.size >= 6 -> {
+                    symbolsByDeclaration[parts[1]] = MutableAnalysisApiSymbols(
+                        runtimeReferences = parts[2].csvNames(),
+                        typeReferences = parts[3].csvNames(),
+                        resolvedRuntimeNames = parts[4].csvNames(),
+                        resolvedTypeNames = parts[5].csvNames(),
+                    )
+                }
+
+                parts.firstOrNull() == "BIND" && parts.size >= 7 -> {
+                    val declaration = parts[1]
+                    val symbols = symbolsByDeclaration.getOrPut(declaration) {
+                        MutableAnalysisApiSymbols()
+                    }
+                    symbols.importBindings += KotlinPsiImportBinding(
+                        local = parts[2],
+                        imported = parts[3],
+                        source = parts[4],
+                        kind = parts[5],
+                        isTypeOnly = parts[6].toBooleanStrictOrNull() ?: false,
+                    )
+                }
             }
-            .toMap()
+        }
+        val immutableSymbols = symbolsByDeclaration.mapValues { (_, symbols) ->
+            KotlinSemanticSymbols(
+                runtimeReferences = symbols.runtimeReferences,
+                typeReferences = symbols.typeReferences,
+                resolvedRuntimeNames = symbols.resolvedRuntimeNames,
+                resolvedTypeNames = symbols.resolvedTypeNames,
+                importBindings = symbols.importBindings.distinctBy {
+                    "${it.local}:${it.imported}:${it.source}:${it.kind}:${it.isTypeOnly}"
+                }.sortedWith(compareBy({ it.source }, { it.imported }, { it.local })),
+            )
+        }
+        return KotlinBindingSymbolResult(
+            symbolsByDeclaration = immutableSymbols,
+            importBindings = immutableSymbols.values
+                .flatMap { it.importBindings }
+                .distinctBy { "${it.local}:${it.imported}:${it.source}:${it.kind}:${it.isTypeOnly}" }
+                .sortedWith(compareBy({ it.source }, { it.imported }, { it.local })),
+        )
     }
 }
+
+private data class AnalysisApiSourceFile(
+    val physicalPath: Path,
+    val virtualPath: String,
+)
+
+private data class MutableAnalysisApiSymbols(
+    val runtimeReferences: List<String> = emptyList(),
+    val typeReferences: List<String> = emptyList(),
+    val resolvedRuntimeNames: List<String> = emptyList(),
+    val resolvedTypeNames: List<String> = emptyList(),
+    val importBindings: MutableList<KotlinPsiImportBinding> = mutableListOf(),
+)
 
 private fun String.csvNames(): List<String> {
     return split(',')
