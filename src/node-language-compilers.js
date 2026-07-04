@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
@@ -26,6 +26,20 @@ function sourceBasename(filePath, fallback) {
 
 function packageNameFromGo(source) {
   return source.match(/^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)/m)?.[1] ?? "main";
+}
+
+function isKotlinSourcePath(path) {
+  return /\.(?:kt|kts)$/i.test(String(path ?? ""));
+}
+
+function resolveHostPath(path, cwd) {
+  return isAbsolute(path) ? path : resolve(cwd, path);
+}
+
+function sameSourceIdentity(left, right, cwd) {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  return resolveHostPath(String(left), cwd) === resolveHostPath(String(right), cwd);
 }
 
 async function runCommand(command, args, options = {}) {
@@ -108,6 +122,47 @@ async function collectFiles(root) {
   }
   await visit(root);
   return files.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function collectKotlinCompanionSources(options, primaryFilePath) {
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const companions = [];
+  const seen = new Set();
+
+  function addCompanion(filePath, source) {
+    if (!filePath || !isKotlinSourcePath(filePath) || sameSourceIdentity(filePath, primaryFilePath, cwd)) {
+      return;
+    }
+    const key = String(filePath);
+    if (seen.has(key)) return;
+    seen.add(key);
+    companions.push({ filePath: key, source: source ?? "" });
+  }
+
+  for (const sourceFile of Array.isArray(options.sourceFiles) ? options.sourceFiles : []) {
+    if (typeof sourceFile === "string") {
+      const actualPath = resolveHostPath(sourceFile, cwd);
+      if (isKotlinSourcePath(sourceFile) && !sameSourceIdentity(sourceFile, primaryFilePath, cwd)) {
+        addCompanion(sourceFile, await readFile(actualPath, "utf8"));
+      }
+      continue;
+    }
+    addCompanion(sourceFile?.filePath, sourceFile?.source);
+  }
+
+  for (const sourceRoot of Array.isArray(options.sourceRoots) ? options.sourceRoots : []) {
+    const sourceRootPath = String(sourceRoot);
+    const root = resolveHostPath(sourceRootPath, cwd);
+    const files = await collectFiles(root);
+    for (const file of files) {
+      const filePath = isAbsolute(sourceRootPath) ? file.path : relative(cwd, file.path);
+      if (isKotlinSourcePath(filePath) && !sameSourceIdentity(filePath, primaryFilePath, cwd)) {
+        addCompanion(filePath, await readFile(file.path, "utf8"));
+      }
+    }
+  }
+
+  return companions;
 }
 
 function diagnosticsFromCommands(commands) {
@@ -267,7 +322,7 @@ export async function analyzeKotlinPieceFile(options = {}) {
   const parserName = options.parserName ?? "kotlin-psi-declaration-extractor";
   const semanticDiagnostics = options.semanticDiagnostics === true;
   const semanticSymbols = options.semanticSymbols === true;
-  const companionSources = Array.isArray(options.sourceFiles) ? options.sourceFiles : [];
+  const companionSources = await collectKotlinCompanionSources(options, filePath);
   const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-analysis-host-");
   const hostWorkspace = hostWorkspaceInfo.path;
   const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
@@ -327,6 +382,8 @@ export function createNodeKotlinPsiDeclarationExtractor(options = {}) {
         semanticDiagnostics: options.semanticDiagnostics === true,
         semanticSymbols: options.semanticSymbols === true,
         sourceFiles: options.sourceFiles,
+        sourceRoots: options.sourceRoots,
+        cwd: options.cwd,
         env: options.env
       });
     }

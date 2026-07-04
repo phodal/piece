@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { analyzeKotlinPieceFile, analyzePieceFile, createNodeKotlinPsiDeclarationExtractor } from "../src/node.js";
 
 const filePath = "/repo/src/Pricing.kt";
@@ -147,5 +150,72 @@ assert(
   ),
   `Kotlin companion file binding did not become an external graph edge: ${JSON.stringify(crossFileAnalysis.graph.edges)}`
 );
+
+const sourceRoot = await mkdtemp(join(tmpdir(), "piece-kotlin-source-root-"));
+try {
+  const sourceRootModelPath = join(sourceRoot, "Models.kt");
+  const sourceRootRenderPath = join(sourceRoot, "Render.kt");
+  await writeFile(
+    sourceRootModelPath,
+    `package demo.symbols
+
+data class User(val name: String)
+`,
+    "utf8"
+  );
+  await writeFile(sourceRootRenderPath, crossFileSource, "utf8");
+
+  const sourceRootManifest = await analyzeKotlinPieceFile({
+    filePath: sourceRootRenderPath,
+    source: crossFileSource,
+    sourceRoots: [sourceRoot],
+    semanticSymbols: true
+  });
+  assert(
+    JSON.stringify(sourceRootManifest.importBindings) ===
+      JSON.stringify([{ local: "User", imported: "User", source: sourceRootModelPath, kind: "named", isTypeOnly: false }]),
+    `Kotlin sourceRoot binding was not returned: ${JSON.stringify(sourceRootManifest.importBindings)}`
+  );
+
+  const sourcePathManifest = await analyzeKotlinPieceFile({
+    filePath: sourceRootRenderPath,
+    source: crossFileSource,
+    sourceFiles: [sourceRootModelPath],
+    semanticSymbols: true
+  });
+  assert(
+    JSON.stringify(sourcePathManifest.importBindings) ===
+      JSON.stringify([{ local: "User", imported: "User", source: sourceRootModelPath, kind: "named", isTypeOnly: false }]),
+    `Kotlin sourceFiles path binding was not returned: ${JSON.stringify(sourcePathManifest.importBindings)}`
+  );
+
+  const relativeSourceRootManifest = await analyzeKotlinPieceFile({
+    filePath: "Render.kt",
+    source: crossFileSource,
+    sourceRoots: ["."],
+    cwd: sourceRoot,
+    semanticSymbols: true
+  });
+  assert(
+    JSON.stringify(relativeSourceRootManifest.importBindings) ===
+      JSON.stringify([{ local: "User", imported: "User", source: "Models.kt", kind: "named", isTypeOnly: false }]),
+    `Kotlin relative sourceRoot binding was not returned: ${JSON.stringify(relativeSourceRootManifest.importBindings)}`
+  );
+
+  const sourceRootAnalysis = await analyzePieceFile({
+    filePath: sourceRootRenderPath,
+    source: crossFileSource,
+    sourceRoots: [sourceRoot],
+    semanticSymbols: true
+  });
+  assert(
+    sourceRootAnalysis.graph.edges.some(
+      (edge) => edge.kind === "external" && edge.to === `${sourceRootModelPath}#User` && edge.symbols.includes("User")
+    ),
+    `Kotlin sourceRoot binding did not become a default Node external graph edge: ${JSON.stringify(sourceRootAnalysis.graph.edges)}`
+  );
+} finally {
+  await rm(sourceRoot, { recursive: true, force: true });
+}
 
 console.log("Kotlin PSI analysis smoke passed");

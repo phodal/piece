@@ -72,7 +72,9 @@ export interface CompileKotlinPieceFileOptions {
 export interface AnalyzeKotlinPieceFileOptions {
   readonly filePath?: string;
   readonly source?: string;
-  readonly sourceFiles?: readonly KotlinAnalysisSourceFile[];
+  readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
+  readonly sourceRoots?: readonly string[];
+  readonly cwd?: string;
   readonly parserName?: string;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;
@@ -86,7 +88,9 @@ export interface KotlinAnalysisSourceFile {
 
 export interface NodeKotlinPsiDeclarationExtractorOptions {
   readonly name?: string;
-  readonly sourceFiles?: readonly KotlinAnalysisSourceFile[];
+  readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
+  readonly sourceRoots?: readonly string[];
+  readonly cwd?: string;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;
   readonly env?: Record<string, string | undefined>;

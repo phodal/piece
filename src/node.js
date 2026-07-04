@@ -22,7 +22,14 @@ function withNodeDeclarationExtractor(options = {}) {
   if (!options.declarationExtractor && /\.(?:kt|kts)$/.test(options.filePath ?? "")) {
     return {
       ...options,
-      declarationExtractor: createNodeKotlinPsiDeclarationExtractor()
+      declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
+        sourceFiles: options.sourceFiles,
+        sourceRoots: options.sourceRoots,
+        cwd: options.cwd ?? options.fileSystem?.cwd,
+        semanticDiagnostics: options.semanticDiagnostics === true,
+        semanticSymbols: options.semanticSymbols === true,
+        env: options.env
+      })
     };
   }
   return options;
