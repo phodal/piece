@@ -151,6 +151,19 @@ assert(
   `Kotlin companion file binding did not become an external graph edge: ${JSON.stringify(crossFileAnalysis.graph.edges)}`
 );
 
+const crossFileDiagnosticsManifest = await analyzeKotlinPieceFile({
+  filePath: "/repo/src/Render.kt",
+  source: crossFileSource,
+  sourceFiles: crossFileCompanions,
+  semanticDiagnostics: true
+});
+assert(
+  !crossFileDiagnosticsManifest.diagnostics.some(
+    (diagnostic) => diagnostic.severity === "error" && diagnostic.message.includes("User")
+  ),
+  `Kotlin companion source-set files were not visible to semantic diagnostics: ${JSON.stringify(crossFileDiagnosticsManifest.diagnostics)}`
+);
+
 const sourceRoot = await mkdtemp(join(tmpdir(), "piece-kotlin-source-root-"));
 try {
   const sourceRootModelPath = join(sourceRoot, "Models.kt");

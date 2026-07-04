@@ -18,27 +18,47 @@ import kotlin.io.path.writeText
 data class KotlinCompilerDiagnosticRequest(
     val filePath: String,
     val source: String,
+    val companionFiles: List<KotlinCompilerDiagnosticSourceFile> = emptyList(),
     val classpath: List<String> = defaultKotlinSemanticClasspath(),
+)
+
+data class KotlinCompilerDiagnosticSourceFile(
+    val filePath: String,
+    val source: String,
 )
 
 internal class KotlinCompilerDiagnosticBackend {
     fun diagnostics(request: KotlinCompilerDiagnosticRequest): List<KotlinPsiDiagnostic> {
         val workspace = Files.createTempDirectory("piece-kotlin-semantic-")
         return try {
-            val sourceName = request.filePath.replace('\\', '/').substringAfterLast('/').ifBlank { "Main.kt" }
-            val sourceFile = workspace.resolve(sourceName)
+            val sourceFile = workspace.resolve(sourceName(request.filePath, "Main.kt"))
             val outputDir = workspace.resolve("classes")
             outputDir.createDirectories()
             sourceFile.writeText(request.source)
+            val virtualPathByActualPath = mutableMapOf(
+                sourceFile.toAbsolutePath().normalize().toString() to request.filePath,
+            )
+            val companionSourceFiles = request.companionFiles
+                .filterNot { it.filePath == request.filePath }
+                .mapIndexed { index, companion ->
+                    val companionFile = workspace
+                        .resolve("companions")
+                        .resolve("${index}-${sourceName(companion.filePath, "Companion.kt")}")
+                    companionFile.parent.createDirectories()
+                    companionFile.writeText(companion.source)
+                    virtualPathByActualPath[companionFile.toAbsolutePath().normalize().toString()] = companion.filePath
+                    companionFile
+                }
+            val allSourceFiles = listOf(sourceFile) + companionSourceFiles
 
             val collector = CollectingMessageCollector(
                 virtualPath = request.filePath,
-                actualPath = sourceFile.toAbsolutePath().normalize().toString(),
+                virtualPathByActualPath = virtualPathByActualPath,
             )
             val args = K2JVMCompilerArguments().apply {
                 destination = outputDir.toString()
                 moduleName = "piece-semantic"
-                freeArgs = listOf(sourceFile.toString())
+                freeArgs = allSourceFiles.map { it.toString() }
                 renderInternalDiagnosticNames = true
                 noReflect = true
                 val runtimeClasspath = request.classpath.filter { it.isNotBlank() }
@@ -66,7 +86,7 @@ internal class KotlinCompilerDiagnosticBackend {
 
 private class CollectingMessageCollector(
     private val virtualPath: String,
-    private val actualPath: String,
+    private val virtualPathByActualPath: Map<String, String>,
 ) : MessageCollector {
     private val collected = mutableListOf<KotlinPsiDiagnostic>()
 
@@ -108,8 +128,12 @@ private class CollectingMessageCollector(
 
     private fun displayPath(path: String): String {
         val normalized = Path.of(path).toAbsolutePath().normalize().toString()
-        return if (normalized == actualPath) virtualPath else path
+        return virtualPathByActualPath[normalized] ?: path
     }
+}
+
+private fun sourceName(filePath: String, fallback: String): String {
+    return filePath.replace('\\', '/').substringAfterLast('/').ifBlank { fallback }
 }
 
 internal fun defaultKotlinSemanticClasspath(): List<String> {

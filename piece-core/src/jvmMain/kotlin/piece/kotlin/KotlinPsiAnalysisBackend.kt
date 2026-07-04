@@ -168,6 +168,12 @@ class KotlinPsiAnalysisBackend {
                     KotlinCompilerDiagnosticRequest(
                         filePath = request.filePath,
                         source = request.source,
+                        companionFiles = request.companionFiles.map { companion ->
+                            KotlinCompilerDiagnosticSourceFile(
+                                filePath = companion.filePath,
+                                source = companion.source,
+                            )
+                        },
                     ),
                 )
             } else {

@@ -154,4 +154,71 @@ class KotlinPsiAnalysisBackendTest {
             semanticManifest.importBindings.single(),
         )
     }
+
+    @Test
+    fun checksSemanticDiagnosticsAgainstCompanionFiles() {
+        val source = """
+            package demo.symbols
+
+            fun render(user: User): String = user.name
+        """.trimIndent()
+
+        val semanticManifest = KotlinPsiAnalysisBackend().analyze(
+            KotlinPsiAnalysisRequest(
+                filePath = "/repo/src/Render.kt",
+                source = source,
+                semanticDiagnostics = true,
+                companionFiles = listOf(
+                    KotlinPsiAnalysisSourceFile(
+                        filePath = "/repo/src/Models.kt",
+                        source = """
+                            package demo.symbols
+
+                            data class User(val name: String)
+                        """.trimIndent(),
+                    ),
+                ),
+            ),
+        )
+
+        assertFalse(
+            semanticManifest.diagnostics.any { diagnostic ->
+                diagnostic.severity == "error" && diagnostic.message.contains("User")
+            },
+            "Companion source-set declarations should be visible to Kotlin compiler diagnostics: ${semanticManifest.diagnostics}",
+        )
+    }
+
+    @Test
+    fun mapsCompanionSemanticDiagnosticPathsBackToVirtualSourcePaths() {
+        val source = """
+            package demo.symbols
+
+            fun render(user: User): String = user.name
+        """.trimIndent()
+
+        val semanticManifest = KotlinPsiAnalysisBackend().analyze(
+            KotlinPsiAnalysisRequest(
+                filePath = "/repo/src/Render.kt",
+                source = source,
+                semanticDiagnostics = true,
+                companionFiles = listOf(
+                    KotlinPsiAnalysisSourceFile(
+                        filePath = "/repo/src/Models.kt",
+                        source = """
+                            package demo.symbols
+
+                            data class User(val name: MissingType)
+                        """.trimIndent(),
+                    ),
+                ),
+            ),
+        )
+
+        val error = semanticManifest.diagnostics.firstOrNull { diagnostic ->
+            diagnostic.severity == "error" && diagnostic.message.contains("MissingType")
+        }
+        assertTrue(error != null, "Expected compiler diagnostics from the companion source file.")
+        assertEquals("/repo/src/Models.kt", error.path)
+    }
 }
