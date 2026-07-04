@@ -1184,12 +1184,17 @@ export async function parsePieceDslFile(options = {}) {
 export async function mergePieceDslFiles(options = {}) {
   const generatedFilePath = options.generatedFilePath ?? "generated.pic";
   const overrideFilePath = options.overrideFilePath ?? "override.pic";
-  const generated = await parsePieceDslFile({
-    filePath: generatedFilePath,
-    source: options.generatedSource,
-    cwd: options.cwd,
-    env: options.env
-  });
+  const generated = options.generatedPackage
+    ? {
+        piecePackage: options.generatedPackage,
+        diagnostics: []
+      }
+    : await parsePieceDslFile({
+        filePath: generatedFilePath,
+        source: options.generatedSource,
+        cwd: options.cwd,
+        env: options.env
+      });
   const override = await parsePieceDslFile({
     filePath: overrideFilePath,
     source: options.overrideSource,

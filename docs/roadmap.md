@@ -22,6 +22,7 @@ The repository already has:
 - A Kotlin PSI `.pic` generator that emits deterministic package text and verifies the generated file by parsing it back through the same ANTLR backend.
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
 - Safe selected Go package-scope package views can become the primary generated `.pic` output while default analysis keeps the current-file `.pic` output.
+- User override `.pic` merging can use a selected package-scope package view as its generated merge base.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -334,8 +335,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Add a package-view-aware merge path so user override `.pic` files can patch selected package-scope outputs without falling back to the current-file package.
+1. Add an analysis-level override path so callers can pass override `.pic` input to `analyzePieceFile()` and receive merged primary `.pic` output from the current-file or selected package-view base.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 2/6 Package View Override Merge Slice
+
+The package-view override merge slice is now implemented:
+
+1. `mergePieceDslFiles()` accepts an optional `generatedPackage` merge base in addition to generated `.pic` text.
+2. Callers can pass `analysis.packageScope.packageView` as that generated base after `packageScopeSelection: "safe"` selects a package view.
+3. Override `.pic` targets can patch promoted package-scope targets while preserving target-level `source` labels.
+4. Generated package-scope action inputs such as `go-package-scope:<hash>` are retained when an override adds fixture inputs or action config.
+5. `npm run pic:override:smoke` verifies both the original current-file merge path and the selected package-view merge path round-trip through the ANTLR parser.
 
 ## Completed Phase 5/6 Primary Package View `.pic` Slice
 

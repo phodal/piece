@@ -100,6 +100,7 @@ export interface ParsePieceDslFileOptions {
 export interface MergePieceDslFilesOptions {
   readonly generatedFilePath?: string;
   readonly overrideFilePath?: string;
+  readonly generatedPackage?: SingleFilePiecePackage;
   readonly generatedSource?: string;
   readonly overrideSource?: string;
   readonly cwd?: string;
