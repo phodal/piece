@@ -91,6 +91,7 @@ actionMember
     : mnemonicDeclaration
     | outputDeclaration
     | pathDeclaration
+    | cacheKeyDeclaration
     | inputsDeclaration
     ;
 
@@ -104,6 +105,10 @@ outputDeclaration
 
 pathDeclaration
     : PATH STRING
+    ;
+
+cacheKeyDeclaration
+    : CACHE_KEY STRING
     ;
 
 inputsDeclaration
@@ -124,6 +129,7 @@ ACTION: 'action';
 MNEMONIC: 'mnemonic';
 OUTPUT: 'output';
 PATH: 'path';
+CACHE_KEY: 'cacheKey';
 INPUTS: 'inputs';
 
 TYPE: 'type';

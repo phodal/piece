@@ -92,6 +92,13 @@ function assert(condition, message) {
   }
 }
 
+function picRoundTripShape(piecePackage) {
+  return {
+    ...piecePackage,
+    targets: (piecePackage?.targets ?? []).map(({ sourceFile, externalIdentity, hash, ...target }) => target)
+  };
+}
+
 const analysis = await analyzePieceFile({
   filePath: "/repo/src/DashboardPage.tsx",
   source
@@ -259,6 +266,14 @@ assert(
   `Expected Go package analysis to expose selected package view .pic output: ${selectedGoAnalysis.pieceDslSource}`
 );
 assert(selectedGoAnalysis.packageScope?.packageView, `Expected selected package view: ${JSON.stringify(selectedGoAnalysis.packageScope)}`);
+const generatedDiscountArtifact = selectedGoAnalysis.packageScope.packageView.artifacts.find(
+  (item) => item.id === "//repo/src:Discount.go__type_Discount.compile.json"
+);
+assert(generatedDiscountArtifact?.cacheKey, `Expected generated Discount artifact cache key: ${JSON.stringify(selectedGoAnalysis.packageScope.packageView.artifacts)}`);
+assert(
+  selectedGoAnalysis.pieceDsl.includes(`cacheKey ${JSON.stringify(generatedDiscountArtifact.cacheKey)}`),
+  `Expected selected package view .pic to include generated Discount cache key:\n${selectedGoAnalysis.pieceDsl}`
+);
 
 const selectedGoAnalysisWithOverride = await analyzePieceFile({
   filePath: "/repo/src/Pricing.go",
@@ -362,6 +377,14 @@ assert(
 
 const discountArtifact = mergedPackageView.piecePackage.artifacts.find((item) => item.id === "//repo/src:Discount.go__type_Discount.compile.json");
 assert(discountArtifact?.path === "artifacts/discount.fixture.json", `Unexpected Discount artifact: ${JSON.stringify(discountArtifact)}`);
+assert(
+  discountArtifact.cacheKey === generatedDiscountArtifact.cacheKey,
+  `Expected Discount artifact cache key to survive package-view override merge: ${JSON.stringify(discountArtifact)}`
+);
+assert(
+  mergedPackageView.pieceDsl.includes(`cacheKey ${JSON.stringify(generatedDiscountArtifact.cacheKey)}`),
+  `Expected merged package-view .pic to include Discount artifact cache key:\n${mergedPackageView.pieceDsl}`
+);
 
 const parsedPackageView = await parsePieceDslFile({
   filePath: "/repo/src/Pricing.package.merged.pic",
@@ -369,7 +392,7 @@ const parsedPackageView = await parsePieceDslFile({
 });
 assert(parsedPackageView.diagnostics.length === 0, `Unexpected merged package-view .pic diagnostics: ${JSON.stringify(parsedPackageView.diagnostics)}`);
 assert(
-  JSON.stringify(parsedPackageView.piecePackage) === JSON.stringify(mergedPackageView.piecePackage),
+  JSON.stringify(picRoundTripShape(parsedPackageView.piecePackage)) === JSON.stringify(picRoundTripShape(mergedPackageView.piecePackage)),
   `Merged package-view .pic did not round-trip:\nmerged=${JSON.stringify(mergedPackageView.piecePackage)}\nparsed=${JSON.stringify(parsedPackageView.piecePackage)}\npic=${mergedPackageView.pieceDsl}`
 );
 

@@ -23,6 +23,7 @@ class AntlrPicParserBackendTest {
                 action compile {
                   mnemonic "PieceCompile"
                   output "Pricing.kt__function_renderGreeting.compile.json"
+                  cacheKey "renderGreeting-cache-key"
                 }
               }
             }
@@ -41,6 +42,10 @@ class AntlrPicParserBackendTest {
         assertEquals(
             "//repo/src:Pricing.kt__function_renderGreeting%compile",
             pkg.actions.single { it.kind.name == "Compile" }.id,
+        )
+        assertEquals(
+            "renderGreeting-cache-key",
+            pkg.artifacts.single { it.kind == "piece-compile" }.cacheKey,
         )
         val renderGreeting = pkg.targets.first { it.name == "renderGreeting" }
         assertEquals(listOf("//repo/src:Pricing.kt__value_prefix"), renderGreeting.runtimeDeps)

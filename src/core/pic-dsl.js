@@ -207,9 +207,10 @@ function appendActions(lines, target, actionsById, artifactsById) {
     const mnemonic = action?.mnemonic && action.mnemonic !== defaultMnemonic(kind) ? action.mnemonic : undefined;
     const output = action?.outputs?.length === 1 && action.outputs[0] !== artifactId ? action.outputs[0] : undefined;
     const path = artifact?.path && artifact.path !== defaultPath && artifact.path !== output ? artifact.path : undefined;
+    const cacheKey = artifact?.cacheKey;
     const inputs = (action?.inputs ?? []).filter((input) => !defaultInputs.has(input));
 
-    if (!mnemonic && !output && !path && inputs.length === 0) {
+    if (!mnemonic && !output && !path && !cacheKey && inputs.length === 0) {
       lines.push(`    action ${kind} {}`);
       continue;
     }
@@ -223,6 +224,9 @@ function appendActions(lines, target, actionsById, artifactsById) {
     }
     if (path) {
       lines.push(`      path ${picString(path)}`);
+    }
+    if (cacheKey) {
+      lines.push(`      cacheKey ${picString(cacheKey)}`);
     }
     appendActionInputs(lines, inputs);
     lines.push("    }");
@@ -398,6 +402,9 @@ function patchTargetAction({ target, kind, patchTarget, patchActionsById, patchA
         nextArtifact.path = patchOutput;
       } else if (patchArtifact.path && patchArtifact.path !== patchDefaultPath) {
         nextArtifact.path = patchArtifact.path;
+      }
+      if (patchArtifact.cacheKey) {
+        nextArtifact.cacheKey = patchArtifact.cacheKey;
       }
     }
   }

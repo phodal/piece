@@ -213,6 +213,7 @@ class PicToModelTest {
                             kind = PicActionKind.Feedback,
                             mnemonic = "UserCardFixture",
                             path = "artifacts/user-card.fixture.json",
+                            cacheKey = "user-card-cache-key",
                             inputs = listOf("fixtures/user-card.json"),
                         ),
                     ),
@@ -242,11 +243,13 @@ class PicToModelTest {
         )
         assertEquals("UserCardFixture", action.mnemonic)
         assertEquals("artifacts/user-card.fixture.json", artifact.path)
+        assertEquals("user-card-cache-key", artifact.cacheKey)
 
         val pic = piecePackageToPicDsl(pkg)
         assertTrue(pic.contains("""label "//repo/src:dashboard_user_card""""))
         assertTrue(pic.contains("""visibility "//visibility:public""""))
         assertTrue(pic.contains("""inputs "fixtures/user-card.json""""))
         assertTrue(pic.contains("""path "artifacts/user-card.fixture.json""""))
+        assertTrue(pic.contains("""cacheKey "user-card-cache-key""""))
     }
 }

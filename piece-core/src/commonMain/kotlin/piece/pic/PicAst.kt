@@ -25,6 +25,7 @@ data class PicAction(
     val mnemonic: String? = null,
     val output: String? = null,
     val path: String? = null,
+    val cacheKey: String? = null,
     val inputs: List<String> = emptyList(),
 )
 

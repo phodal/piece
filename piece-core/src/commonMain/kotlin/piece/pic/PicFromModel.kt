@@ -112,13 +112,14 @@ private fun appendActions(
         val mnemonic = action?.mnemonic?.takeIf { it != defaultMnemonic }
         val output = action?.outputs?.singleOrNull()?.takeIf { it != artifactId }
         val path = artifact?.path?.takeIf { it != defaultPath && it != output }
+        val cacheKey = artifact?.cacheKey
         val inputs = action?.inputs
             ?.filterNot { it in defaultInputs }
             ?.distinct()
             ?.sorted()
             .orEmpty()
 
-        if (mnemonic == null && output == null && path == null && inputs.isEmpty()) {
+        if (mnemonic == null && output == null && path == null && cacheKey == null && inputs.isEmpty()) {
             builder.append("    action ").append(kind.picToken()).append(" {}\n")
             continue
         }
@@ -132,6 +133,9 @@ private fun appendActions(
         }
         if (path != null) {
             builder.append("      path ").append(path.picString()).append('\n')
+        }
+        if (cacheKey != null) {
+            builder.append("      cacheKey ").append(cacheKey.picString()).append('\n')
         }
         appendActionInputs(builder, inputs)
         builder.append("    }\n")

@@ -9,6 +9,8 @@ import {
   createPieceSnapshot,
   createSourceSetScopeTargetModel,
   explainPieceFeedbackScope,
+  mergePiecePackages,
+  piecePackageToPicDsl,
   reconcilePieceSnapshot
 } from "piece-compiler";
 
@@ -290,6 +292,100 @@ export function Other() {
     expect(safeAnalysis.feedbackScope.level).toBe("piece");
     expect(unsafeAnalysis.snapshot.feedbackScope.hashes.fallbackScopeHash).not.toBe(safeAnalysis.snapshot.feedbackScope.hashes.fallbackScopeHash);
     expect(unsafeAnalysis.snapshot.artifacts[brokenId].cacheKey).not.toBe(safeAnalysis.snapshot.artifacts[brokenId].cacheKey);
+  });
+
+  it("preserves artifact cache keys through package override merges and .pic output", () => {
+    const targetLabel = "//repo/src:User.kt__type_User";
+    const generatedPackage = {
+      version: 1,
+      kind: "single-file-package",
+      language: "kotlin",
+      packageName: "repo/src",
+      label: "//repo/src:User.kt",
+      filePath: "/repo/src/User.kt",
+      sourceFile: "//repo/src:User.kt",
+      rules: [],
+      targets: [
+        {
+          id: "/repo/src/User.kt#type:User",
+          label: targetLabel,
+          name: "User",
+          kind: "type",
+          rule: "kotlin_piece_type",
+          source: "//repo/src:User.kt",
+          deps: [],
+          runtimeDeps: [],
+          typeDeps: [],
+          externalDeps: [],
+          actions: [`${targetLabel}%compile`],
+          artifacts: [`${targetLabel}.compile.json`],
+          visibility: ["//visibility:private"]
+        }
+      ],
+      actions: [
+        {
+          id: `${targetLabel}%compile`,
+          target: targetLabel,
+          kind: "compile",
+          mnemonic: "PieceCompile",
+          inputs: ["//repo/src:User.kt", "source-set:source-set-scope-hash"],
+          outputs: [`${targetLabel}.compile.json`]
+        }
+      ],
+      artifacts: [
+        {
+          id: `${targetLabel}.compile.json`,
+          target: targetLabel,
+          kind: "piece-compile",
+          path: "repo/src__User.kt__type_User.compile.json",
+          cacheKey: "generated-cache-key"
+        }
+      ]
+    };
+    const overridePackage = {
+      ...generatedPackage,
+      targets: [
+        {
+          ...generatedPackage.targets[0],
+          visibility: ["//visibility:public"]
+        }
+      ],
+      actions: [
+        {
+          ...generatedPackage.actions[0],
+          mnemonic: "UserFixture",
+          inputs: ["//repo/src:User.kt", "fixtures/user.json"],
+          outputs: [`${targetLabel}.compile.json`]
+        }
+      ],
+      artifacts: [
+        {
+          ...generatedPackage.artifacts[0],
+          path: "artifacts/user.fixture.json"
+        }
+      ]
+    };
+
+    const merged = mergePiecePackages(generatedPackage, overridePackage);
+    const mergedArtifact = merged.piecePackage.artifacts.find((artifact) => artifact.id === `${targetLabel}.compile.json`);
+    expect(mergedArtifact).toMatchObject({
+      path: "artifacts/user.fixture.json",
+      cacheKey: "generated-cache-key"
+    });
+    expect(piecePackageToPicDsl(merged.piecePackage)).toContain('cacheKey "generated-cache-key"');
+
+    const mergedWithOverrideCacheKey = mergePiecePackages(generatedPackage, {
+      ...overridePackage,
+      artifacts: [
+        {
+          ...overridePackage.artifacts[0],
+          cacheKey: "override-cache-key"
+        }
+      ]
+    });
+    expect(mergedWithOverrideCacheKey.piecePackage.artifacts.find((artifact) => artifact.id === `${targetLabel}.compile.json`)).toMatchObject({
+      cacheKey: "override-cache-key"
+    });
   });
 
   it("keeps selected Go package scope as a current-file fast path until package targets exist", () => {

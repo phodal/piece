@@ -110,6 +110,7 @@ public final class AntlrPicParserBackend {
         String mnemonic = null;
         String output = null;
         String path = null;
+        String cacheKey = null;
         List<String> inputs = new ArrayList<>();
 
         for (PieceParser.ActionMemberContext member : context.actionMember()) {
@@ -119,12 +120,14 @@ public final class AntlrPicParserBackend {
                 output = stringValue(member.outputDeclaration().STRING().getSymbol());
             } else if (member.pathDeclaration() != null) {
                 path = stringValue(member.pathDeclaration().STRING().getSymbol());
+            } else if (member.cacheKeyDeclaration() != null) {
+                cacheKey = stringValue(member.cacheKeyDeclaration().STRING().getSymbol());
             } else if (member.inputsDeclaration() != null) {
                 inputs.addAll(toStringList(member.inputsDeclaration().stringList()));
             }
         }
 
-        return new PicAction(kind, mnemonic, output, path, inputs);
+        return new PicAction(kind, mnemonic, output, path, cacheKey, inputs);
     }
 
     private static PicTargetKind targetKind(String value) {

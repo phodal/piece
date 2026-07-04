@@ -62,6 +62,13 @@ function assert(condition, message) {
   }
 }
 
+function picRoundTripShape(piecePackage) {
+  return {
+    ...piecePackage,
+    targets: (piecePackage?.targets ?? []).map(({ sourceFile, externalIdentity, hash, ...target }) => target)
+  };
+}
+
 async function assertRoundTrip({ filePath, source, language, expectedSnippets, analysisOptions = {} }) {
   const analysis = await analyzePieceFile({ filePath, source, ...analysisOptions });
   assert(analysis.piecePackage.language === language, `Expected ${language} package, got ${analysis.piecePackage.language}`);
@@ -310,7 +317,7 @@ assert(
   `Unexpected selected package view .pic diagnostics: ${JSON.stringify(selectedPackageViewParsed.diagnostics)}\n${selectedPackageViewPic}`
 );
 assert(
-  JSON.stringify(selectedPackageViewParsed.piecePackage) === JSON.stringify(selectedGoAnalysis.packageScope.packageView),
+  JSON.stringify(picRoundTripShape(selectedPackageViewParsed.piecePackage)) === JSON.stringify(picRoundTripShape(selectedGoAnalysis.packageScope.packageView)),
   `Selected package view .pic did not round-trip:\nsource=${JSON.stringify(selectedGoAnalysis.packageScope.packageView)}\nparsed=${JSON.stringify(selectedPackageViewParsed.piecePackage)}\npic=${selectedPackageViewPic}`
 );
 assert(

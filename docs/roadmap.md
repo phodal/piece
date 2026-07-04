@@ -346,7 +346,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Preserve promoted source-set artifact cache keys through `.pic` override/action-snapshot round trips.
+1. Audit the Phase 1-6 roadmap definitions of done against shipped behavior and split any remaining work into final functional gaps versus future action-cache/product work.
+
+## Completed Phase 5/6 `.pic` Artifact CacheKey Round-Trip Slice
+
+The `.pic` artifact cacheKey round-trip slice is now implemented:
+
+1. The `.pic` grammar now accepts `cacheKey "..."` inside action declarations as artifact cache metadata.
+2. JS and Kotlin `.pic` writers emit `cacheKey` when the action's artifact carries one.
+3. The ANTLR/JVM parser, common Kotlin AST, and model conversion preserve action artifact cache keys into `PieceArtifact.cacheKey`.
+4. Override merges keep generated artifact cache keys when user overrides only patch action/path/input metadata, while explicit override cache keys can replace them.
+5. Source-set action-snapshot overrides retain promoted `User` artifact cache keys in both `analysis.actionPackage` and `snapshot.actionPackage`.
+6. `npm test`, `npm run pic:dsl:smoke`, `npm run pic:source:smoke`, `npm run pic:override:smoke`, and `npm run language:project-model:smoke` verify the JS, JVM ANTLR, Go package-view, and real Gradle/KMP source-set paths.
 
 ## Completed Phase 5/6 App-Level Source-Set Artifact Cache Diagnostics Slice
 

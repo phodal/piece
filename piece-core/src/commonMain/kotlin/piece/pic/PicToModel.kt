@@ -88,6 +88,7 @@ fun picDocumentToPiecePackage(document: PicDocument): PiecePackage {
                 target = label,
                 kind = "piece-${action.kind.name.lowercase()}",
                 path = action.path ?: action.output ?: artifactId.replace("//", "").replace(":", "__"),
+                cacheKey = action.cacheKey,
             )
         }
     }

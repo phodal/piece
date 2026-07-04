@@ -15,6 +15,7 @@ const source = `package "//repo/src:Pricing.kt" {
     action compile {
       mnemonic "PieceCompile"
       output "Pricing.kt__function_renderGreeting.compile.json"
+      cacheKey "renderGreeting-cache-key"
     }
   }
 }
@@ -55,6 +56,15 @@ assert(
       action.outputs.includes("Pricing.kt__function_renderGreeting.compile.json")
   ),
   `Expected .pic compile action was not returned: ${JSON.stringify(result.piecePackage.actions)}`
+);
+assert(
+  result.piecePackage.artifacts.some(
+    (artifact) =>
+      artifact.id === "//repo/src:Pricing.kt__function_renderGreeting.compile.json" &&
+      artifact.kind === "piece-compile" &&
+      artifact.cacheKey === "renderGreeting-cache-key"
+  ),
+  `Expected .pic compile artifact cache key was not returned: ${JSON.stringify(result.piecePackage.artifacts)}`
 );
 
 const broken = await parsePieceDslFile({

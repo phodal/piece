@@ -515,6 +515,13 @@ fun detached(): String = "detached"
       ?.inputs.includes(`source-set:${analysis.manifest.projectModel.analysisScope.hashes.scopeHash}`),
     `Promoted source-set compile action did not include source-set scope input: ${JSON.stringify(analysis.sourceSetScope.packageView?.actions)}`
   );
+  const generatedPromotedUserCompileArtifact = analysis.sourceSetScope.packageView?.artifacts.find(
+    (artifact) => artifact.id === `${promotedUserTarget.label}.compile.json`
+  );
+  assert(
+    generatedPromotedUserCompileArtifact?.cacheKey,
+    `Promoted source-set compile artifact did not include a generated cache key: ${JSON.stringify(analysis.sourceSetScope.packageView?.artifacts)}`
+  );
   const sourceSetOverride = `package ${JSON.stringify(analysis.sourceSetScope.packageView.label)} {
   language kotlin
   source ${JSON.stringify(renderPath)}
@@ -548,7 +555,8 @@ fun detached(): String = "detached"
       sourceSetOverrideAnalysis.pieceDslMerge?.piecePackage?.targets.some(
         (target) => target.label === promotedUserTarget.label && target.visibility.includes("//visibility:public")
       ) &&
-      sourceSetOverrideAnalysis.pieceDsl.includes('"fixtures/user.json"'),
+      sourceSetOverrideAnalysis.pieceDsl.includes('"fixtures/user.json"') &&
+      sourceSetOverrideAnalysis.pieceDsl.includes(`cacheKey ${JSON.stringify(generatedPromotedUserCompileArtifact.cacheKey)}`),
     `Source-set package view override did not merge against the selected source-set package view: ${JSON.stringify({
       pieceDslSource: sourceSetOverrideAnalysis.pieceDslSource,
       pieceDslMerge: sourceSetOverrideAnalysis.pieceDslMerge
@@ -561,6 +569,13 @@ fun detached(): String = "detached"
       actionPackage: sourceSetOverrideAnalysis.actionPackage,
       snapshotActionPackage: sourceSetOverrideAnalysis.snapshot.actionPackage
     })}`
+  );
+  const sourceSetOverrideArtifact = sourceSetOverrideAnalysis.pieceDslMerge.piecePackage.artifacts.find(
+    (artifact) => artifact.id === `${promotedUserTarget.label}.compile.json`
+  );
+  assert(
+    sourceSetOverrideArtifact?.cacheKey === generatedPromotedUserCompileArtifact.cacheKey,
+    `Source-set package view override did not preserve promoted artifact cache key: ${JSON.stringify(sourceSetOverrideArtifact)}`
   );
   const sourceSetActionSnapshotOverrideAnalysis = await analyzePieceFile({
     filePath: renderPath,
@@ -589,6 +604,13 @@ fun detached(): String = "detached"
       actionPackage: sourceSetActionSnapshotOverrideAnalysis.actionPackage,
       snapshotActionPackage: sourceSetActionSnapshotOverrideAnalysis.snapshot.actionPackage
     })}`
+  );
+  const sourceSetActionSnapshotArtifact = sourceSetActionSnapshotOverrideAnalysis.actionPackage.artifacts.find(
+    (artifact) => artifact.id === `${promotedUserTarget.label}.compile.json`
+  );
+  assert(
+    sourceSetActionSnapshotArtifact?.cacheKey === generatedPromotedUserCompileArtifact.cacheKey,
+    `Source-set action-snapshot override did not preserve promoted artifact cache key: ${JSON.stringify(sourceSetActionSnapshotArtifact)}`
   );
   assert(
     sourceSetActionSnapshotOverrideAnalysis.actionPackageOrigin?.kind === "piece-dsl-override" &&
