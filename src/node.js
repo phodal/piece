@@ -3,9 +3,19 @@ export * from "./node-language-compilers.js";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import * as esbuild from "esbuild";
+import { setDefaultDeclarationExtractorResolver } from "./core/extractor-registry.js";
+import { createDefaultDeclarationExtractorForFile } from "./languages/index.js";
+import { createNodeKotlinPsiDeclarationExtractor } from "./node-language-compilers.js";
 
 const SOURCE_FILE_PATTERN = /\.(tsx?|jsx?|kts?|go)$/;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "coverage"]);
+
+setDefaultDeclarationExtractorResolver((filePath) => {
+  if (/\.(?:kt|kts)$/.test(filePath)) {
+    return createNodeKotlinPsiDeclarationExtractor();
+  }
+  return createDefaultDeclarationExtractorForFile(filePath);
+});
 
 export function createNodeEsbuildBuildEngine(options = {}) {
   return {

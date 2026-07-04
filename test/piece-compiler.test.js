@@ -310,7 +310,7 @@ export function UserCard() {
       source: kotlinSource()
     });
 
-    expect(analysis.manifest.parser).toBe("kotlin-declaration-extractor");
+    expect(analysis.manifest.parser).toBe("kotlin-psi-declaration-extractor");
     expect(analysis.manifest.importBindings).toEqual([
       { local: "FeatureFlag", imported: "FeatureFlag", source: "demo.flags", kind: "named", isTypeOnly: false }
     ]);

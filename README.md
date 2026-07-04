@@ -62,6 +62,7 @@ The Bazel-like part is the package, target, action, dependency graph, and cachea
 - Incremental analysis for single-piece edits when the boundary is safe.
 - A Go adapter that emits the same piece package shape and can compile a real single-file Go module with `go build` and `go test`.
 - A Kotlin adapter for single-file experiments, plus a Kotlin Multiplatform core under `piece-core/`.
+- A Kotlin/JVM PSI analysis backend. The `piece-compiler/node` entrypoint uses it by default for `.kt` and `.kts` files; the root and browser-safe paths keep the lightweight npm extractor.
 - A Kotlin/JVM compile backend that generates a temporary Kotlin Multiplatform Gradle project and can build JVM, Kotlin/JS, Kotlin/Wasm, or all targets.
 - A Kotlin piece benchmark that verifies piece-level analysis is faster than whole-file analysis on a generated single-file fixture.
 
@@ -113,6 +114,7 @@ npm run typecheck
 npm test
 npm run core:check
 npm run core:bridge:smoke
+npm run language:analysis:smoke
 npm run language:compile:smoke
 npm run benchmark:kotlin-piece
 npm run pages:build
@@ -121,7 +123,7 @@ npm run verify
 
 The repository includes a root Gradle wrapper. From the repository root, `./gradlew check wasmJsBrowserDistribution` delegates into the single Gradle project under `piece-core/`.
 
-`npm run language:compile:smoke` requires a local Go toolchain. It compiles a real Go single-file module, then asks the Kotlin/JVM backend to compile one Kotlin file for JVM, JS, and Wasm.
+`npm run language:analysis:smoke` verifies that the Node entrypoint routes Kotlin analysis through the JVM PSI backend. `npm run language:compile:smoke` requires a local Go toolchain. It compiles a real Go single-file module, then asks the Kotlin/JVM backend to compile one Kotlin file for JVM, JS, and Wasm.
 
 `npm run benchmark:kotlin-piece` writes `reports/kotlin-piece-benchmark.json` and checks that Kotlin piece analysis beats full-file analysis for the generated fixture. See [docs/kotlin-piece-benchmark.md](./docs/kotlin-piece-benchmark.md).
 

@@ -50,9 +50,14 @@ const analysis = await analyzePieceFile({
   source,
   declarationExtractor: createNodeKotlinPsiDeclarationExtractor()
 });
+const defaultNodeAnalysis = await analyzePieceFile({ filePath, source });
 const edgeTuples = analysis.graph.edges.map((edge) => [edge.from.split("#")[1], edge.kind, edge.to.split("#")[1] ?? edge.to, edge.symbols]);
 
 assert(analysis.manifest.parser === "kotlin-psi-declaration-extractor", "Kotlin PSI extractor was not used by analyzePieceFile().");
+assert(
+  defaultNodeAnalysis.manifest.parser === "kotlin-psi-declaration-extractor",
+  `piece-compiler/node did not default Kotlin analysis to PSI: ${defaultNodeAnalysis.manifest.parser}`
+);
 assert(analysis.piecePackage.language === "kotlin", `Unexpected piece package language: ${analysis.piecePackage.language}`);
 assert(
   edgeTuples.some(

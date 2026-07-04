@@ -10,7 +10,8 @@ import { byteLength, measureAsync, measureSync, nowMs, roundMs } from "./metrics
 import { stableTextHash } from "./hash.js";
 import { collectIdentifierReferences, createSourceRange } from "./source-utils.js";
 
-const INCREMENTAL_MANIFEST_PARSERS = new Set(["typescript-declaration-extractor", "kotlin-declaration-extractor"]);
+const KOTLIN_MANIFEST_PARSERS = new Set(["kotlin-declaration-extractor", "kotlin-psi-declaration-extractor"]);
+const INCREMENTAL_MANIFEST_PARSERS = new Set(["typescript-declaration-extractor", ...KOTLIN_MANIFEST_PARSERS]);
 
 const KOTLIN_INCREMENTAL_EXCLUDED = [
   "abstract",
@@ -160,7 +161,7 @@ function collectKotlinLocalNames(source) {
 }
 
 function collectReferencesForSlice(previousSlice, source, parser) {
-  if (parser === "kotlin-declaration-extractor") {
+  if (KOTLIN_MANIFEST_PARSERS.has(parser)) {
     return collectIdentifierReferences(source, {
       excluded: [previousSlice.name, ...KOTLIN_INCREMENTAL_EXCLUDED, ...collectKotlinLocalNames(source)]
     });
