@@ -39,6 +39,12 @@ function targetNameForSlice(filePath, slice) {
   return `${sourceName}__${slice.kind}_${pieceName}`;
 }
 
+function targetNameForDeclaration(filePath, declaration) {
+  const sourceName = sanitizeModulePart(basename(filePath));
+  const pieceName = sanitizeModulePart(declaration.name ?? declaration.imported ?? declaration.id?.split("#").pop() ?? "target");
+  return `${sourceName}__${declaration.kind}_${pieceName}`;
+}
+
 function ruleForSlice(language, slice) {
   return `${language || "generic"}_piece_${slice.kind}`;
 }
@@ -91,6 +97,14 @@ function projectModelActionInput(manifest) {
 
 function externalDependencyId(edge) {
   return edge.import?.signature ? `${edge.to}${edge.import.signature}` : edge.to;
+}
+
+function externalSourceIdentity(edge) {
+  return edge.import?.source ?? String(edge.to ?? "").split("#")[0];
+}
+
+function externalImportedName(edge) {
+  return edge.import?.imported ?? String(edge.to ?? "").split("#").pop();
 }
 
 function uniqueSorted(values) {
@@ -240,5 +254,133 @@ export function createSingleFilePiecePackage({
     targets,
     actions,
     artifacts
+  };
+}
+
+function packageScopeFromManifest(manifest) {
+  const toolchains = [
+    ...(manifest?.toolchain ? [manifest.toolchain] : []),
+    ...(Array.isArray(manifest?.toolchains) ? manifest.toolchains : [])
+  ];
+  return toolchains.map((toolchain) => toolchain?.packageScope).find((scope) => scope?.status === "selected" || scope?.targetPolicy);
+}
+
+function sourceFilesForPackageScope(packageScope, primaryFilePath) {
+  const normalizedPrimary = normalizePath(primaryFilePath);
+  return (packageScope?.files ?? []).map((file) => {
+    const filePath = file.filePath;
+    return {
+      filePath,
+      label: sourceLabel(filePath),
+      hash: file.hash,
+      role: normalizePath(filePath) === normalizedPrimary ? "primary" : "companion"
+    };
+  });
+}
+
+function declarationByExternalIdentity(packageScope) {
+  const declarations = new Map();
+  for (const declaration of packageScope?.declarations ?? []) {
+    declarations.set(`${normalizePath(declaration.filePath)}#${declaration.name}`, declaration);
+  }
+  return declarations;
+}
+
+function inferredDeclarationForEdge(edge) {
+  const source = externalSourceIdentity(edge);
+  const name = externalImportedName(edge);
+  return {
+    id: `${source}#${edge.import?.isTypeOnly ? "type" : "value"}:${name}`,
+    filePath: source,
+    name,
+    kind: edge.import?.isTypeOnly ? "type" : "value"
+  };
+}
+
+function compareByLabel(left, right) {
+  return left.label.localeCompare(right.label);
+}
+
+export function createPackageScopeTargetModel({ filePath, manifest, graph, piecePackage }) {
+  const packageScope = packageScopeFromManifest(manifest);
+  if (!packageScope) {
+    return undefined;
+  }
+
+  const companionFileSet = new Set(
+    sourceFilesForPackageScope(packageScope, filePath)
+      .filter((file) => file.role === "companion")
+      .map((file) => normalizePath(file.filePath))
+  );
+  const declarations = declarationByExternalIdentity(packageScope);
+  const currentPackage = piecePackage ?? createSingleFilePiecePackage({ filePath, manifest, graph });
+  const currentTargets = currentPackage.targets.map((target) => ({
+    id: target.id,
+    label: target.label,
+    name: target.name,
+    kind: target.kind,
+    sourceFile: manifest.filePath,
+    source: target.source,
+    rule: target.rule
+  }));
+  const currentTargetsBySliceId = new Map(currentPackage.targets.map((target) => [target.id, target]));
+  const promotedTargets = new Map();
+  const promotedEdges = [];
+
+  for (const edge of graph.edges ?? []) {
+    if (edge.kind !== "external") continue;
+    const source = externalSourceIdentity(edge);
+    if (!companionFileSet.has(normalizePath(source))) continue;
+    const imported = externalImportedName(edge);
+    const declaration = declarations.get(`${normalizePath(source)}#${imported}`) ?? inferredDeclarationForEdge(edge);
+    const label = `//${bazelPackageName(source)}:${targetNameForDeclaration(source, declaration)}`;
+    if (!promotedTargets.has(label)) {
+      promotedTargets.set(label, {
+        id: declaration.id,
+        label,
+        name: declaration.name,
+        kind: declaration.kind,
+        sourceFile: source,
+        source: sourceLabel(source),
+        rule: ruleForSlice(languageForManifest(manifest), declaration),
+        externalIdentity: externalDependencyId(edge),
+        hash: declaration.hash
+      });
+    }
+    promotedEdges.push({
+      from: currentTargetsBySliceId.get(edge.from)?.label ?? edge.from,
+      to: label,
+      kind: edge.kind,
+      symbols: edge.symbols ?? [],
+      externalIdentity: externalDependencyId(edge)
+    });
+  }
+
+  const targets = [...promotedTargets.values()].sort(compareByLabel);
+  const status = targets.length > 0 ? "candidate" : "file";
+  return {
+    version: 1,
+    kind: "package-scope-target-model",
+    status,
+    language: languageForManifest(manifest),
+    packageName: bazelPackageName(filePath),
+    label: `//${bazelPackageName(filePath)}:__package_scope`,
+    filePath,
+    sourceFile: sourceLabel(filePath),
+    targetPolicy: packageScope.targetPolicy,
+    promotion: {
+      status,
+      appliedToDefaultPackage: false,
+      reason:
+        targets.length > 0
+          ? "Package-scope targets are available as a candidate model while the default feedback package keeps the current-file fast path."
+          : "No package-scope companion targets are available for promotion."
+    },
+    sourceFiles: sourceFilesForPackageScope(packageScope, filePath),
+    currentTargets,
+    promotedTargets: targets,
+    promotedEdges: promotedEdges.sort((left, right) =>
+      `${left.from}:${left.to}:${left.kind}:${left.symbols.join(",")}`.localeCompare(`${right.from}:${right.to}:${right.kind}:${right.symbols.join(",")}`)
+    )
   };
 }

@@ -223,6 +223,54 @@ export interface SingleFilePiecePackage {
   readonly artifacts: readonly PieceArtifact[];
 }
 
+export interface PiecePackageScopeSourceFile {
+  readonly filePath: string;
+  readonly label: string;
+  readonly hash: string;
+  readonly role: "primary" | "companion" | (string & {});
+}
+
+export interface PiecePackageScopeTarget {
+  readonly id: string;
+  readonly label: string;
+  readonly name?: string;
+  readonly kind: PieceSliceKind;
+  readonly sourceFile: string;
+  readonly source: string;
+  readonly rule: string;
+  readonly externalIdentity?: string;
+  readonly hash?: string;
+}
+
+export interface PiecePackageScopeEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: PieceEdgeKind;
+  readonly symbols: readonly string[];
+  readonly externalIdentity?: string;
+}
+
+export interface PiecePackageScopeTargetModel {
+  readonly version: 1;
+  readonly kind: "package-scope-target-model";
+  readonly status: "candidate" | "file" | "selected" | (string & {});
+  readonly language: string;
+  readonly packageName: string;
+  readonly label: string;
+  readonly filePath: string;
+  readonly sourceFile: string;
+  readonly targetPolicy?: PieceGoPackageTargetPolicyMetadata;
+  readonly promotion: {
+    readonly status: "candidate" | "file" | "selected" | (string & {});
+    readonly appliedToDefaultPackage: boolean;
+    readonly reason: string;
+  };
+  readonly sourceFiles: readonly PiecePackageScopeSourceFile[];
+  readonly currentTargets: readonly PiecePackageScopeTarget[];
+  readonly promotedTargets: readonly PiecePackageScopeTarget[];
+  readonly promotedEdges: readonly PiecePackageScopeEdge[];
+}
+
 export interface PiecePackageMergeDiagnostic {
   readonly code: string;
   readonly severity: "info" | "warning" | "error";
@@ -550,6 +598,14 @@ export interface PieceGoPackageTargetPolicyMetadata {
   readonly reason: string;
 }
 
+export interface PieceGoPackageScopeDeclarationMetadata {
+  readonly id: string;
+  readonly filePath: string;
+  readonly name: string;
+  readonly kind: PieceSliceKind;
+  readonly hash?: string;
+}
+
 export interface PieceGoPackageScopeMetadata {
   readonly version: 1;
   readonly status: "selected" | "file" | (string & {});
@@ -557,6 +613,7 @@ export interface PieceGoPackageScopeMetadata {
     readonly filePath: string;
     readonly hash: string;
   }[];
+  readonly declarations?: readonly PieceGoPackageScopeDeclarationMetadata[];
   readonly hash: string;
   readonly input?: string;
   readonly targetPolicy?: PieceGoPackageTargetPolicyMetadata;
@@ -680,6 +737,7 @@ export interface PieceFileAnalysis {
   readonly feedbackScope: PieceFeedbackScope;
   readonly actionCache: PieceActionCacheMetadata;
   readonly piecePackage: SingleFilePiecePackage;
+  readonly packageScope?: PiecePackageScopeTargetModel;
   readonly pieceDsl: string;
   readonly previewTargets: readonly string[];
   readonly metrics: PieceFileAnalysisMetrics;
@@ -950,6 +1008,12 @@ export function createSingleFilePiecePackage(options: {
   readonly feedbackScope?: PieceFeedbackScope;
   readonly actionCache?: PieceActionCacheMetadata;
 }): SingleFilePiecePackage;
+export function createPackageScopeTargetModel(options: {
+  readonly filePath: string;
+  readonly manifest: PieceFileManifest;
+  readonly graph: PieceSliceGraph;
+  readonly piecePackage?: SingleFilePiecePackage;
+}): PiecePackageScopeTargetModel | undefined;
 export function createPieceActionCacheMetadata(options?: {
   readonly compilerOptions?: Record<string, unknown>;
   readonly compilerOptionsHash?: string;

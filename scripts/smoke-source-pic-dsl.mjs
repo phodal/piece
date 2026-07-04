@@ -189,6 +189,31 @@ assert(
   `Expected Go companion declarations to stay external instead of becoming current-file package targets: ${JSON.stringify(goAnalysis.piecePackage.targets)}`
 );
 assert(
+  goAnalysis.packageScope?.kind === "package-scope-target-model" &&
+    goAnalysis.packageScope?.status === "candidate" &&
+    goAnalysis.packageScope?.promotion?.appliedToDefaultPackage === false,
+  `Expected Go analysis to expose a candidate package-scope target model: ${JSON.stringify(goAnalysis.packageScope)}`
+);
+assert(
+  goAnalysis.packageScope?.promotedTargets.some(
+    (target) =>
+      target.label === "//repo/src:Discount.go__type_Discount" &&
+      target.kind === "type" &&
+      target.sourceFile === "/repo/src/Discount.go" &&
+      target.externalIdentity === "/repo/src/Discount.go#Discount"
+  ),
+  `Expected Go package-scope model to promote Discount as a candidate target: ${JSON.stringify(goAnalysis.packageScope?.promotedTargets)}`
+);
+assert(
+  goAnalysis.packageScope?.promotedEdges.some(
+    (edge) =>
+      edge.from === "//repo/src:Pricing.go__type_Greeting" &&
+      edge.to === "//repo/src:Discount.go__type_Discount" &&
+      edge.symbols.includes("Discount")
+  ),
+  `Expected Go package-scope model to remap the companion external edge: ${JSON.stringify(goAnalysis.packageScope?.promotedEdges)}`
+);
+assert(
   goAnalysis.actionCache.toolchainInputs.includes(`go-list:${goAnalysis.manifest.toolchain.goList.packageHash}`),
   `Expected action cache to include Go list input: ${JSON.stringify(goAnalysis.actionCache)}`
 );

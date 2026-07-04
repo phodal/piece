@@ -16,6 +16,10 @@ function durationSince(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
 }
 
+function compareStableJson(left, right) {
+  return JSON.stringify(left).localeCompare(JSON.stringify(right));
+}
+
 function sanitizeProjectName(value) {
   return String(value ?? "piece")
     .replace(/[^A-Za-z0-9_-]+/g, "-")
@@ -162,7 +166,7 @@ function isGoSourcePath(path) {
   return /\.go$/i.test(String(path ?? ""));
 }
 
-function createGoPackageScope({ filePath, source, companions = [] }) {
+function createGoPackageScope({ filePath, source, companions = [], declarations = [] }) {
   const files = [
     { filePath, hash: stableTextHash(source ?? "") },
     ...companions.map((companion) => ({ filePath: companion.filePath, hash: stableTextHash(companion.source ?? "") }))
@@ -174,6 +178,7 @@ function createGoPackageScope({ filePath, source, companions = [] }) {
     version: 1,
     status: companions.length > 0 ? "selected" : "file",
     files,
+    declarations,
     hash,
     input: hash ? `go-package-scope:${hash}` : undefined,
     targetPolicy: {
@@ -259,6 +264,18 @@ function goCompanionBindingFromSlice(slice) {
   };
 }
 
+function goPackageScopeDeclarationFromSlice(slice) {
+  const name = slice?.exportName ?? slice?.name;
+  if (!name || !slice?.filePath) return undefined;
+  return {
+    id: slice.id ?? `${slice.filePath}#${slice.kind}:${name}`,
+    filePath: slice.filePath,
+    name,
+    kind: slice.kind,
+    hash: slice.hashes?.bodyHash
+  };
+}
+
 async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env }) {
   const workspaceInfo = await prepareWorkspace("piece-go-analyzer-");
   const workspace = workspaceInfo.path;
@@ -287,6 +304,7 @@ async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env }) {
 
 async function collectGoCompanionBindings({ companions = [], goCommand = "go", env }) {
   const bindings = [];
+  const declarations = [];
   const diagnostics = [];
   for (const companion of companions) {
     const analyzerResult = await runGoAstAnalyzer({
@@ -307,10 +325,12 @@ async function collectGoCompanionBindings({ companions = [], goCommand = "go", e
       continue;
     }
     bindings.push(...(analyzerResult.manifest.slices ?? []).map(goCompanionBindingFromSlice).filter(Boolean));
+    declarations.push(...(analyzerResult.manifest.slices ?? []).map(goPackageScopeDeclarationFromSlice).filter(Boolean));
     diagnostics.push(...(analyzerResult.manifest.diagnostics ?? []));
   }
   return {
     bindings: uniqueGoImportBindings(bindings),
+    declarations: declarations.sort(compareStableJson),
     diagnostics
   };
 }
@@ -1320,8 +1340,9 @@ export function createNodeGoDeclarationExtractor(options = {}) {
           };
         }
       }
+      let companionBindingResult = { bindings: [], declarations: [], diagnostics: [] };
       if (options.goAnalyzer !== false && options.backend !== "javascript" && companionSources.length > 0) {
-        const companionBindingResult = await collectGoCompanionBindings({
+        companionBindingResult = await collectGoCompanionBindings({
           companions: companionSources,
           goCommand: options.goCommand ?? "go",
           env: options.env
@@ -1344,7 +1365,12 @@ export function createNodeGoDeclarationExtractor(options = {}) {
         env: options.env,
         cwd
       });
-      const packageScope = createGoPackageScope({ filePath, source, companions: companionSources });
+      const packageScope = createGoPackageScope({
+        filePath,
+        source,
+        companions: companionSources,
+        declarations: companionBindingResult.declarations
+      });
       const toolchain = createGoListToolchainMetadata(result.goList, packageScope);
       return {
         ...manifest,

@@ -1,5 +1,5 @@
 import { resolveDefaultDeclarationExtractor } from "./extractor-registry.js";
-import { createSingleFilePiecePackage } from "./piece-package.js";
+import { createPackageScopeTargetModel, createSingleFilePiecePackage } from "./piece-package.js";
 import { piecePackageToPicDsl } from "./pic-dsl.js";
 import { buildPieceClosure } from "./closure-builder.js";
 import { buildPiecePreviewBundle } from "./build-orchestrator.js";
@@ -110,6 +110,12 @@ export async function analyzePieceFile(options) {
     feedbackScope,
     actionCache
   });
+  const packageScope = createPackageScopeTargetModel({
+    filePath: options.filePath,
+    manifest: manifestResult.value,
+    graph: graphResult.value,
+    piecePackage
+  });
 
   const analysis = {
     version: 1,
@@ -119,6 +125,7 @@ export async function analyzePieceFile(options) {
     feedbackScope,
     actionCache,
     piecePackage,
+    ...(packageScope ? { packageScope } : {}),
     pieceDsl: piecePackageToPicDsl(piecePackage),
     previewTargets,
     metrics: {
@@ -299,6 +306,12 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     feedbackScope,
     actionCache
   });
+  const packageScope = createPackageScopeTargetModel({
+    filePath: options.filePath,
+    manifest,
+    graph: graphResult.value,
+    piecePackage
+  });
 
   const analysis = {
     version: 1,
@@ -308,6 +321,7 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     feedbackScope,
     actionCache,
     piecePackage,
+    ...(packageScope ? { packageScope } : {}),
     pieceDsl: piecePackageToPicDsl(piecePackage),
     previewTargets,
     metrics: {

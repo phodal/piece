@@ -4,6 +4,7 @@ import { createNodeEsbuildBuildEngine, createNodeVirtualFileSystem } from "piece
 import {
   compilePieceApp,
   createKotlinCoreBridge,
+  createPackageScopeTargetModel,
   createPieceCompiler,
   createPieceSnapshot,
   explainPieceFeedbackScope,
@@ -363,6 +364,138 @@ export function Other() {
     );
     expect(scope.hashes.dependencyHash).not.toBe(changedScope.hashes.dependencyHash);
     expect(scope.hashes.fallbackScopeHash).not.toBe(changedScope.hashes.fallbackScopeHash);
+  });
+
+  it("models package-scope companion targets without applying them to the default package", () => {
+    const manifest = {
+      version: 1,
+      filePath: "/repo/src/Pricing.go",
+      source: goSource(),
+      parser: "go-ast-declaration-extractor",
+      slices: [],
+      headers: [],
+      effects: [],
+      importBindings: [],
+      hasTopLevelEffect: false,
+      toolchain: {
+        version: 1,
+        kind: "go-list",
+        status: "success",
+        hash: "go-list-hash",
+        inputs: ["go-list:go-list-hash", "go-package-scope:package-scope-hash"],
+        packageScope: {
+          version: 1,
+          status: "selected",
+          files: [
+            { filePath: "/repo/src/Pricing.go", hash: "pricing-hash" },
+            { filePath: "/repo/src/Discount.go", hash: "discount-hash" }
+          ],
+          declarations: [
+            {
+              id: "/repo/src/Discount.go#type:Discount",
+              filePath: "/repo/src/Discount.go",
+              name: "Discount",
+              kind: "type",
+              hash: "discount-body-hash"
+            }
+          ],
+          hash: "package-scope-hash",
+          input: "go-package-scope:package-scope-hash",
+          targetPolicy: {
+            version: 1,
+            kind: "current-file-external-bindings",
+            targetScope: "current-file",
+            companionTargetMode: "external-binding",
+            companionTargets: false,
+            fastPath: true,
+            companionFileCount: 1,
+            reason: "Go companion declarations stay as package-local external bindings until Piece has a multi-file package target model."
+          }
+        },
+        goList: {
+          version: 1,
+          status: "success",
+          packageHash: "go-list-hash",
+          packages: []
+        }
+      },
+      diagnostics: []
+    };
+    const graph = {
+      version: 1,
+      filePath: manifest.filePath,
+      slices: [],
+      edges: [
+        {
+          from: "/repo/src/Pricing.go#type:Greeting",
+          to: "/repo/src/Discount.go#Discount",
+          kind: "external",
+          symbols: ["Discount"],
+          import: {
+            local: "Discount",
+            imported: "Discount",
+            source: "/repo/src/Discount.go",
+            kind: "named",
+            isTypeOnly: true
+          }
+        }
+      ],
+      symbolTable: { local: {}, imports: {}, importsByLocal: {}, exports: {} },
+      diagnostics: []
+    };
+    const piecePackage = {
+      version: 1,
+      kind: "single-file-package",
+      language: "go",
+      packageName: "repo/src",
+      label: "//repo/src:Pricing.go",
+      filePath: "/repo/src/Pricing.go",
+      sourceFile: "//repo/src:Pricing.go",
+      rules: [],
+      targets: [
+        {
+          id: "/repo/src/Pricing.go#type:Greeting",
+          label: "//repo/src:Pricing.go__type_Greeting",
+          name: "Greeting",
+          kind: "type",
+          rule: "go_piece_type",
+          source: "//repo/src:Pricing.go",
+          deps: [],
+          runtimeDeps: [],
+          typeDeps: [],
+          externalDeps: ["/repo/src/Discount.go#Discount"],
+          actions: [],
+          artifacts: [],
+          visibility: ["//visibility:private"]
+        }
+      ],
+      actions: [],
+      artifacts: []
+    };
+    const packageScope = createPackageScopeTargetModel({ filePath: manifest.filePath, manifest, graph, piecePackage });
+
+    expect(packageScope).toMatchObject({
+      kind: "package-scope-target-model",
+      status: "candidate",
+      promotion: {
+        appliedToDefaultPackage: false
+      }
+    });
+    expect(packageScope.promotedTargets).toContainEqual(
+      expect.objectContaining({
+        label: "//repo/src:Discount.go__type_Discount",
+        kind: "type",
+        sourceFile: "/repo/src/Discount.go",
+        externalIdentity: "/repo/src/Discount.go#Discount"
+      })
+    );
+    expect(packageScope.promotedEdges).toContainEqual(
+      expect.objectContaining({
+        from: "//repo/src:Pricing.go__type_Greeting",
+        to: "//repo/src:Discount.go__type_Discount",
+        symbols: ["Discount"]
+      })
+    );
   });
 
   it("compiles virtual closure modules with node esbuild", async () => {
