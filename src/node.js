@@ -3,19 +3,76 @@ export * from "./node-language-compilers.js";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import * as esbuild from "esbuild";
-import { setDefaultDeclarationExtractorResolver } from "./core/extractor-registry.js";
-import { createDefaultDeclarationExtractorForFile } from "./languages/index.js";
+import { mergePieceCompilerOptions } from "./core/options.js";
+import {
+  analyzePieceFile as analyzeCorePieceFile,
+  applyPieceEdit as applyCorePieceEdit,
+  buildPiecePreview as buildCorePiecePreview,
+  compilePieceApp as compileCorePieceApp,
+  normalizePieceAppInput,
+  rebuildAffectedPiecePreviews as rebuildCoreAffectedPiecePreviews,
+  selectPiecePreviewTarget
+} from "./index.js";
 import { createNodeKotlinPsiDeclarationExtractor } from "./node-language-compilers.js";
 
 const SOURCE_FILE_PATTERN = /\.(tsx?|jsx?|kts?|go)$/;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "coverage"]);
 
-setDefaultDeclarationExtractorResolver((filePath) => {
-  if (/\.(?:kt|kts)$/.test(filePath)) {
-    return createNodeKotlinPsiDeclarationExtractor();
+function withNodeDeclarationExtractor(options = {}) {
+  if (!options.declarationExtractor && /\.(?:kt|kts)$/.test(options.filePath ?? "")) {
+    return {
+      ...options,
+      declarationExtractor: createNodeKotlinPsiDeclarationExtractor()
+    };
   }
-  return createDefaultDeclarationExtractorForFile(filePath);
-});
+  return options;
+}
+
+export function analyzePieceFile(options = {}) {
+  return analyzeCorePieceFile(withNodeDeclarationExtractor(options));
+}
+
+export function compilePieceApp(options = {}) {
+  return compileCorePieceApp(withNodeDeclarationExtractor(options));
+}
+
+export function buildPiecePreview(options = {}) {
+  return buildCorePiecePreview(withNodeDeclarationExtractor(options));
+}
+
+export function applyPieceEdit(options = {}) {
+  return applyCorePieceEdit(withNodeDeclarationExtractor(options));
+}
+
+export function rebuildAffectedPiecePreviews(options = {}) {
+  return rebuildCoreAffectedPiecePreviews(withNodeDeclarationExtractor(options));
+}
+
+export function createPieceCompiler(defaultOptions = {}) {
+  return {
+    normalize(options) {
+      return normalizePieceAppInput(mergePieceCompilerOptions(defaultOptions, options));
+    },
+    compile(options) {
+      return compilePieceApp(mergePieceCompilerOptions(defaultOptions, options));
+    },
+    analyzeFile(options) {
+      return analyzePieceFile(mergePieceCompilerOptions(defaultOptions, options));
+    },
+    selectPreviewTarget(analysis, options = {}) {
+      return selectPiecePreviewTarget(analysis, options);
+    },
+    buildPreview(options) {
+      return buildPiecePreview(mergePieceCompilerOptions(defaultOptions, options));
+    },
+    applyEdit(options) {
+      return applyPieceEdit(mergePieceCompilerOptions(defaultOptions, options));
+    },
+    rebuildAffectedPreviews(options) {
+      return rebuildAffectedPiecePreviews(mergePieceCompilerOptions(defaultOptions, options));
+    }
+  };
+}
 
 export function createNodeEsbuildBuildEngine(options = {}) {
   return {
