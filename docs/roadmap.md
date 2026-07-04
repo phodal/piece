@@ -346,7 +346,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Verify app-level compile action dispatch can use source-set action-snapshot override packages without changing preview target selection.
+1. Expose action-snapshot override origin metadata so app-level diagnostics can distinguish source-set override packages from current-file override packages.
+
+## Completed Phase 5/6 App-Level Source-Set Override Dispatch Slice
+
+The app-level source-set override dispatch slice is now implemented:
+
+1. `compilePieceApp({ compileAction: true })` can dispatch through an action package created from a source-set package-view override in `pieceDslOverrideMode: "action-snapshot"`.
+2. Dispatch still reports the action package source as `analysis-action-package`, preserving explicit action-package precedence.
+3. The compile report retains the promoted source-set target action identity, such as the selected `User.kt#User` target label.
+4. App-level preview/current-file target selection remains based on the current-file analysis and is not replaced by promoted source-set targets.
+5. `npm run language:project-model:smoke` verifies real Gradle/KMP app-level dispatch through the source-set override action package.
 
 ## Completed Phase 5/6 Source-Set Override Action Snapshot Slice
 

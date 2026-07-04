@@ -544,6 +544,35 @@ fun detached(): String = "detached"
       snapshotActionPackage: sourceSetActionSnapshotOverrideAnalysis.snapshot.actionPackage
     })}`
   );
+  const actionSnapshotAppStatus = await compilePieceApp({
+    filePath: renderPath,
+    source,
+    projectRoot: workspace,
+    analysis: sourceSetActionSnapshotOverrideAnalysis,
+    target: "render",
+    compileAction: true,
+    pieceTarget: promotedUserTarget.label
+  });
+  assert(
+    actionSnapshotAppStatus.compileAction?.status === "success" &&
+      actionSnapshotAppStatus.compileActionSelection?.actionPackageSource === "analysis-action-package" &&
+      actionSnapshotAppStatus.compileAction.pieceAction?.targetLabel === promotedUserTarget.label,
+    `App-level compile action did not dispatch through the source-set action-snapshot override package: ${JSON.stringify({
+      selection: actionSnapshotAppStatus.compileActionSelection,
+      compileAction: actionSnapshotAppStatus.compileAction,
+      diagnostics: actionSnapshotAppStatus.compileActionDiagnostics
+    })}`
+  );
+  assert(
+    actionSnapshotAppStatus.preview?.target === sourceSetActionSnapshotOverrideAnalysis.previewTargets[0] &&
+      actionSnapshotAppStatus.piece.targets.some((target) => target.name === "render") &&
+      !actionSnapshotAppStatus.piece.targets.some((target) => target.name === promotedUserTarget.name),
+    `App-level source-set action dispatch changed preview/current-file target selection: ${JSON.stringify({
+      preview: actionSnapshotAppStatus.preview,
+      piece: actionSnapshotAppStatus.piece,
+      promotedUserTarget
+    })}`
+  );
   assert(
     analysis.piecePackage.actions.every((action) => action.inputs.includes(`project-model:${analysis.manifest.projectModel.analysisScope.hashes.scopeHash}`)),
     `Piece actions did not include the Gradle project model hash input: ${JSON.stringify(analysis.piecePackage.actions)}`
