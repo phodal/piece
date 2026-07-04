@@ -410,8 +410,26 @@ fun detached(): String = "detached"
     `Snapshot did not include the Gradle project model hash: ${JSON.stringify(analysis.snapshot)}`
   );
   assert(
+    analysis.feedbackScope.level === "source-set" &&
+      analysis.feedbackScope.sourceSet?.projectPath === ":app" &&
+      analysis.feedbackScope.sourceSet?.sourceSet === "jvmMain" &&
+      JSON.stringify(analysis.feedbackScope.sourceSet?.projectPaths) === JSON.stringify([":app", ":domain"]) &&
+      analysis.feedbackScope.sourceSet?.sourceRoots.some((root) => root.endsWith("/domain/src/commonMain/kotlin")) &&
+      !analysis.feedbackScope.sourceSet?.sourceRoots.some((root) => root.endsWith("/unused/src/jvmMain/kotlin")) &&
+      analysis.feedbackScope.sourceSet?.hashes?.scopeHash === analysis.manifest.projectModel.analysisScope.hashes.scopeHash,
+    `Feedback scope did not expose the selected Kotlin source-set boundary: ${JSON.stringify(analysis.feedbackScope)}`
+  );
+  assert(
+    analysis.snapshot.feedbackScope.sourceSet?.hashes?.scopeHash === analysis.manifest.projectModel.analysisScope.hashes.scopeHash,
+    `Snapshot feedback scope did not retain source-set scope metadata: ${JSON.stringify(analysis.snapshot.feedbackScope)}`
+  );
+  assert(
     analysis.piecePackage.actions.every((action) => action.inputs.includes(`project-model:${analysis.manifest.projectModel.analysisScope.hashes.scopeHash}`)),
     `Piece actions did not include the Gradle project model hash input: ${JSON.stringify(analysis.piecePackage.actions)}`
+  );
+  assert(
+    analysis.piecePackage.actions.every((action) => action.inputs.includes(`source-set:${analysis.manifest.projectModel.analysisScope.hashes.scopeHash}`)),
+    `Piece actions did not include the source-set feedback scope input: ${JSON.stringify(analysis.piecePackage.actions)}`
   );
   assert(
     Object.values(analysis.snapshot.artifacts).every((artifact) => artifact.cacheKey),

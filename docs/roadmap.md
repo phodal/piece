@@ -23,7 +23,7 @@ The repository already has:
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
-- A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
+- A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
 - JS and Wasm bridges that expose Kotlin core package and graph objects to npm and browser hosts.
 
 ## What Is Still Missing
@@ -160,6 +160,7 @@ Definition of done: Piece defines targets/actions/artifacts, while each language
 
 - Done: introduce `feedbackScope` so Piece reports whether feedback is handled at piece, file, source-set, or project level, with reason codes for unknown edges, top-level effects, slice safety fallback, and Gradle project-model fallback.
 - Done: include target source hashes, dependency-edge hashes, and fallback-scope hashes in generated Piece action inputs, `.pic` round-trips, snapshots, and preview runtime cache identity.
+- Done: extend `feedbackScope.sourceSet` for selected Kotlin Gradle/KMP scopes with scoped source roots, classpath, dependency coordinates, project dependencies, target variants, and `source-set:<scopeHash>` action inputs.
 - Stabilize action cache keys across `.pic`, source hashes, dependency hashes, compiler options, and project model hashes.
 - Make unknown edges force documented fallback.
 - Expand from single-file package feedback to safe multi-file source-set feedback.
@@ -299,9 +300,19 @@ The first Phase 6 slice is now implemented:
 4. Generated Piece actions include stable `source-hash`, `deps-hash`, and `feedback-scope` inputs; `.pic` source and override round trips preserve those inputs.
 5. Snapshot artifact keys and preview runtime closure hashes include `fallbackScopeHash`, so cached artifacts are not reused across unsafe boundary changes.
 
+## Completed Phase 6 Source-Set Feedback Slice
+
+The second Phase 6 slice is now implemented:
+
+1. Selected Kotlin Gradle/KMP analysis scopes now appear as `feedbackScope.sourceSet`.
+2. The source-set scope records project root, project path, reachable project paths, required source sets, source roots, classpath, classpath configurations, dependency coordinates, project dependencies, target variants, and hashes.
+3. Generated Piece action inputs include `source-set:<scopeHash>` alongside `project-model:<scopeHash>` and `feedback-scope:<fallbackScopeHash>`.
+4. Snapshot feedback scope metadata retains the same source-set scope hash used by generated actions.
+5. `npm run language:project-model:smoke` verifies the selected `:app` `jvmMain` source-set boundary includes `:domain` but excludes the unrelated `:unused` project.
+
 ## Next Small Slice
 
-The next implementation slice should stay in Phase 6:
+The next implementation slice can continue Phase 6 or move to Phase 5:
 
-1. Extend `feedbackScope` from single-file package feedback into safe multi-file source-set feedback for Kotlin project scopes.
-2. Keep refining action cache inputs toward a complete multi-language action cache, including compiler options and dependency artifact hashes across language backends.
+1. Keep refining action cache inputs toward a complete multi-language action cache, including compiler options and dependency artifact hashes across language backends.
+2. Move Go toward official `go list`-grounded extraction or a Go-owned backend while keeping Node as the host.

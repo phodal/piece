@@ -1,6 +1,6 @@
 import { sanitizeModulePart } from "./source-utils.js";
 import { hashParts } from "./hash.js";
-import { explainPieceFeedbackScope, pieceFeedbackScopeInput } from "./feedback-scope.js";
+import { explainPieceFeedbackScope, pieceFeedbackScopeInput, pieceFeedbackSourceSetInput } from "./feedback-scope.js";
 
 function normalizePath(value) {
   return String(value ?? "")
@@ -120,7 +120,8 @@ function targetActionCacheInputs(slice, sliceEdges, feedbackScope) {
     `signature-hash:${slice.hashes.signatureHash}`,
     slice.hashes.typeHash ? `type-hash:${slice.hashes.typeHash}` : undefined,
     `deps-hash:${hashParts(sliceEdges.map(edgeDependencyInput).sort())}`,
-    pieceFeedbackScopeInput(feedbackScope)
+    pieceFeedbackScopeInput(feedbackScope),
+    pieceFeedbackSourceSetInput(feedbackScope)
   ].filter(Boolean);
 }
 

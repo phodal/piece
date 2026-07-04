@@ -48,6 +48,33 @@ function projectDependencyInputs(projectModel) {
   ];
 }
 
+function compareStableText(left, right) {
+  return JSON.stringify(left).localeCompare(JSON.stringify(right));
+}
+
+function selectedSourceSetScope(projectModel) {
+  const scope = projectModel?.analysisScope;
+  if (scope?.status !== "selected") {
+    return undefined;
+  }
+
+  return {
+    kind: projectModel.kind,
+    projectRoot: projectModel.projectRoot,
+    projectPath: scope.projectPath,
+    projectPaths: sortStrings(scope.projectPaths ?? []),
+    sourceSet: scope.sourceSet,
+    requiredSourceSets: sortStrings(scope.requiredSourceSets ?? []),
+    sourceRoots: sortStrings(scope.sourceRoots ?? []),
+    classpath: sortStrings(scope.classpath ?? []),
+    classpathConfigurations: sortStrings(scope.classpathConfigurations ?? []),
+    dependencyCoordinates: sortStrings(scope.dependencyCoordinates ?? []),
+    projectDependencies: [...(scope.projectDependencies ?? [])].sort(compareStableText),
+    targetVariants: [...(scope.targetVariants ?? [])].sort(compareStableText),
+    hashes: scope.hashes
+  };
+}
+
 function createReason(code, severity, message, details = {}) {
   return {
     code,
@@ -171,6 +198,7 @@ function feedbackLevel({ safety, project }) {
 export function explainPieceFeedbackScope({ manifest, graph }) {
   const safety = safetyReasons(manifest, graph);
   const project = projectModelReasons(manifest.projectModel);
+  const sourceSet = selectedSourceSetScope(manifest.projectModel);
   const level = feedbackLevel({ safety, project });
   const fallbackRequired = level === "file" || level === "project";
   const reasons =
@@ -216,6 +244,7 @@ export function explainPieceFeedbackScope({ manifest, graph }) {
     level,
     fallbackRequired,
     reasons,
+    ...(sourceSet ? { sourceSet } : {}),
     hashes: {
       sourceHash,
       dependencyHash,
@@ -227,4 +256,8 @@ export function explainPieceFeedbackScope({ manifest, graph }) {
 
 export function pieceFeedbackScopeInput(feedbackScope) {
   return feedbackScope?.hashes?.fallbackScopeHash ? `feedback-scope:${feedbackScope.hashes.fallbackScopeHash}` : undefined;
+}
+
+export function pieceFeedbackSourceSetInput(feedbackScope) {
+  return feedbackScope?.sourceSet?.hashes?.scopeHash ? `source-set:${feedbackScope.sourceSet.hashes.scopeHash}` : undefined;
 }

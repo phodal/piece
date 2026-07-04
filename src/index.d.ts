@@ -469,11 +469,28 @@ export interface PieceFeedbackScopeReason {
   readonly [key: string]: unknown;
 }
 
+export interface PieceFeedbackSourceSetScope {
+  readonly kind: "gradle-kmp" | (string & {});
+  readonly projectRoot: string;
+  readonly projectPath?: string;
+  readonly projectPaths: readonly string[];
+  readonly sourceSet?: string;
+  readonly requiredSourceSets: readonly string[];
+  readonly sourceRoots: readonly string[];
+  readonly classpath: readonly string[];
+  readonly classpathConfigurations: readonly string[];
+  readonly dependencyCoordinates: readonly string[];
+  readonly projectDependencies: readonly PieceProjectModelProjectDependency[];
+  readonly targetVariants: readonly PieceProjectModelTargetVariant[];
+  readonly hashes: PieceProjectModelAnalysisScopeHashes;
+}
+
 export interface PieceFeedbackScope {
   readonly version: 1;
   readonly level: PieceFeedbackScopeLevel;
   readonly fallbackRequired: boolean;
   readonly reasons: readonly PieceFeedbackScopeReason[];
+  readonly sourceSet?: PieceFeedbackSourceSetScope;
   readonly hashes: {
     readonly sourceHash: string;
     readonly dependencyHash: string;
@@ -823,6 +840,7 @@ export function createSingleFilePiecePackage(options: {
 }): SingleFilePiecePackage;
 export function explainPieceFeedbackScope(options: { readonly manifest: PieceFileManifest; readonly graph: PieceSliceGraph }): PieceFeedbackScope;
 export function pieceFeedbackScopeInput(feedbackScope: PieceFeedbackScope | undefined): string | undefined;
+export function pieceFeedbackSourceSetInput(feedbackScope: PieceFeedbackScope | undefined): string | undefined;
 export function piecePackageToPicDsl(piecePackage: SingleFilePiecePackage): string;
 export function mergePiecePackages(
   generatedPackage: SingleFilePiecePackage,
