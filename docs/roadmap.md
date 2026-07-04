@@ -30,7 +30,7 @@ The repository already has:
 The important gaps are:
 
 - Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing, companion source-set external bindings, imported aliases, simple jar-backed classpath classes, Kotlin constructors, Kotlin top-level jar functions, Kotlin extension jar functions, owner-qualified member properties, and callable signatures for overload and generic fixtures, but multi-call overload graph disambiguation still needs expansion.
-- Kotlin project discovery has an initial JVM Gradle Tooling API path for analysis and compile inputs. `projectRoot` can discover KMP source roots, compile classpaths, dependency coordinates, project dependencies, and target variants; saved-file compile can run an inferred real project variant; and source-set-scoped project model hashes now feed action/cache identities. Fallback diagnostics for unsafe or incomplete project discovery still need expansion.
+- Kotlin project discovery has a JVM Gradle Tooling API path for analysis and compile inputs. `projectRoot` can discover KMP source roots, compile classpaths, dependency coordinates, project dependencies, and target variants; saved-file compile can run an inferred real project variant; source-set-scoped project model hashes now feed action/cache identities; and unsafe or incomplete project discovery produces explicit scope fallback diagnostics.
 - Kotlin compile actions are real and owned by the JVM backend, with real-project `projectRoot` compile for saved files and generated temporary MPP projects for unsaved single-file buffers. The final shape should keep making Kotlin/JVM the rule owner and Node only the invoker.
 - Go semantics are still mostly JavaScript-side extraction plus official `go build`/`go test` for compile. The long-term Go rule should use `go list`, `go test`, and `go build` as the source of truth, or move the Go-specific backend into Go.
 - The root/browser-safe Kotlin extractor remains a lightweight fallback. Production Kotlin semantics should be routed through `piece-compiler/node` or a service/local agent.
@@ -141,7 +141,7 @@ Definition of done: Kotlin semantic symbols and diagnostics can run through Anal
 - Done: infer the edited file's source set before Gradle project-model discovery, resolve only the matching target compile classpath, and expose `manifest.projectModel.analysisScope` with required source sets, scoped classpath, and a scoped cache hash.
 - Done: expose resolved Gradle module dependency coordinates and target variants, including compile task and classpath configuration metadata, in `manifest.projectModel` and the scoped analysis model.
 - Done: expose resolved Gradle project dependencies and derive the edited file's scoped source roots, classpaths, dependency coordinates, target variants, and hashes across the reachable Gradle project dependency closure.
-- Continue from source sets, classpaths, dependency coordinates, project dependencies, target variants, and project model hashes toward stronger fallback diagnostics when project discovery cannot prove a safe result.
+- Done: expose `analysisScope.fallbackReason` and scope diagnostics when project discovery cannot map the edited file to a source set or cannot find a matching target compile classpath, without reusing unsafe full-project inputs.
 - Keep manual inputs as override hooks for editor buffers and unsaved files.
 
 Definition of done: a Kotlin file inside a real Gradle/KMP project can be analyzed and compiled with the correct source set and classpath without hand-supplied dependency lists.
@@ -290,8 +290,9 @@ The first Phase 4 project-model slices are now implemented:
 8. `manifest.projectModel.analysisScope` narrows single-file analysis to the edited source set plus required shared source sets such as `commonMain`, and Gradle project-model discovery receives the inferred source set so it can avoid resolving unrelated target compile classpaths.
 9. `manifest.projectModel.dependencies` records resolved module coordinates such as `demo.external:external-user:1.0.0`; `manifest.projectModel.targetVariants` records source set, target name, compile task, and classpath configuration; `analysisScope` carries the coordinates and variants used by the edited file.
 10. `manifest.projectModel.projectDependencies` records resolved Gradle project dependencies such as `:app -> :domain`; `analysisScope.projectPath`, `analysisScope.projectPaths`, and `analysisScope.projectDependencies` keep source roots and classpaths scoped to the edited project plus reachable project dependencies while excluding unrelated projects.
+11. `manifest.projectModel.analysisScope.fallbackReason` and `analysisScope.diagnostics` explain unsafe project-model states such as an edited file outside all discovered source sets or a selected source set without a matching compile classpath; the same diagnostics are also visible in `manifest.diagnostics`.
 
-The next implementation slice should continue Phase 4:
+The next implementation slice should move beyond Phase 4:
 
-1. Keep FE10 fallback and Analysis API gate diagnostics visible when project discovery cannot prove a safe result.
-2. Add fixture coverage for project-model fallback states so hosts can explain why Piece fell back to file-level or project-level feedback.
+1. Continue Phase 3's remaining multi-call overload graph disambiguation.
+2. Start Phase 6's broader fallback explanation model so Piece can report whether an edit is handled at piece, file, source-set, or project level and why.

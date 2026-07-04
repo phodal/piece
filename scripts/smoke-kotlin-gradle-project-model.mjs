@@ -107,6 +107,8 @@ kotlin {
   jvm()
 
   sourceSets {
+    val orphanMain by creating
+
     val jvmMain by getting {
       dependencies {
         implementation(project(":domain"))
@@ -145,12 +147,15 @@ kotlin {
 
   const modelDir = join(projectRoot, "domain", "src", "commonMain", "kotlin", "demo", "model");
   const appDir = join(projectRoot, "app", "src", "jvmMain", "kotlin", "demo", "app");
+  const orphanDir = join(projectRoot, "app", "src", "orphanMain", "kotlin", "demo", "orphan");
   const unusedDir = join(projectRoot, "unused", "src", "jvmMain", "kotlin", "demo", "unused");
   await mkdir(modelDir, { recursive: true });
   await mkdir(appDir, { recursive: true });
+  await mkdir(orphanDir, { recursive: true });
   await mkdir(unusedDir, { recursive: true });
   const modelPath = join(modelDir, "User.kt");
   const renderPath = join(appDir, "Render.kt");
+  const orphanPath = join(orphanDir, "Orphan.kt");
   const unusedPath = join(unusedDir, "Unused.kt");
   await writeFile(
     modelPath,
@@ -179,14 +184,22 @@ class UnusedModel
 `,
     "utf8"
   );
+  await writeFile(
+    orphanPath,
+    `package demo.orphan
 
-  return { moduleCoordinates, projectJar, modelPath, renderPath };
+fun orphan(): String = "orphan"
+`,
+    "utf8"
+  );
+
+  return { moduleCoordinates, projectJar, modelPath, orphanPath, renderPath };
 }
 
 const workspace = await realpath(await mkdtemp(join(tmpdir(), "piece-kotlin-gradle-project-model-")));
 
 try {
-  const { moduleCoordinates, modelPath, renderPath } = await createKmpFixture(workspace);
+  const { moduleCoordinates, modelPath, orphanPath, renderPath } = await createKmpFixture(workspace);
   const source = await readFile(renderPath, "utf8");
   const manifest = await analyzeKotlinPieceFile({
     filePath: renderPath,
@@ -200,6 +213,7 @@ try {
   assert(
     manifest.projectModel.sourceRoots.some((root) => root.endsWith("/domain/src/commonMain/kotlin")) &&
       manifest.projectModel.sourceRoots.some((root) => root.endsWith("/app/src/jvmMain/kotlin")) &&
+      manifest.projectModel.sourceRoots.some((root) => root.endsWith("/app/src/orphanMain/kotlin")) &&
       manifest.projectModel.sourceRoots.some((root) => root.endsWith("/unused/src/jvmMain/kotlin")),
     `Gradle project model did not discover KMP source roots: ${JSON.stringify(manifest.projectModel.sourceRoots)}`
   );
@@ -256,6 +270,10 @@ try {
     `Gradle project model did not select the jvmMain analysis scope: ${JSON.stringify(manifest.projectModel.analysisScope)}`
   );
   assert(
+    manifest.projectModel.analysisScope.diagnostics.length === 0,
+    `Gradle project model emitted unexpected selected-scope diagnostics: ${JSON.stringify(manifest.projectModel.analysisScope.diagnostics)}`
+  );
+  assert(
     manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/domain/src/commonMain/kotlin")) &&
       manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/app/src/jvmMain/kotlin")) &&
       !manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/unused/src/jvmMain/kotlin")),
@@ -296,6 +314,73 @@ try {
         binding.source === `classpath:${projectJar}!demo/external`
     ),
     `Gradle-discovered classpath did not bind the external jar class: ${JSON.stringify(manifest.importBindings)}`
+  );
+
+  const detachedDir = join(workspace, "scratch");
+  await mkdir(detachedDir, { recursive: true });
+  const detachedPath = join(detachedDir, "Detached.kt");
+  const detachedSource = `package demo.detached
+
+fun detached(): String = "detached"
+`;
+  await writeFile(detachedPath, detachedSource, "utf8");
+  const detachedManifest = await analyzeKotlinPieceFile({
+    filePath: detachedPath,
+    source: detachedSource,
+    projectRoot: workspace,
+    backend: "analysis-api",
+    analysisApiEnabled: true
+  });
+  assert(
+    detachedManifest.projectModel?.status === "success" &&
+      detachedManifest.projectModel.analysisScope?.status === "fallback" &&
+      detachedManifest.projectModel.analysisScope?.fallbackReason?.includes("source set"),
+    `Gradle project model did not explain unmatched source-set fallback: ${JSON.stringify(detachedManifest.projectModel)}`
+  );
+  assert(
+    detachedManifest.projectModel.analysisScope.sourceRoots.length === 0 &&
+      detachedManifest.projectModel.analysisScope.classpath.length === 0,
+    `Gradle project model fallback reused unsafe full-project inputs: ${JSON.stringify(detachedManifest.projectModel.analysisScope)}`
+  );
+  assert(
+    detachedManifest.projectModel.analysisScope.diagnostics.some(
+      (diagnostic) => diagnostic.code === "kotlin-project-model-source-set-unmatched"
+    ) &&
+      detachedManifest.diagnostics.some((diagnostic) => diagnostic.code === "kotlin-project-model-source-set-unmatched"),
+    `Gradle project model fallback diagnostics were not exposed on the scope and manifest: ${JSON.stringify({
+      scope: detachedManifest.projectModel.analysisScope.diagnostics,
+      manifest: detachedManifest.diagnostics
+    })}`
+  );
+
+  const orphanSource = await readFile(orphanPath, "utf8");
+  const orphanManifest = await analyzeKotlinPieceFile({
+    filePath: orphanPath,
+    source: orphanSource,
+    projectRoot: workspace,
+    backend: "analysis-api",
+    analysisApiEnabled: true
+  });
+  assert(
+    orphanManifest.projectModel?.status === "success" &&
+      orphanManifest.projectModel.analysisScope?.status === "fallback" &&
+      orphanManifest.projectModel.analysisScope?.sourceSet === "orphanMain",
+    `Gradle project model did not keep orphanMain as a fallback scope: ${JSON.stringify(orphanManifest.projectModel)}`
+  );
+  assert(
+    orphanManifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/app/src/orphanMain/kotlin")) &&
+      orphanManifest.projectModel.analysisScope.classpath.length === 0,
+    `Gradle project model orphan fallback did not retain only safe source roots: ${JSON.stringify(orphanManifest.projectModel.analysisScope)}`
+  );
+  assert(
+    orphanManifest.projectModel.analysisScope.diagnostics.some(
+      (diagnostic) => diagnostic.code === "kotlin-project-model-classpath-unmatched"
+    ) &&
+      orphanManifest.diagnostics.some((diagnostic) => diagnostic.code === "kotlin-project-model-classpath-unmatched"),
+    `Gradle project model orphan fallback diagnostics were not exposed on the scope and manifest: ${JSON.stringify({
+      scope: orphanManifest.projectModel.analysisScope.diagnostics,
+      manifest: orphanManifest.diagnostics
+    })}`
   );
 
   const analysis = await analyzePieceFile({

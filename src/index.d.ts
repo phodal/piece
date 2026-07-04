@@ -407,6 +407,7 @@ export interface PieceProjectModelAnalysisScopeHashes {
 
 export interface PieceProjectModelAnalysisScope {
   readonly status: "selected" | "fallback" | (string & {});
+  readonly fallbackReason?: string;
   readonly projectPath?: string;
   readonly projectPaths: readonly string[];
   readonly sourceSet?: string;
@@ -417,6 +418,7 @@ export interface PieceProjectModelAnalysisScope {
   readonly dependencyCoordinates: readonly string[];
   readonly projectDependencies: readonly PieceProjectModelProjectDependency[];
   readonly targetVariants: readonly PieceProjectModelTargetVariant[];
+  readonly diagnostics: readonly PieceDiagnostic[];
   readonly hashes: PieceProjectModelAnalysisScopeHashes;
 }
 

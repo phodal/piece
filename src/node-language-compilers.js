@@ -477,6 +477,15 @@ function reachableKotlinProjectPaths(projectModel, selectedProjectPath, sourceSe
   return [...reachable].sort();
 }
 
+function kotlinProjectModelScopeDiagnostic(code, message, details = {}) {
+  return {
+    code,
+    severity: "warning",
+    message,
+    ...details
+  };
+}
+
 function kotlinProjectModelScopeHashes(scope) {
   const sourceRoots = [...new Set(scope.sourceRoots ?? [])].sort();
   const classpath = [...new Set(scope.classpath ?? [])].sort();
@@ -525,7 +534,7 @@ function focusKotlinProjectModel(projectModel, options = {}) {
   const projectPaths = reachableKotlinProjectPaths(modelWithHashes, selectedSourceSet?.projectPath, selectedSourceSet?.name);
   const projectPathSet = new Set(projectPaths);
   const selectedSourceRoots =
-    requiredNames.size > 0
+    selectedSourceSet?.name
       ? [
           ...new Set(
             (modelWithHashes.sourceSets ?? [])
@@ -533,7 +542,7 @@ function focusKotlinProjectModel(projectModel, options = {}) {
               .flatMap((sourceSet) => sourceSet.sourceRoots ?? [])
           )
         ].sort()
-      : [...(modelWithHashes.sourceRoots ?? [])];
+      : [];
   const matchingClasspaths =
     selectedSourceSet?.name
       ? (modelWithHashes.classpaths ?? []).filter(
@@ -553,9 +562,58 @@ function focusKotlinProjectModel(projectModel, options = {}) {
   const matchingTargetVariants = selectedSourceSet?.name
     ? (modelWithHashes.targetVariants ?? []).filter((variant) => projectPathSet.has(variant.projectPath) && variant.sourceSet === selectedSourceSet.name)
     : [];
-  const selectedClasspath = matchingClasspaths.length > 0 ? [...new Set(matchingClasspaths.flatMap((entry) => entry.files ?? []))].sort() : [...(modelWithHashes.classpath ?? [])];
+  const selectedClasspath = matchingClasspaths.length > 0 ? [...new Set(matchingClasspaths.flatMap((entry) => entry.files ?? []))].sort() : [];
+  const diagnostics = [];
+  if (modelWithHashes.status !== "success") {
+    diagnostics.push(
+      kotlinProjectModelScopeDiagnostic(
+        "kotlin-project-model-discovery-fallback",
+        "Gradle project model discovery did not return a successful model; Piece cannot prove a source-set-scoped Kotlin analysis boundary.",
+        { projectRoot: modelWithHashes.projectRoot }
+      )
+    );
+  }
+  if (!selectedSourceSet) {
+    diagnostics.push(
+      kotlinProjectModelScopeDiagnostic(
+        "kotlin-project-model-source-set-unmatched",
+        "Gradle project model discovery did not map the edited Kotlin file to a discovered source set; Piece is falling back to file-level Kotlin analysis unless manual sourceRoots or classpath overrides are provided.",
+        {
+          filePath: options.filePath,
+          projectRoot: modelWithHashes.projectRoot
+        }
+      )
+    );
+  } else {
+    if (selectedSourceRoots.length === 0) {
+      diagnostics.push(
+        kotlinProjectModelScopeDiagnostic(
+          "kotlin-project-model-source-roots-empty",
+          "The selected Gradle source set did not expose Kotlin source roots; Piece cannot prove the source-set input boundary.",
+          {
+            projectPath: selectedSourceSet.projectPath,
+            sourceSet: selectedSourceSet.name
+          }
+        )
+      );
+    }
+    if (!selectedSourceSet.name.startsWith("common") && matchingClasspaths.length === 0) {
+      diagnostics.push(
+        kotlinProjectModelScopeDiagnostic(
+          "kotlin-project-model-classpath-unmatched",
+          "Gradle project model discovery did not expose a matching compile classpath for the selected Kotlin source set; Piece is falling back instead of reusing the full project classpath.",
+          {
+            projectPath: selectedSourceSet.projectPath,
+            sourceSet: selectedSourceSet.name
+          }
+        )
+      );
+    }
+  }
+  const fallbackReason = diagnostics[0]?.message;
   const scope = {
-    status: selectedSourceSet ? "selected" : "fallback",
+    status: diagnostics.length === 0 ? "selected" : "fallback",
+    ...(fallbackReason ? { fallbackReason } : {}),
     projectPath: selectedSourceSet?.projectPath,
     projectPaths,
     sourceSet: selectedSourceSet?.name,
@@ -565,10 +623,12 @@ function focusKotlinProjectModel(projectModel, options = {}) {
     classpathConfigurations: matchingClasspaths.map((entry) => `${entry.projectPath}:${entry.name}`).sort(),
     dependencyCoordinates: [...new Set(matchingDependencies.map((dependency) => dependency.coordinates).filter(Boolean))].sort(),
     projectDependencies: matchingProjectDependencies,
-    targetVariants: matchingTargetVariants
+    targetVariants: matchingTargetVariants,
+    diagnostics
   };
   return {
     ...modelWithHashes,
+    diagnostics: [...(modelWithHashes.diagnostics ?? []), ...diagnostics],
     analysisScope: {
       ...scope,
       hashes: kotlinProjectModelScopeHashes(scope)
