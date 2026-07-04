@@ -21,14 +21,15 @@ The repository already has:
 - An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain` and a Node smoke entrypoint.
 - A Kotlin PSI `.pic` generator that emits deterministic package text and verifies the generated file by parsing it back through the same ANTLR backend.
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
+- Generated `.pic` plus user override `.pic` merging, including selected target labels, visibility, fixture inputs, and explicit action config.
+- A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - JS and Wasm bridges that expose Kotlin core package and graph objects to npm and browser hosts.
 
 ## What Is Still Missing
 
 The important gaps are:
 
-- The first `.pic` parser slice exists and Kotlin, Go, and TypeScript extraction can emit `.pic`, but generated `.pic` plus user override merging is not implemented.
-- Kotlin semantic analysis still uses FE10 `BindingContext` as the symbol-resolution fallback. It needs a real Kotlin Analysis API backend when the standalone artifacts are stable enough for this package.
+- Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API currently reports a visible fallback to FE10 until the standalone artifacts are stable enough for this package.
 - Kotlin project discovery is still host-provided. Source roots, companion files, and classpath can be passed in, but the backend does not yet discover full Gradle/KMP source sets, dependencies, and variants on its own.
 - Kotlin compile actions are real but still mediated by the npm function that creates a temporary Gradle project. The final shape should make Kotlin/JVM the rule owner and Node only the invoker.
 - Go semantics are still mostly JavaScript-side extraction plus official `go build`/`go test` for compile. The long-term Go rule should use `go list`, `go test`, and `go build` as the source of truth, or move the Go-specific backend into Go.
@@ -116,11 +117,11 @@ Definition of done: source extraction can produce a deterministic `.pic`, parse 
 
 ### Phase 3: Kotlin Analysis API Backend
 
-- Add an explicit backend selector: `psi`, `fe10-binding-context`, `analysis-api`.
-- Keep FE10 as a documented fallback only.
+- Done: add an explicit backend selector: `psi`, `fe10-binding-context`, `analysis-api`.
+- Done: keep FE10 as a documented fallback only by reporting `analysisBackend.requested`, `analysisBackend.actual`, `status`, and fallback diagnostics in manifests.
+- Done: return backend metadata in Kotlin manifests and `.pic` generation reports.
 - Add Analysis API dependencies behind a clear Gradle configuration once the standalone artifacts are available for the pinned Kotlin version.
 - Implement `KotlinAnalysisExtractor` for overloads, imports, aliases, extension functions, generics, and richer classpath/project models.
-- Return backend metadata in manifests so hosts know which semantic engine produced diagnostics and edges.
 
 Definition of done: Kotlin semantic symbols and diagnostics can run through Analysis API when available, and tests prove the FE10 fallback is not silently treated as the final backend.
 
@@ -162,11 +163,21 @@ The Phase 2 merge slice is now implemented:
 
 This finishes moving `.pic` from handwritten fixtures into the generated package contract without weakening the language-backend ownership boundary.
 
+## Completed Phase 3 Selector Slice
+
+The first Phase 3 slice is now implemented:
+
+1. `analyzeKotlinPieceFile({ backend })` and JVM `KotlinPsiAnalysisRequest.backend` accept `psi`, `fe10-binding-context`, and `analysis-api`.
+2. `analyzePieceFile({ kotlinAnalysisBackend })` forwards the selector to the default Node Kotlin extractor.
+3. Kotlin manifests expose `analysisBackend` metadata so hosts can distinguish requested and actual semantic engines.
+4. Requesting `analysis-api` returns a visible fallback to `fe10-binding-context` instead of silently claiming Analysis API support.
+5. Kotlin `.pic` generation reports include the backend metadata used for source package extraction.
+
 ## Next Small Slice
 
-The next implementation slice should start Phase 3:
+The next implementation slice should continue Phase 3:
 
-1. Add a Kotlin backend selector field to Node and JVM analysis options: `psi`, `fe10-binding-context`, `analysis-api`.
-2. Return backend metadata in Kotlin manifests and `.pic` generation reports.
-3. Keep the current PSI backend as the default and document FE10/Analysis API as explicit, non-silent choices.
-4. Add tests proving callers can request a backend and see which backend actually produced the manifest.
+1. Add a Gradle configuration gate for Kotlin Analysis API dependencies, without making it the default backend.
+2. Prototype an `analysis-api` backend behind that gate for one narrow symbol case.
+3. Keep `analysis-api` unavailable as an explicit fallback when the dependency set is not enabled.
+4. Add tests that prove the selector does not silently fall through when the gate is off.

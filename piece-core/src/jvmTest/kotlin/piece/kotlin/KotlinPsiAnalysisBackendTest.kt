@@ -42,6 +42,10 @@ class KotlinPsiAnalysisBackendTest {
         )
 
         assertEquals("kotlin-psi-declaration-extractor", manifest.parser)
+        assertEquals("psi", manifest.analysisBackend.requested)
+        assertEquals("psi", manifest.analysisBackend.actual)
+        assertEquals("psi", manifest.analysisBackend.symbols)
+        assertEquals("none", manifest.analysisBackend.diagnostics)
         assertEquals(
             listOf("User", "Greeting", "prefix", "renderGreeting", "Greeter"),
             manifest.slices.map { it.name },
@@ -84,6 +88,7 @@ class KotlinPsiAnalysisBackendTest {
         )
 
         assertEquals(emptyList(), defaultManifest.diagnostics)
+        assertEquals("kotlin-compiler-diagnostics", semanticManifest.analysisBackend.diagnostics)
         val error = semanticManifest.diagnostics.firstOrNull { it.severity == "error" }
         assertTrue(error != null, "Expected Kotlin compiler semantic diagnostics.")
         assertEquals("/repo/src/Broken.kt", error.path)
@@ -110,17 +115,48 @@ class KotlinPsiAnalysisBackendTest {
             KotlinPsiAnalysisRequest(
                 filePath = "/repo/src/Symbols.kt",
                 source = source,
-                semanticSymbols = true,
+                backend = KotlinAnalysisBackendKind.Fe10BindingContext,
             ),
         )
 
         val psiRender = psiManifest.slices.first { it.name == "render" }
         val semanticRender = semanticManifest.slices.first { it.name == "render" }
+        assertEquals("fe10-binding-context", semanticManifest.analysisBackend.requested)
+        assertEquals("fe10-binding-context", semanticManifest.analysisBackend.actual)
+        assertEquals("fe10-binding-context", semanticManifest.analysisBackend.symbols)
         assertEquals(listOf("User"), psiRender.symbols.references)
         assertEquals(listOf("User"), psiRender.symbols.typeReferences)
         assertEquals(emptyList(), semanticRender.symbols.references)
         assertEquals(emptyList(), semanticRender.symbols.typeReferences)
         assertFalse("User" in semanticRender.symbols.references)
+    }
+
+    @Test
+    fun reportsAnalysisApiFallbackWithoutSilentlyClaimingSupport() {
+        val source = """
+            package demo.symbols
+
+            class User
+
+            fun <User> render(value: User): User = value
+        """.trimIndent()
+
+        val manifest = KotlinPsiAnalysisBackend().analyze(
+            KotlinPsiAnalysisRequest(
+                filePath = "/repo/src/Symbols.kt",
+                source = source,
+                backend = KotlinAnalysisBackendKind.AnalysisApi,
+            ),
+        )
+
+        val render = manifest.slices.first { it.name == "render" }
+        assertEquals("analysis-api", manifest.analysisBackend.requested)
+        assertEquals("fe10-binding-context", manifest.analysisBackend.actual)
+        assertEquals("fallback", manifest.analysisBackend.status)
+        assertTrue(manifest.analysisBackend.fallbackReason?.contains("Analysis API") == true)
+        assertTrue(manifest.diagnostics.any { it.code == "kotlin-analysis-backend-fallback" && it.severity == "warning" })
+        assertEquals(emptyList(), render.symbols.references)
+        assertEquals(emptyList(), render.symbols.typeReferences)
     }
 
     @Test

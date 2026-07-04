@@ -25,6 +25,22 @@ fun main(args: Array<String>) {
     val outputReport = Path.of(options.required("outputReport"))
     val filePath = options["filePath"]?.takeIf { it.isNotBlank() } ?: "Main.kt"
     val source = Path.of(sourceFile).readText()
+    val requestedBackend = options["backend"]
+        ?.takeIf { it.isNotBlank() }
+        ?.let(KotlinAnalysisBackendKind::fromWireName)
+        ?: KotlinAnalysisBackendKind.Psi
+    val analysisBackend = kotlinPsiGenerationBackendMetadata(requestedBackend)
+    val backendDiagnostics = if (analysisBackend.status == "fallback") {
+        listOf(
+            PicGenerationDiagnostic(
+                code = "kotlin-pic-backend-fallback",
+                severity = "warning",
+                message = analysisBackend.fallbackReason ?: "Kotlin .pic generation backend fallback was used.",
+            ),
+        )
+    } else {
+        emptyList()
+    }
 
     var hasErrors = false
     val report = try {
@@ -34,7 +50,8 @@ fun main(args: Array<String>) {
             source = source,
             piecePackage = piecePackage,
             pic = piecePackageToPicDsl(piecePackage),
-            diagnostics = emptyList(),
+            diagnostics = backendDiagnostics,
+            analysisBackend = analysisBackend,
         )
     } catch (error: Throwable) {
         hasErrors = true
@@ -43,13 +60,14 @@ fun main(args: Array<String>) {
             source = source,
             piecePackage = null,
             pic = "",
-            diagnostics = listOf(
+            diagnostics = backendDiagnostics + listOf(
                 PicGenerationDiagnostic(
                     code = "kotlin-pic-generation-error",
                     severity = "error",
                     message = error.message ?: error::class.java.name,
                 ),
             ),
+            analysisBackend = analysisBackend,
         )
     }
 
@@ -76,6 +94,7 @@ private fun picGenerationReport(
     piecePackage: PiecePackage?,
     pic: String,
     diagnostics: List<PicGenerationDiagnostic>,
+    analysisBackend: KotlinAnalysisBackendMetadata,
 ): String = buildPicJsonObject {
     field("version", 1)
     field("generator", "kotlin-psi-pic-generator")
@@ -84,6 +103,7 @@ private fun picGenerationReport(
     field("pic", pic)
     rawField("piecePackage", piecePackage?.toJson() ?: "null")
     field("diagnostics", diagnostics) { it.toJson() }
+    rawField("analysisBackend", analysisBackend.toJson())
 }
 
 private fun PiecePackage.toJson(): String = buildPicJsonObject {
@@ -145,6 +165,16 @@ private fun PicGenerationDiagnostic.toJson(): String = buildPicJsonObject {
     field("code", code)
     field("severity", severity)
     field("message", message)
+}
+
+private fun KotlinAnalysisBackendMetadata.toJson(): String = buildPicJsonObject {
+    field("requested", requested)
+    field("actual", actual)
+    field("declarations", declarations)
+    field("symbols", symbols)
+    field("diagnostics", diagnostics)
+    field("status", status)
+    fallbackReason?.let { field("fallbackReason", it) }
 }
 
 private class PicJsonObjectBuilder {

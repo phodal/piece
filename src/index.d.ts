@@ -4,6 +4,7 @@ export const PIECE_PREVIEW_PROTOCOL_VERSION: 1;
 export const PIECE_PREVIEW_PROTOCOLS: readonly ["PreviewBuild", "PreviewUpdate"];
 
 export type PieceBuildMode = "pure-slice" | "wrapper" | "whole-file" | (string & {});
+export type KotlinAnalysisBackendKind = "psi" | "fe10-binding-context" | "analysis-api";
 
 export interface VirtualFileSystem {
   readonly kind?: string;
@@ -69,6 +70,7 @@ export interface CompilePieceAppOptions {
   readonly fileSystem?: VirtualFileSystem;
   readonly previousTree?: unknown;
   readonly declarationExtractor?: PieceDeclarationExtractor;
+  readonly kotlinAnalysisBackend?: KotlinAnalysisBackendKind;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;
   readonly globals?: readonly string[];
@@ -329,6 +331,16 @@ export interface PieceDiagnostic {
   readonly [key: string]: unknown;
 }
 
+export interface PieceAnalysisBackendMetadata {
+  readonly requested: KotlinAnalysisBackendKind | (string & {});
+  readonly actual: KotlinAnalysisBackendKind | (string & {});
+  readonly declarations: string;
+  readonly symbols: string;
+  readonly diagnostics: string;
+  readonly status: "ready" | "fallback" | (string & {});
+  readonly fallbackReason?: string;
+}
+
 export interface PieceFileManifest {
   readonly version: 1;
   readonly filePath: string;
@@ -339,6 +351,7 @@ export interface PieceFileManifest {
   readonly effects: readonly PieceEffectSegment[];
   readonly importBindings: readonly PieceImportBinding[];
   readonly hasTopLevelEffect: boolean;
+  readonly analysisBackend?: PieceAnalysisBackendMetadata;
   readonly diagnostics: readonly PieceDiagnostic[];
 }
 
@@ -529,6 +542,7 @@ export interface AnalyzePieceFileOptions {
   readonly source: string;
   readonly previousTree?: unknown;
   readonly declarationExtractor?: PieceDeclarationExtractor;
+  readonly kotlinAnalysisBackend?: KotlinAnalysisBackendKind;
   readonly sourceFiles?: readonly (string | { readonly filePath: string; readonly source: string })[];
   readonly sourceRoots?: readonly string[];
   readonly classpath?: readonly string[];

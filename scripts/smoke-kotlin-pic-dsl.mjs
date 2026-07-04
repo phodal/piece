@@ -24,6 +24,12 @@ const generated = await generateKotlinPieceDslFile({
 });
 
 assert(generated.generator === "kotlin-psi-pic-generator", `Unexpected generator: ${generated.generator}`);
+assert(
+  generated.analysisBackend?.requested === "psi" &&
+    generated.analysisBackend?.actual === "psi" &&
+    generated.analysisBackend?.status === "ready",
+  `Unexpected Kotlin .pic backend metadata: ${JSON.stringify(generated.analysisBackend)}`
+);
 assert(generated.diagnostics.length === 0, `Unexpected generator diagnostics: ${JSON.stringify(generated.diagnostics)}`);
 assert(generated.piecePackage, "Expected Kotlin .pic generation to include a source PiecePackage.");
 assert(generated.pic.includes('language kotlin'), `Expected Kotlin language in .pic: ${generated.pic}`);

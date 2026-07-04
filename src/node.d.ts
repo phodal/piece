@@ -1,5 +1,13 @@
 export * from "./index.js";
-import type { PieceBuildEngine, PieceDeclarationExtractor, PieceFileManifest, SingleFilePiecePackage, VirtualFileSystem } from "./index.js";
+import type {
+  KotlinAnalysisBackendKind,
+  PieceAnalysisBackendMetadata,
+  PieceBuildEngine,
+  PieceDeclarationExtractor,
+  PieceFileManifest,
+  SingleFilePiecePackage,
+  VirtualFileSystem
+} from "./index.js";
 export function createNodeEsbuildBuildEngine(options?: {
   readonly name?: string;
   readonly buildOptions?: Record<string, unknown>;
@@ -103,12 +111,14 @@ export interface KotlinPieceDslGenerationResult {
   readonly source: string;
   readonly pic: string;
   readonly piecePackage: SingleFilePiecePackage | null;
+  readonly analysisBackend: PieceAnalysisBackendMetadata;
   readonly diagnostics: readonly PieceDslParseDiagnostic[];
 }
 
 export interface GenerateKotlinPieceDslFileOptions {
   readonly filePath?: string;
   readonly source?: string;
+  readonly backend?: KotlinAnalysisBackendKind;
   readonly env?: Record<string, string | undefined>;
 }
 
@@ -151,6 +161,7 @@ export interface AnalyzeKotlinPieceFileOptions {
   readonly classpath?: readonly string[];
   readonly cwd?: string;
   readonly parserName?: string;
+  readonly backend?: KotlinAnalysisBackendKind;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;
   readonly env?: Record<string, string | undefined>;
@@ -167,6 +178,7 @@ export interface NodeKotlinPsiDeclarationExtractorOptions {
   readonly sourceRoots?: readonly string[];
   readonly classpath?: readonly string[];
   readonly cwd?: string;
+  readonly backend?: KotlinAnalysisBackendKind;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;
   readonly env?: Record<string, string | undefined>;

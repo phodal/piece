@@ -9,10 +9,34 @@ import piece.model.PieceTargetKind
 
 private const val DEFAULT_KOTLIN_PSI_PARSER_NAME = "kotlin-psi-declaration-extractor"
 
+enum class KotlinAnalysisBackendKind(val wireName: String) {
+    Psi("psi"),
+    Fe10BindingContext("fe10-binding-context"),
+    AnalysisApi("analysis-api");
+
+    companion object {
+        fun fromWireName(value: String): KotlinAnalysisBackendKind {
+            return entries.firstOrNull { it.wireName == value }
+                ?: throw IllegalArgumentException("Unsupported Kotlin analysis backend: $value")
+        }
+    }
+}
+
+data class KotlinAnalysisBackendMetadata(
+    val requested: String,
+    val actual: String,
+    val declarations: String,
+    val symbols: String,
+    val diagnostics: String,
+    val status: String,
+    val fallbackReason: String? = null,
+)
+
 data class KotlinPsiAnalysisRequest(
     val filePath: String,
     val source: String,
     val parserName: String = DEFAULT_KOTLIN_PSI_PARSER_NAME,
+    val backend: KotlinAnalysisBackendKind? = null,
     val semanticDiagnostics: Boolean = false,
     val semanticSymbols: Boolean = false,
     val companionFiles: List<KotlinPsiAnalysisSourceFile> = emptyList(),
@@ -113,6 +137,7 @@ data class KotlinPsiManifest(
     val importBindings: List<KotlinPsiImportBinding>,
     val hasTopLevelEffect: Boolean,
     val diagnostics: List<KotlinPsiDiagnostic>,
+    val analysisBackend: KotlinAnalysisBackendMetadata,
 ) {
     fun toJson(): String = buildKotlinPsiJsonObject {
         field("version", version)
@@ -125,11 +150,13 @@ data class KotlinPsiManifest(
         field("importBindings", importBindings) { it.toJson() }
         field("hasTopLevelEffect", hasTopLevelEffect)
         field("diagnostics", diagnostics) { it.toJson() }
+        rawField("analysisBackend", analysisBackend.toJson())
     }
 }
 
 class KotlinPsiAnalysisBackend {
     fun analyze(request: KotlinPsiAnalysisRequest): KotlinPsiManifest {
+        val backend = request.resolveBackend()
         val file = SourceFile(request.filePath, request.source)
         return withKtFile(file) { ktFile ->
             val declarations = ktFile.declarations.mapNotNull { declaration ->
@@ -137,7 +164,7 @@ class KotlinPsiAnalysisBackend {
             }
             val headers = ktFile.toHeaders(file)
             val localTargetNames = declarations.map { declaration -> declaration.name }.toSet()
-            val semanticResult = if (request.semanticSymbols) {
+            val semanticResult = if (backend.useFe10Symbols) {
                 KotlinBindingSymbolBackend().symbols(
                     KotlinBindingSymbolRequest(
                         filePath = request.filePath,
@@ -165,23 +192,24 @@ class KotlinPsiAnalysisBackend {
                 )
             }
             val effects = ktFile.toEffects(file, declarations, headers)
-            val diagnostics = semanticResult.diagnostics + if (request.semanticDiagnostics) {
-                KotlinCompilerDiagnosticBackend().diagnostics(
-                    KotlinCompilerDiagnosticRequest(
-                        filePath = request.filePath,
-                        source = request.source,
-                        companionFiles = request.companionFiles.map { companion ->
-                            KotlinCompilerDiagnosticSourceFile(
-                                filePath = companion.filePath,
-                                source = companion.source,
-                            )
-                        },
-                        classpath = request.classpath,
-                    ),
-                )
-            } else {
-                emptyList()
-            }
+            val diagnostics = backend.diagnostics + semanticResult.diagnostics +
+                if (request.semanticDiagnostics) {
+                    KotlinCompilerDiagnosticBackend().diagnostics(
+                        KotlinCompilerDiagnosticRequest(
+                            filePath = request.filePath,
+                            source = request.source,
+                            companionFiles = request.companionFiles.map { companion ->
+                                KotlinCompilerDiagnosticSourceFile(
+                                    filePath = companion.filePath,
+                                    source = companion.source,
+                                )
+                            },
+                            classpath = request.classpath,
+                        ),
+                    )
+                } else {
+                    emptyList()
+                }
 
             KotlinPsiManifest(
                 filePath = request.filePath,
@@ -193,6 +221,7 @@ class KotlinPsiAnalysisBackend {
                 importBindings = importBindings,
                 hasTopLevelEffect = effects.isNotEmpty(),
                 diagnostics = diagnostics,
+                analysisBackend = backend.metadata(request.semanticDiagnostics),
             )
         }
     }
@@ -229,7 +258,91 @@ fun errorKotlinPsiManifest(request: KotlinPsiAnalysisRequest, error: Throwable):
                 message = error.message ?: error::class.java.name,
             ),
         ),
+        analysisBackend = request.resolveBackend().metadata(request.semanticDiagnostics),
     )
+}
+
+fun kotlinPsiGenerationBackendMetadata(
+    requestedBackend: KotlinAnalysisBackendKind = KotlinAnalysisBackendKind.Psi,
+): KotlinAnalysisBackendMetadata {
+    return if (requestedBackend == KotlinAnalysisBackendKind.Psi) {
+        KotlinAnalysisBackendMetadata(
+            requested = KotlinAnalysisBackendKind.Psi.wireName,
+            actual = KotlinAnalysisBackendKind.Psi.wireName,
+            declarations = KotlinAnalysisBackendKind.Psi.wireName,
+            symbols = KotlinAnalysisBackendKind.Psi.wireName,
+            diagnostics = "none",
+            status = "ready",
+        )
+    } else {
+        KotlinAnalysisBackendMetadata(
+            requested = requestedBackend.wireName,
+            actual = KotlinAnalysisBackendKind.Psi.wireName,
+            declarations = KotlinAnalysisBackendKind.Psi.wireName,
+            symbols = KotlinAnalysisBackendKind.Psi.wireName,
+            diagnostics = "none",
+            status = "fallback",
+            fallbackReason = "Kotlin .pic generation currently uses PSI declaration extraction only.",
+        )
+    }
+}
+
+private data class KotlinAnalysisBackendResolution(
+    val requested: KotlinAnalysisBackendKind,
+    val actual: KotlinAnalysisBackendKind,
+    val useFe10Symbols: Boolean,
+    val fallbackReason: String? = null,
+) {
+    val diagnostics: List<KotlinPsiDiagnostic>
+        get() = fallbackReason?.let { reason ->
+            listOf(
+                KotlinPsiDiagnostic(
+                    code = "kotlin-analysis-backend-fallback",
+                    severity = "warning",
+                    message = reason,
+                ),
+            )
+        }.orEmpty()
+
+    fun metadata(semanticDiagnostics: Boolean): KotlinAnalysisBackendMetadata {
+        return KotlinAnalysisBackendMetadata(
+            requested = requested.wireName,
+            actual = actual.wireName,
+            declarations = KotlinAnalysisBackendKind.Psi.wireName,
+            symbols = if (useFe10Symbols) KotlinAnalysisBackendKind.Fe10BindingContext.wireName else KotlinAnalysisBackendKind.Psi.wireName,
+            diagnostics = if (semanticDiagnostics) "kotlin-compiler-diagnostics" else "none",
+            status = if (fallbackReason == null) "ready" else "fallback",
+            fallbackReason = fallbackReason,
+        )
+    }
+}
+
+private fun KotlinPsiAnalysisRequest.resolveBackend(): KotlinAnalysisBackendResolution {
+    val requested = backend ?: if (semanticSymbols) {
+        KotlinAnalysisBackendKind.Fe10BindingContext
+    } else {
+        KotlinAnalysisBackendKind.Psi
+    }
+    return when (requested) {
+        KotlinAnalysisBackendKind.Psi -> KotlinAnalysisBackendResolution(
+            requested = requested,
+            actual = KotlinAnalysisBackendKind.Psi,
+            useFe10Symbols = false,
+        )
+
+        KotlinAnalysisBackendKind.Fe10BindingContext -> KotlinAnalysisBackendResolution(
+            requested = requested,
+            actual = KotlinAnalysisBackendKind.Fe10BindingContext,
+            useFe10Symbols = true,
+        )
+
+        KotlinAnalysisBackendKind.AnalysisApi -> KotlinAnalysisBackendResolution(
+            requested = requested,
+            actual = KotlinAnalysisBackendKind.Fe10BindingContext,
+            useFe10Symbols = true,
+            fallbackReason = "Kotlin Analysis API backend is not wired for this pinned Kotlin runtime yet; using explicit FE10 BindingContext fallback.",
+        )
+    }
 }
 
 private fun KotlinPieceDeclaration.toManifestSlice(
@@ -468,6 +581,16 @@ private fun KotlinPsiDiagnostic.toJson(): String = buildKotlinPsiJsonObject {
     column?.let { field("column", it) }
     lineEnd?.let { field("lineEnd", it) }
     columnEnd?.let { field("columnEnd", it) }
+}
+
+private fun KotlinAnalysisBackendMetadata.toJson(): String = buildKotlinPsiJsonObject {
+    field("requested", requested)
+    field("actual", actual)
+    field("declarations", declarations)
+    field("symbols", symbols)
+    field("diagnostics", diagnostics)
+    field("status", status)
+    fallbackReason?.let { field("fallbackReason", it) }
 }
 
 private fun KotlinPsiManifestSymbol.toJson(): String = buildKotlinPsiJsonObject {

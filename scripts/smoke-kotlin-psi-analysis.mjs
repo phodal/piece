@@ -58,6 +58,18 @@ public class ExternalUser {
 
 const manifest = await analyzeKotlinPieceFile({ filePath, source });
 assert(manifest.parser === "kotlin-psi-declaration-extractor", `Unexpected Kotlin PSI parser: ${manifest.parser}`);
+assert(
+  JSON.stringify(manifest.analysisBackend) ===
+    JSON.stringify({
+      requested: "psi",
+      actual: "psi",
+      declarations: "psi",
+      symbols: "psi",
+      diagnostics: "none",
+      status: "ready"
+    }),
+  `Unexpected Kotlin default backend metadata: ${JSON.stringify(manifest.analysisBackend)}`
+);
 assert(manifest.diagnostics.length === 0, `Expected no Kotlin PSI diagnostics, got ${JSON.stringify(manifest.diagnostics)}`);
 assert(
   JSON.stringify(manifest.importBindings) ===
@@ -89,6 +101,10 @@ assert(
   defaultNodeAnalysis.manifest.parser === "kotlin-psi-declaration-extractor",
   `piece-compiler/node did not default Kotlin analysis to PSI: ${defaultNodeAnalysis.manifest.parser}`
 );
+assert(
+  defaultNodeAnalysis.manifest.analysisBackend?.actual === "psi",
+  `piece-compiler/node did not expose default Kotlin backend metadata: ${JSON.stringify(defaultNodeAnalysis.manifest.analysisBackend)}`
+);
 assert(analysis.piecePackage.language === "kotlin", `Unexpected piece package language: ${analysis.piecePackage.language}`);
 assert(
   edgeTuples.some(
@@ -112,6 +128,10 @@ fun broken(): String = 42
   semanticDiagnostics: true
 });
 assert(
+  semanticDiagnostics.analysisBackend?.diagnostics === "kotlin-compiler-diagnostics",
+  `Kotlin semantic diagnostics backend metadata was not returned: ${JSON.stringify(semanticDiagnostics.analysisBackend)}`
+);
+assert(
   semanticDiagnostics.diagnostics.some(
     (diagnostic) =>
       diagnostic.severity === "error" &&
@@ -130,14 +150,46 @@ fun <User> render(value: User): User = value
 const semanticSymbols = await analyzeKotlinPieceFile({
   filePath: "/repo/src/Symbols.kt",
   source: symbolSource,
-  semanticSymbols: true
+  backend: "fe10-binding-context"
 });
 const symbolRender = semanticSymbols.slices.find((slice) => slice.name === "render");
 assert(symbolRender, `Kotlin semantic symbol manifest did not include render: ${JSON.stringify(semanticSymbols.slices)}`);
 assert(
+  semanticSymbols.analysisBackend?.requested === "fe10-binding-context" &&
+    semanticSymbols.analysisBackend?.actual === "fe10-binding-context" &&
+    semanticSymbols.analysisBackend?.symbols === "fe10-binding-context",
+  `Kotlin FE10 backend metadata was not returned: ${JSON.stringify(semanticSymbols.analysisBackend)}`
+);
+assert(
   JSON.stringify(symbolRender.symbols.references) === JSON.stringify([]) &&
     JSON.stringify(symbolRender.symbols.typeReferences) === JSON.stringify([]),
   `Kotlin semantic symbols did not remove type-parameter shadowed User references: ${JSON.stringify(symbolRender.symbols)}`
+);
+
+const analysisApiFallback = await analyzeKotlinPieceFile({
+  filePath: "/repo/src/Symbols.kt",
+  source: symbolSource,
+  backend: "analysis-api"
+});
+assert(
+  analysisApiFallback.analysisBackend?.requested === "analysis-api" &&
+    analysisApiFallback.analysisBackend?.actual === "fe10-binding-context" &&
+    analysisApiFallback.analysisBackend?.status === "fallback",
+  `Kotlin Analysis API fallback metadata was not returned: ${JSON.stringify(analysisApiFallback.analysisBackend)}`
+);
+assert(
+  analysisApiFallback.diagnostics.some((diagnostic) => diagnostic.code === "kotlin-analysis-backend-fallback" && diagnostic.severity === "warning"),
+  `Kotlin Analysis API fallback warning was not returned: ${JSON.stringify(analysisApiFallback.diagnostics)}`
+);
+
+const fe10NodeAnalysis = await analyzePieceFile({
+  filePath: "/repo/src/Symbols.kt",
+  source: symbolSource,
+  kotlinAnalysisBackend: "fe10-binding-context"
+});
+assert(
+  fe10NodeAnalysis.manifest.analysisBackend?.actual === "fe10-binding-context",
+  `Default Node analyzePieceFile() did not pass Kotlin backend selector: ${JSON.stringify(fe10NodeAnalysis.manifest.analysisBackend)}`
 );
 
 const crossFileSource = `package demo.symbols

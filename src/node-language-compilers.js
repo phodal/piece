@@ -212,7 +212,33 @@ async function readJsonFile(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
-function errorKotlinPsiManifest({ filePath, source, parserName, commands }) {
+function normalizeKotlinAnalysisBackend(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (value === "psi" || value === "fe10-binding-context" || value === "analysis-api") {
+    return value;
+  }
+  throw new TypeError(`Unsupported Kotlin analysis backend: ${value}`);
+}
+
+function kotlinAnalysisBackendMetadata({ backend, semanticDiagnostics = false, semanticSymbols = false } = {}) {
+  const requested = backend ?? (semanticSymbols ? "fe10-binding-context" : "psi");
+  const actual = requested === "analysis-api" ? "fe10-binding-context" : requested;
+  const fallbackReason =
+    requested === "analysis-api"
+      ? "Kotlin Analysis API backend is not wired for this pinned Kotlin runtime yet; using explicit FE10 BindingContext fallback."
+      : undefined;
+  return {
+    requested,
+    actual,
+    declarations: "psi",
+    symbols: actual === "fe10-binding-context" ? "fe10-binding-context" : "psi",
+    diagnostics: semanticDiagnostics ? "kotlin-compiler-diagnostics" : "none",
+    status: fallbackReason ? "fallback" : "ready",
+    ...(fallbackReason ? { fallbackReason } : {})
+  };
+}
+
+function errorKotlinPsiManifest({ filePath, source, parserName, backend, semanticDiagnostics, semanticSymbols, commands }) {
   return {
     version: 1,
     filePath,
@@ -223,6 +249,7 @@ function errorKotlinPsiManifest({ filePath, source, parserName, commands }) {
     effects: [],
     importBindings: [],
     hasTopLevelEffect: false,
+    analysisBackend: kotlinAnalysisBackendMetadata({ backend, semanticDiagnostics, semanticSymbols }),
     diagnostics: diagnosticsFromCommands(commands)
   };
 }
@@ -329,6 +356,7 @@ export async function mergePieceDslFiles(options = {}) {
 export async function generateKotlinPieceDslFile(options = {}) {
   const filePath = options.filePath ?? "Main.kt";
   const source = options.source ?? "";
+  const backend = normalizeKotlinAnalysisBackend(options.backend);
   const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-pic-host-");
   const hostWorkspace = hostWorkspaceInfo.path;
   const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
@@ -343,7 +371,8 @@ export async function generateKotlinPieceDslFile(options = {}) {
       "--quiet",
       `-PpiecePic.filePath=${filePath}`,
       `-PpiecePic.sourceFile=${sourceFile}`,
-      `-PpiecePic.outputReport=${outputReport}`
+      `-PpiecePic.outputReport=${outputReport}`,
+      `-PpiecePic.backend=${backend ?? ""}`
     ];
 
     const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
@@ -487,6 +516,7 @@ export async function analyzeKotlinPieceFile(options = {}) {
   const filePath = options.filePath ?? "Main.kt";
   const source = options.source ?? "";
   const parserName = options.parserName ?? "kotlin-psi-declaration-extractor";
+  const backend = normalizeKotlinAnalysisBackend(options.backend ?? options.kotlinAnalysisBackend);
   const semanticDiagnostics = options.semanticDiagnostics === true;
   const semanticSymbols = options.semanticSymbols === true;
   const companionSources = await collectKotlinCompanionSources(options, filePath);
@@ -527,6 +557,7 @@ export async function analyzeKotlinPieceFile(options = {}) {
       `-PpieceAnalysis.sourceFile=${sourceFile}`,
       `-PpieceAnalysis.outputReport=${outputReport}`,
       `-PpieceAnalysis.parserName=${parserName}`,
+      `-PpieceAnalysis.backend=${backend ?? ""}`,
       `-PpieceAnalysis.semanticDiagnostics=${semanticDiagnostics ? "true" : "false"}`,
       `-PpieceAnalysis.semanticSymbols=${semanticSymbols ? "true" : "false"}`,
       `-PpieceAnalysis.companionSources=${companionLines.length > 0 ? companionSourcesFile : ""}`,
@@ -537,7 +568,7 @@ export async function analyzeKotlinPieceFile(options = {}) {
     if (await pathExists(outputReport)) {
       return readJsonFile(outputReport);
     }
-    return errorKotlinPsiManifest({ filePath, source, parserName, commands: [backendCommand] });
+    return errorKotlinPsiManifest({ filePath, source, parserName, backend, semanticDiagnostics, semanticSymbols, commands: [backendCommand] });
   } finally {
     await cleanupWorkspace(hostWorkspace, false);
   }
@@ -552,6 +583,7 @@ export function createNodeKotlinPsiDeclarationExtractor(options = {}) {
         filePath,
         source,
         parserName: name,
+        backend: options.backend,
         semanticDiagnostics: options.semanticDiagnostics === true,
         semanticSymbols: options.semanticSymbols === true,
         sourceFiles: options.sourceFiles,

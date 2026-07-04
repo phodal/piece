@@ -150,6 +150,7 @@ tasks.register<JavaExec>("runKotlinPicGeneratorBackend") {
                 "--filePath=${providers.gradleProperty("piecePic.filePath").orNull ?: "Main.kt"}",
                 "--sourceFile=$sourceFile",
                 "--outputReport=$outputReport",
+                "--backend=${providers.gradleProperty("piecePic.backend").orNull ?: ""}",
             ),
         )
     }
@@ -173,6 +174,7 @@ tasks.register<JavaExec>("runKotlinPsiAnalysisBackend") {
                 "--sourceFile=$sourceFile",
                 "--outputReport=$outputReport",
                 "--parserName=${providers.gradleProperty("pieceAnalysis.parserName").orNull ?: "kotlin-psi-declaration-extractor"}",
+                "--backend=${providers.gradleProperty("pieceAnalysis.backend").orNull ?: ""}",
                 "--semanticDiagnostics=${providers.gradleProperty("pieceAnalysis.semanticDiagnostics").orNull ?: "false"}",
                 "--semanticSymbols=${providers.gradleProperty("pieceAnalysis.semanticSymbols").orNull ?: "false"}",
                 "--companionSources=${providers.gradleProperty("pieceAnalysis.companionSources").orNull ?: ""}",

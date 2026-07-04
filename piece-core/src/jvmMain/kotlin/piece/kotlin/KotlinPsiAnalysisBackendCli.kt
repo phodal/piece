@@ -31,6 +31,7 @@ fun main(args: Array<String>) {
         filePath = options["filePath"]?.takeIf { it.isNotBlank() } ?: "Main.kt",
         source = source,
         parserName = options["parserName"]?.takeIf { it.isNotBlank() } ?: "kotlin-psi-declaration-extractor",
+        backend = options["backend"]?.takeIf { it.isNotBlank() }?.let(KotlinAnalysisBackendKind::fromWireName),
         semanticDiagnostics = options["semanticDiagnostics"] == "true",
         semanticSymbols = options["semanticSymbols"] == "true",
         companionFiles = companionFiles,
