@@ -1,4 +1,6 @@
 import { sanitizeModulePart } from "./source-utils.js";
+import { hashParts } from "./hash.js";
+import { explainPieceFeedbackScope, pieceFeedbackScopeInput } from "./feedback-scope.js";
 
 function normalizePath(value) {
   return String(value ?? "")
@@ -90,7 +92,48 @@ function externalDependencyId(edge) {
   return edge.import?.signature ? `${edge.to}${edge.import.signature}` : edge.to;
 }
 
-export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
+function uniqueSorted(values) {
+  return [...new Set(values.filter(Boolean))].sort();
+}
+
+function uniquePreserveOrder(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function edgeDependencyInput(edge) {
+  return [
+    edge.kind,
+    edge.to,
+    ...(edge.symbols ?? []),
+    edge.import?.source,
+    edge.import?.local,
+    edge.import?.imported,
+    edge.import?.signature
+  ]
+    .filter(Boolean)
+    .join(":");
+}
+
+function targetActionCacheInputs(slice, sliceEdges, feedbackScope) {
+  return [
+    `source-hash:${slice.hashes.bodyHash}`,
+    `signature-hash:${slice.hashes.signatureHash}`,
+    slice.hashes.typeHash ? `type-hash:${slice.hashes.typeHash}` : undefined,
+    `deps-hash:${hashParts(sliceEdges.map(edgeDependencyInput).sort())}`,
+    pieceFeedbackScopeInput(feedbackScope)
+  ].filter(Boolean);
+}
+
+function targetActionInputs(target, projectModelInput, cacheInputs) {
+  return uniquePreserveOrder([
+    target.source,
+    ...target.deps,
+    ...target.externalDeps,
+    ...uniqueSorted([projectModelInput, ...cacheInputs])
+  ]);
+}
+
+export function createSingleFilePiecePackage({ filePath, manifest, graph, feedbackScope = explainPieceFeedbackScope({ manifest, graph }) }) {
   const packageName = bazelPackageName(filePath);
   const packageLabel = sourceLabel(filePath);
   const language = languageForManifest(manifest);
@@ -99,10 +142,13 @@ export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
   );
   const edges = outgoingEdges(graph);
   const projectModelInput = projectModelActionInput(manifest);
+  const actionCacheInputsByTarget = new Map();
   const targets = manifest.slices.map((slice) => {
     const sliceEdges = edges.get(slice.id) ?? [];
+    const actionCacheInputs = targetActionCacheInputs(slice, sliceEdges, feedbackScope);
     const directDeps = sliceEdges.filter((edge) => targetLabels.has(edge.to)).map((edge) => targetLabels.get(edge.to));
     const label = targetLabels.get(slice.id);
+    actionCacheInputsByTarget.set(label, actionCacheInputs);
     const feedbackArtifactId = `${label}.piece.json`;
     const compileArtifactId = `${label}.compile.json`;
     const targetActions = [`${label}%feedback`];
@@ -138,7 +184,7 @@ export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
       target: target.label,
       kind: "feedback",
       mnemonic: "PieceFeedback",
-      inputs: [target.source, ...target.deps, ...target.externalDeps, projectModelInput].filter(Boolean),
+      inputs: targetActionInputs(target, projectModelInput, actionCacheInputsByTarget.get(target.label) ?? []),
       outputs: [`${target.label}.piece.json`]
     },
     ...(supportsCompileAction(language)
@@ -148,7 +194,7 @@ export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
             target: target.label,
             kind: "compile",
             mnemonic: "PieceCompile",
-            inputs: [target.source, ...target.deps, ...target.externalDeps, projectModelInput].filter(Boolean),
+            inputs: targetActionInputs(target, projectModelInput, actionCacheInputsByTarget.get(target.label) ?? []),
             outputs: [`${target.label}.compile.json`]
           }
         ]

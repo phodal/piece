@@ -204,4 +204,6 @@ Keep the implementation honest:
 - no handwritten BUILD files;
 - generated `.pic` files and package targets are metadata first;
 - unknown edges force fallback instead of pretending local feedback is safe;
+- `feedbackScope` records whether the current graph is safe at piece, file, source-set, or project level, with reason codes for unknown edges, top-level effects, slice safety fallback, and Gradle project-model scope fallback;
+- generated Piece action inputs now include target source, dependency, and fallback-scope hashes, and snapshot plus preview runtime cache keys include the same fallback-scope identity;
 - Kotlin's production extractor and compile backend belong in Kotlin MPP, while the npm Kotlin extractor remains a bridge and test fixture until that core is complete.

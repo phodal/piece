@@ -23,6 +23,7 @@ The repository already has:
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
+- A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
 - JS and Wasm bridges that expose Kotlin core package and graph objects to npm and browser hosts.
 
 ## What Is Still Missing
@@ -34,7 +35,7 @@ The important gaps are:
 - Kotlin compile actions are real and owned by the JVM backend, with real-project `projectRoot` compile for saved files and generated temporary MPP projects for unsaved single-file buffers. The final shape should keep making Kotlin/JVM the rule owner and Node only the invoker.
 - Go semantics are still mostly JavaScript-side extraction plus official `go build`/`go test` for compile. The long-term Go rule should use `go list`, `go test`, and `go build` as the source of truth, or move the Go-specific backend into Go.
 - The root/browser-safe Kotlin extractor remains a lightweight fallback. Production Kotlin semantics should be routed through `piece-compiler/node` or a service/local agent.
-- Cache keys, artifact reuse, and fallback policy exist for single-file feedback, but they are not yet a complete multi-language action cache.
+- Cache keys, artifact reuse, and fallback policy now include source, dependency, project-model, and fallback-scope identity for single-file feedback, but they are not yet a complete multi-language action cache.
 
 ## `.pic` DSL Direction
 
@@ -157,6 +158,8 @@ Definition of done: Piece defines targets/actions/artifacts, while each language
 
 ### Phase 6: Cache, Fallback, and Multi-File Scope
 
+- Done: introduce `feedbackScope` so Piece reports whether feedback is handled at piece, file, source-set, or project level, with reason codes for unknown edges, top-level effects, slice safety fallback, and Gradle project-model fallback.
+- Done: include target source hashes, dependency-edge hashes, and fallback-scope hashes in generated Piece action inputs, `.pic` round-trips, snapshots, and preview runtime cache identity.
 - Stabilize action cache keys across `.pic`, source hashes, dependency hashes, compiler options, and project model hashes.
 - Make unknown edges force documented fallback.
 - Expand from single-file package feedback to safe multi-file source-set feedback.
@@ -286,23 +289,19 @@ The eleventh Phase 3 slice is now implemented:
 4. Signature-aware graph edge identity and package external deps keep overload identities such as `#parse(String)` and `#parse(Int)` distinct.
 5. `npm run language:analysis-api:smoke` verifies both overload graph edges and signature-qualified package deps for a single declaration that calls multiple overloads.
 
+## Completed Phase 6 Feedback Scope Slice
+
+The first Phase 6 slice is now implemented:
+
+1. `explainPieceFeedbackScope()` returns a language-neutral `feedbackScope` with `level`, `fallbackRequired`, reason records, and source/dependency/project/fallback-scope hashes.
+2. `analyzePieceFile()`, incremental analysis, `buildPieceClosure()`, and `createPieceSnapshot()` carry the same scope explanation through public results.
+3. Unknown graph edges, top-level effects, unsafe slice flags, and Gradle project-model fallback produce documented file or project fallback reasons instead of implicit cache changes.
+4. Generated Piece actions include stable `source-hash`, `deps-hash`, and `feedback-scope` inputs; `.pic` source and override round trips preserve those inputs.
+5. Snapshot artifact keys and preview runtime closure hashes include `fallbackScopeHash`, so cached artifacts are not reused across unsafe boundary changes.
+
 ## Next Small Slice
 
-The first Phase 4 project-model slices are now implemented:
+The next implementation slice should stay in Phase 6:
 
-1. `KotlinGradleProjectModelBackend` runs on the JVM side and invokes Gradle through Tooling API, with wrapper fallback when the Tooling API distribution is unavailable.
-2. `analyzeKotlinPieceFile({ projectRoot })` discovers Kotlin source roots and compile classpaths from a real Gradle/KMP project before invoking PSI, FE10, or Analysis API.
-3. Manual `sourceFiles`, `sourceRoots`, and `classpath` remain explicit editor-buffer override hooks.
-4. `manifest.projectModel` records discovered source sets, classpath configurations, flattened source roots, flattened classpath entries, and fallback diagnostics.
-5. `npm run language:project-model:smoke` verifies a real temporary KMP project where discovered `commonMain` source and `jvmMain` jar dependency become Analysis API external graph edges.
-6. `compileKotlinPieceFile({ projectRoot })` treats `filePath` as a saved project file, infers source sets such as `jvmMain`, runs real Gradle/KMP compile tasks such as `compileKotlinJvm`, and reports `projectRoot` plus compiled project outputs.
-7. `manifest.projectModel.hashes` records stable source-root, classpath, and full model hashes; generated Piece actions include `project-model:<hash>` inputs, and snapshots include the same hash in artifact cache keys.
-8. `manifest.projectModel.analysisScope` narrows single-file analysis to the edited source set plus required shared source sets such as `commonMain`, and Gradle project-model discovery receives the inferred source set so it can avoid resolving unrelated target compile classpaths.
-9. `manifest.projectModel.dependencies` records resolved module coordinates such as `demo.external:external-user:1.0.0`; `manifest.projectModel.targetVariants` records source set, target name, compile task, and classpath configuration; `analysisScope` carries the coordinates and variants used by the edited file.
-10. `manifest.projectModel.projectDependencies` records resolved Gradle project dependencies such as `:app -> :domain`; `analysisScope.projectPath`, `analysisScope.projectPaths`, and `analysisScope.projectDependencies` keep source roots and classpaths scoped to the edited project plus reachable project dependencies while excluding unrelated projects.
-11. `manifest.projectModel.analysisScope.fallbackReason` and `analysisScope.diagnostics` explain unsafe project-model states such as an edited file outside all discovered source sets or a selected source set without a matching compile classpath; the same diagnostics are also visible in `manifest.diagnostics`.
-
-The next implementation slice should move into Phase 6:
-
-1. Start the broader fallback explanation model so Piece can report whether an edit is handled at piece, file, source-set, or project level and why.
-2. Extend action cache inputs beyond the current source/project model hashes toward dependency hashes and fallback scope metadata.
+1. Extend `feedbackScope` from single-file package feedback into safe multi-file source-set feedback for Kotlin project scopes.
+2. Keep refining action cache inputs toward a complete multi-language action cache, including compiler options and dependency artifact hashes across language backends.

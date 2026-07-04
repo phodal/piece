@@ -143,6 +143,15 @@ describe("piece compiler", () => {
     expect(analysis.pieceDsl).toContain("language typescript");
     expect(analysis.pieceDsl).toContain('target function "UserCard"');
     expect(analysis.pieceDsl).toContain('externalDeps "antd#Tag"');
+    expect(analysis.feedbackScope).toMatchObject({
+      level: "piece",
+      fallbackRequired: false
+    });
+    const userCardAction = analysis.piecePackage.actions.find((action) => action.id === "//repo/src:DashboardPage.tsx__function_UserCard%feedback");
+    expect(userCardAction.inputs.some((input) => input.startsWith("source-hash:"))).toBe(true);
+    expect(userCardAction.inputs.some((input) => input.startsWith("deps-hash:"))).toBe(true);
+    expect(userCardAction.inputs.some((input) => input.startsWith("feedback-scope:"))).toBe(true);
+    expect(analysis.snapshot.feedbackScope.hashes.fallbackScopeHash).toBe(analysis.feedbackScope.hashes.fallbackScopeHash);
   });
 
   it("creates a minimal closure module for a preview target", async () => {
@@ -163,6 +172,67 @@ describe("piece compiler", () => {
     expect(closureSource).toContain("const statusColorMap");
     expect(closureSource).toContain("export function UserCard");
     expect(closureSource).not.toContain("function OtherCard");
+    expect(preview.closure.feedbackScope.level).toBe("piece");
+  });
+
+  it("explains unknown-edge fallback and carries it into closure scope", async () => {
+    const source = `export function Broken() {
+  return missingValue + 1;
+}
+`;
+    const compiler = createPieceCompiler();
+    const analysis = await compiler.analyzeFile({
+      filePath: "/repo/src/Broken.ts",
+      source
+    });
+    const preview = await compiler.buildPreview({
+      analysis,
+      target: "Broken"
+    });
+
+    expect(analysis.graph.diagnostics.map((diagnostic) => diagnostic.code)).toContain("unknown-reference");
+    expect(analysis.feedbackScope.level).toBe("file");
+    expect(analysis.feedbackScope.fallbackRequired).toBe(true);
+    expect(analysis.feedbackScope.reasons.map((reason) => reason.code)).toContain("unknown-edge-fallback");
+    expect(preview.closure.fallbackMode).toBe("whole-file");
+    expect(preview.closure.feedbackScope.level).toBe("file");
+    expect(preview.closure.hashes.runtimeClosureHash).not.toBe(analysis.snapshot.declarations[analysis.previewTargets[0]].artifactCacheKey);
+  });
+
+  it("changes artifact cache keys when fallback scope metadata changes", async () => {
+    const unsafeSource = `export function Broken() {
+  return missingValue + 1;
+}
+
+export function Other() {
+  return 1;
+}
+`;
+    const safeSource = `const missingValue = 1;
+
+export function Broken() {
+  return missingValue + 1;
+}
+
+export function Other() {
+  return 1;
+}
+`;
+    const compiler = createPieceCompiler();
+    const unsafeAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/Broken.ts",
+      source: unsafeSource
+    });
+    const safeAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/Broken.ts",
+      source: safeSource
+    });
+    const brokenId = unsafeAnalysis.manifest.slices.find((slice) => slice.name === "Broken").id;
+
+    expect(unsafeAnalysis.feedbackScope.level).toBe("file");
+    expect(safeAnalysis.feedbackScope.level).toBe("piece");
+    expect(unsafeAnalysis.snapshot.feedbackScope.hashes.fallbackScopeHash).not.toBe(safeAnalysis.snapshot.feedbackScope.hashes.fallbackScopeHash);
+    expect(unsafeAnalysis.snapshot.artifacts[brokenId].cacheKey).not.toBe(safeAnalysis.snapshot.artifacts[brokenId].cacheKey);
   });
 
   it("compiles virtual closure modules with node esbuild", async () => {

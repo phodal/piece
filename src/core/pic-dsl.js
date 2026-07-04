@@ -301,6 +301,17 @@ function actionKindForId(id) {
   return actionKindToken(actionKindFromId(id));
 }
 
+function defaultInputsForTarget(target) {
+  return [target.source, ...(target.deps ?? []), ...(target.externalDeps ?? [])];
+}
+
+function normalizeActionInputsForTarget(target, inputs = []) {
+  const defaultInputs = defaultInputsForTarget(target);
+  const defaultInputSet = new Set(defaultInputs);
+  const explicitInputs = inputs.filter((input) => !defaultInputSet.has(input));
+  return uniquePreserveOrder([...defaultInputs, ...uniqueSorted(explicitInputs)]);
+}
+
 function defaultActionForTarget(target, kind) {
   const output = defaultArtifactId(target.label, kind);
   return {
@@ -308,7 +319,7 @@ function defaultActionForTarget(target, kind) {
     target: target.label,
     kind,
     mnemonic: defaultMnemonic(kind),
-    inputs: [target.source, ...(target.deps ?? []), ...(target.externalDeps ?? [])],
+    inputs: defaultInputsForTarget(target),
     outputs: [output]
   };
 }
@@ -351,7 +362,7 @@ function patchTargetAction({ target, kind, patchTarget, patchActionsById, patchA
 
     const patchDefaultInputs = new Set([patchTarget.source, ...(patchTarget.deps ?? []), ...(patchTarget.externalDeps ?? [])]);
     const extraInputs = (patchAction.inputs ?? []).filter((input) => !patchDefaultInputs.has(input));
-    nextAction.inputs = uniquePreserveOrder([...(nextAction.inputs ?? []), ...extraInputs]);
+    nextAction.inputs = normalizeActionInputsForTarget(target, [...(nextAction.inputs ?? []), ...extraInputs]);
 
     if (patchArtifact) {
       const patchDefaultPath = defaultPathForArtifactId(patchArtifactId);

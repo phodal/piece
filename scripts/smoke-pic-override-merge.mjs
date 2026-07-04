@@ -66,7 +66,7 @@ assert(
 assert(merged.piecePackage, "Expected .pic merge to return a PiecePackage.");
 assert(merged.pieceDsl.includes('label "//repo/src:dashboard_user_card"'), `Expected merged .pic to include label override:\n${merged.pieceDsl}`);
 assert(merged.pieceDsl.includes('visibility "//visibility:public"'), `Expected merged .pic to include visibility override:\n${merged.pieceDsl}`);
-assert(merged.pieceDsl.includes('inputs "fixtures/user-card.json"'), `Expected merged .pic to include fixture input:\n${merged.pieceDsl}`);
+assert(merged.pieceDsl.includes('"fixtures/user-card.json"'), `Expected merged .pic to include fixture input:\n${merged.pieceDsl}`);
 
 const userCard = merged.piecePackage.targets.find((target) => target.name === "UserCard");
 assert(userCard, `Expected UserCard target: ${JSON.stringify(merged.piecePackage.targets)}`);

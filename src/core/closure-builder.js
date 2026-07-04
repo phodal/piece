@@ -1,4 +1,5 @@
 import { hashParts } from "./hash.js";
+import { explainPieceFeedbackScope } from "./feedback-scope.js";
 
 function byId(slices) {
   return new Map(slices.map((slice) => [slice.id, slice]));
@@ -89,6 +90,14 @@ export function buildPieceClosure({ target, manifest, graph }) {
   const valueSlices = [...valueSliceIds].map((id) => slices.get(id)).filter(Boolean).sort(sourceOrder);
   const runtimeClosureHash = hashParts([targetSlice.id, ...runtimeSlices.map((slice) => slice.hashes.bodyHash), ...manifest.importBindings.map((binding) => `${binding.local}:${binding.source}:${binding.imported}:${binding.signature ?? ""}`)]);
   const typeClosureHash = hashParts([...typeSlices.map((slice) => slice.hashes.typeHash ?? slice.hashes.signatureHash)]);
+  const scopedSliceIds = new Set([targetSlice.id, ...runtimeSlices.map((slice) => slice.id), ...typeSlices.map((slice) => slice.id), ...valueSlices.map((slice) => slice.id)]);
+  const feedbackScope = explainPieceFeedbackScope({
+    manifest,
+    graph: {
+      ...graph,
+      edges: graph.edges.filter((edge) => scopedSliceIds.has(edge.from))
+    }
+  });
 
   return {
     version: 1,
@@ -104,8 +113,9 @@ export function buildPieceClosure({ target, manifest, graph }) {
     ),
     diagnostics,
     fallbackMode,
+    feedbackScope,
     hashes: {
-      runtimeClosureHash,
+      runtimeClosureHash: hashParts([runtimeClosureHash, feedbackScope.hashes.fallbackScopeHash]),
       typeClosureHash,
       fixtureHash: hashParts([targetSlice.id, typeClosureHash])
     }

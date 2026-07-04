@@ -159,6 +159,7 @@ export interface PieceCompiler {
 export type PieceSliceKind = "type" | "class" | "function" | "value" | "effect" | "header";
 export type PieceEdgeKind = "runtime" | "type" | "external" | "unknown";
 export type PieceFallbackMode = "none" | "include-effect-segment" | "whole-file";
+export type PieceFeedbackScopeLevel = "piece" | "file" | "source-set" | "project";
 
 export interface PieceRule {
   readonly name: string;
@@ -461,6 +462,26 @@ export interface PieceSliceEdge {
   readonly import?: PieceImportBinding;
 }
 
+export interface PieceFeedbackScopeReason {
+  readonly code: string;
+  readonly severity: "info" | "warning" | "error";
+  readonly message: string;
+  readonly [key: string]: unknown;
+}
+
+export interface PieceFeedbackScope {
+  readonly version: 1;
+  readonly level: PieceFeedbackScopeLevel;
+  readonly fallbackRequired: boolean;
+  readonly reasons: readonly PieceFeedbackScopeReason[];
+  readonly hashes: {
+    readonly sourceHash: string;
+    readonly dependencyHash: string;
+    readonly projectModelHash: string;
+    readonly fallbackScopeHash: string;
+  };
+}
+
 export interface PieceSliceGraph {
   readonly version: 1;
   readonly filePath: string;
@@ -469,6 +490,7 @@ export interface PieceSliceGraph {
   readonly symbolTable: {
     readonly local: Record<string, string>;
     readonly imports: Record<string, PieceImportBinding>;
+    readonly importsByLocal?: Record<string, readonly PieceImportBinding[]>;
     readonly exports: Record<string, string>;
     readonly defaultExport?: string;
   };
@@ -485,6 +507,7 @@ export interface PieceClosure {
   readonly externalImports: readonly PieceImportBinding[];
   readonly diagnostics: readonly PieceDiagnostic[];
   readonly fallbackMode: PieceFallbackMode;
+  readonly feedbackScope: PieceFeedbackScope;
   readonly hashes: {
     readonly runtimeClosureHash: string;
     readonly typeClosureHash: string;
@@ -553,6 +576,7 @@ export interface PieceFileAnalysis {
   readonly filePath: string;
   readonly manifest: PieceFileManifest;
   readonly graph: PieceSliceGraph;
+  readonly feedbackScope: PieceFeedbackScope;
   readonly piecePackage: SingleFilePiecePackage;
   readonly pieceDsl: string;
   readonly previewTargets: readonly string[];
@@ -594,6 +618,7 @@ export interface PieceSnapshot {
   readonly headerHash: string;
   readonly effectHash: string;
   readonly projectModelHash: string;
+  readonly feedbackScope: PieceFeedbackScope;
   readonly declarations: Record<string, PieceDeclarationRecord>;
   readonly graph: PieceSliceGraph;
   readonly previewTargets: readonly string[];
@@ -794,7 +819,10 @@ export function createSingleFilePiecePackage(options: {
   readonly filePath: string;
   readonly manifest: PieceFileManifest;
   readonly graph: PieceSliceGraph;
+  readonly feedbackScope?: PieceFeedbackScope;
 }): SingleFilePiecePackage;
+export function explainPieceFeedbackScope(options: { readonly manifest: PieceFileManifest; readonly graph: PieceSliceGraph }): PieceFeedbackScope;
+export function pieceFeedbackScopeInput(feedbackScope: PieceFeedbackScope | undefined): string | undefined;
 export function piecePackageToPicDsl(piecePackage: SingleFilePiecePackage): string;
 export function mergePiecePackages(
   generatedPackage: SingleFilePiecePackage,
