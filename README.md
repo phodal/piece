@@ -159,7 +159,7 @@ Preview building is one feedback target. A host can map the same affected-piece 
 Kotlin and Go compile actions use real language toolchains instead of a fake in-process compiler:
 
 - Go writes a temporary module and runs `go build`, with optional `go test`.
-- Kotlin writes a temporary Kotlin Multiplatform Gradle project and can build `jvm`, `js`, `wasmJs`, or all three.
+- Kotlin delegates from the npm host into the `piece-core` Kotlin/JVM backend. That backend writes a temporary Kotlin Multiplatform Gradle project and can build `jvm`, `js`, `wasmJs`, or all three.
 - Kotlin Web is supported through Kotlin/JS and Kotlin/Wasm. The repository already builds the `piece-core` Kotlin/Wasm bundle for GitHub Pages.
 
 ## Architecture
@@ -210,8 +210,8 @@ delegates to `piece-core/gradlew` and keeps the single Gradle project under
 `piece-core/`. `npm run core:check` also uses that wrapper, builds the
 Kotlin/JS bridge, and runs the npm-side bridge smoke test.
 `npm run language:compile:smoke` requires a local Go toolchain. It compiles a
-real Go single-file main package and a Kotlin single-file MPP project for JVM,
-JS, and WASM.
+real Go single-file main package, then calls the Kotlin/JVM compile backend to
+compile a Kotlin single-file MPP project for JVM, JS, and WASM.
 `npm run benchmark:kotlin-piece` verifies that Kotlin piece analysis is faster
 than whole-file analysis for a generated single-file fixture. See
 [docs/kotlin-piece-benchmark.md](./docs/kotlin-piece-benchmark.md).

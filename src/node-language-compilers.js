@@ -1,13 +1,12 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const DEFAULT_KOTLIN_PLUGIN_VERSION = "2.2.21";
 
 function durationSince(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
@@ -27,54 +26,6 @@ function sourceBasename(filePath, fallback) {
 
 function packageNameFromGo(source) {
   return source.match(/^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)/m)?.[1] ?? "main";
-}
-
-function kotlinSourceSetForTarget(target) {
-  if (target === "jvm") return "jvmMain";
-  if (target === "js") return "jsMain";
-  if (target === "wasmJs") return "wasmJsMain";
-  return "commonMain";
-}
-
-function kotlinTasksForTarget(target) {
-  if (target === "jvm") return ["jvmJar"];
-  if (target === "js") return ["jsNodeProductionLibraryDistribution"];
-  if (target === "wasmJs") return ["wasmJsBrowserDistribution"];
-  return ["jvmJar", "jsNodeProductionLibraryDistribution", "wasmJsBrowserDistribution"];
-}
-
-function kotlinBuildScript({ target, kotlinPluginVersion }) {
-  const includeJvm = target === "jvm" || target === "all";
-  const includeJs = target === "js" || target === "all";
-  const includeWasm = target === "wasmJs" || target === "all";
-  return `@file:OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
-
-plugins {
-    kotlin("multiplatform") version "${kotlinPluginVersion}"
-}
-
-group = "cc.phodal.piece.generated"
-version = "0.1.0"
-
-repositories {
-    mavenCentral()
-}
-
-kotlin {
-${includeJvm ? "    jvm()\n" : ""}${includeJs ? `    js(IR) {
-        nodejs()
-        binaries.library()
-    }
-` : ""}${includeWasm ? `    wasmJs {
-        browser {
-            testTask {
-                enabled = false
-            }
-        }
-        binaries.executable()
-    }
-` : ""}}
-`;
 }
 
 async function runCommand(command, args, options = {}) {
@@ -184,6 +135,16 @@ function defaultGradleCommand() {
   return join(PACKAGE_ROOT, "gradlew");
 }
 
+function resolveGradleCommand(command) {
+  if (!command) return defaultGradleCommand();
+  if (!command.includes("/") && !command.includes("\\")) return command;
+  return isAbsolute(command) ? command : resolve(PACKAGE_ROOT, command);
+}
+
+async function readJsonFile(path) {
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
 export async function compileGoPieceFile(options = {}) {
   const filePath = options.filePath ?? "Main.go";
   const source = options.source ?? "";
@@ -237,52 +198,50 @@ export async function compileKotlinPieceFile(options = {}) {
     throw new TypeError(`Unsupported Kotlin compile target: ${target}`);
   }
 
-  const workspaceInfo = await prepareWorkspace("piece-kotlin-", options.workspace);
-  const workspace = workspaceInfo.path;
-  const sourceSet = options.sourceSet ?? kotlinSourceSetForTarget(target);
-  const sourceName = sourceBasename(filePath, "Main.kt");
-  const projectName = sanitizeProjectName(sourceName.replace(/\.kts?$/, ""));
-  const gradleCommand = options.gradleCommand ?? defaultGradleCommand();
-  const tasks = options.tasks ?? kotlinTasksForTarget(target);
-  const commands = [];
+  const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-host-");
+  const hostWorkspace = hostWorkspaceInfo.path;
+  const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
+  const outputReport = join(hostWorkspace, "compile-report.json");
 
   try {
-    await writeFile(join(workspace, "settings.gradle.kts"), `rootProject.name = "${projectName}"\n`, "utf8");
-    await writeFile(
-      join(workspace, "build.gradle.kts"),
-      kotlinBuildScript({ target, kotlinPluginVersion: options.kotlinPluginVersion ?? DEFAULT_KOTLIN_PLUGIN_VERSION }),
-      "utf8"
-    );
-    const sourceDir = join(workspace, "src", sourceSet, "kotlin");
-    await mkdir(sourceDir, { recursive: true });
-    await writeFile(join(sourceDir, sourceName), source, "utf8");
-
-    commands.push(await runCommand(gradleCommand, ["-p", workspace, ...tasks], { cwd: PACKAGE_ROOT, env: options.env }));
-
-    const outputFiles = [
-      ...(await collectFiles(join(workspace, "build", "libs"))),
-      ...(await collectFiles(join(workspace, "build", "dist")))
+    await writeFile(sourceFile, source, "utf8");
+    const args = [
+      "-p",
+      join(PACKAGE_ROOT, "piece-core"),
+      "runKotlinCompileBackend",
+      "--quiet",
+      `-PpieceCompile.filePath=${filePath}`,
+      `-PpieceCompile.sourceFile=${sourceFile}`,
+      `-PpieceCompile.outputReport=${outputReport}`,
+      `-PpieceCompile.target=${target}`,
+      `-PpieceCompile.sourceSet=${options.sourceSet ?? ""}`,
+      `-PpieceCompile.gradleCommand=${resolveGradleCommand(options.gradleCommand)}`,
+      `-PpieceCompile.kotlinPluginVersion=${options.kotlinPluginVersion ?? ""}`,
+      `-PpieceCompile.tasks=${options.tasks?.join(",") ?? ""}`,
+      `-PpieceCompile.keepWorkspace=${options.keepWorkspace ? "true" : "false"}`
     ];
-    const result = {
+    if (options.workspace) {
+      args.push(`-PpieceCompile.workspace=${resolve(options.workspace)}`);
+    }
+
+    const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
+    if (await pathExists(outputReport)) {
+      return readJsonFile(outputReport);
+    }
+    const commands = [backendCommand];
+    return {
       version: 1,
       language: "kotlin",
+      backend: "kotlin-jvm",
       filePath,
       target,
-      sourceSet,
-      status: compileStatus(commands),
-      workspace: options.keepWorkspace ? workspace : undefined,
-      outputFiles,
+      sourceSet: options.sourceSet ?? "",
+      status: "error",
+      outputFiles: [],
       commands,
       diagnostics: diagnosticsFromCommands(commands)
     };
-    const reportDir = join(workspace, "build", "piece");
-    await mkdir(reportDir, { recursive: true });
-    await writeFile(join(reportDir, "compile-report.json"), `${JSON.stringify(result, null, 2)}\n`, "utf8");
-    result.outputFiles = [...outputFiles, ...(await collectFiles(reportDir))].sort((left, right) => left.path.localeCompare(right.path));
-    return result;
   } finally {
-    if (workspaceInfo.temporary) {
-      await cleanupWorkspace(workspace, options.keepWorkspace);
-    }
+    await cleanupWorkspace(hostWorkspace, false);
   }
 }

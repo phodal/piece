@@ -34,6 +34,7 @@ export interface PieceLanguageCompileDiagnostic {
 export interface PieceLanguageCompileResult {
   readonly version: 1;
   readonly language: "go" | "kotlin";
+  readonly backend?: string;
   readonly filePath: string;
   readonly target: string;
   readonly status: "success" | "error";
@@ -70,6 +71,7 @@ export interface CompileKotlinPieceFileOptions {
 
 export interface KotlinPieceCompileResult extends PieceLanguageCompileResult {
   readonly language: "kotlin";
+  readonly backend: "kotlin-jvm";
   readonly target: "jvm" | "js" | "wasmJs" | "all";
   readonly sourceSet: string;
 }
