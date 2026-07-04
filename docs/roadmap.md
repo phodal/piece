@@ -345,7 +345,23 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should move beyond the shipped Phase 1-6 feedback loop:
 
-1. Extract the future distributed action-cache/runtime work into a separate Phase 7 plan, so Phase 1-6 can stay focused on the shipped single-file/package-view/source-set feedback loop.
+1. Add a local action-cache record schema and status-only hit/miss explanation for `compilePieceAction()` without skipping execution yet.
+
+### Phase 7: Distributed Action Cache and Runtime
+
+Phase 7 turns the Phase 1-6 action identity into a reusable execution/cache layer. This is productization work; it must not weaken the existing single-file/package-view/source-set feedback loop.
+
+- Keep Piece as the owner of action identity, cache records, artifact metadata, fallback explanations, and runtime status.
+- Keep language backends as the owners of actual execution. Kotlin remains JVM-owned; Go remains Go-toolchain-owned; JS/TS remains a language rule family, not the core architecture.
+- Start with a local deterministic action-cache record before adding remote cache or remote execution.
+- Treat remote execution as optional. The first useful contract is "can explain a cache miss and can persist a reviewed action result", not "can skip every compiler invocation".
+- Store artifact metadata as content-addressed records keyed by action id, action inputs, toolchain/project/scope/fallback hashes, compiler options, dependency artifacts, and `.pic` artifact cache keys.
+- Expose cache status on `compilePieceAction()` and `compilePieceApp({ compileAction: true })` as `hit`, `miss`, `bypass`, or `unsafe`, with reason codes.
+- Preserve safety gates: unknown edges, project-model fallback, unsafe source-set/package-scope selection, missing artifact files, and non-hermetic tool inputs must force `miss` or `unsafe`.
+- Keep browser/Wasm hosts protocol-only. They can inspect manifests, action identities, cache status, and preview metadata, but they should not embed Kotlin/Go compiler runtimes.
+- Extend `.pic` only for stable package/action/artifact metadata. Do not put machine-local cache paths or remote credentials into generated `.pic`.
+
+Definition of done: Piece can produce a durable local action-cache record for Go, Kotlin, and JS/TS package actions; explain hit/miss/unsafe decisions in app status; reuse a cached artifact only when action identity, fallback scope, toolchain/project scope, compiler options, dependency artifacts, and `.pic` artifact cache keys all match; and keep language execution behind the existing official backend boundaries.
 
 ## Completed Roadmap Completion Audit Slice
 
