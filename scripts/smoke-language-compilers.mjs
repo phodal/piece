@@ -34,6 +34,11 @@ type Discount struct {
 }
 `;
 
+const tsSource = `export function renderGreeting(name: string): string {
+  return "Hello, " + name;
+}
+`;
+
 const kotlinSource = `package demo.pricing
 
 fun renderGreeting(user: User): Greeting {
@@ -299,6 +304,78 @@ if (goPackage.module?.path !== "piece.local/Pricing" || !goPackage.imports.inclu
 }
 if (!goResult.outputFiles.some((file) => file.path.endsWith("Pricing"))) {
   throw new Error("Go compile did not produce the expected main binary artifact.");
+}
+
+const tsActionPackage = compileActionPackage({
+  language: "typescript",
+  filePath: "/repo/src/Greeter.ts",
+  targetName: "renderGreeting",
+  targetLabel: "//repo/src:ts_render_greeting",
+  output: "ts-render-greeting.compile.json"
+});
+const tsActionCacheRoot = await mkdtemp(join(tmpdir(), "piece-ts-action-cache-"));
+const tsActionCacheStorePath = join(tsActionCacheRoot, "action-cache.json");
+let tsAppStatus;
+let tsActionCacheReuse;
+try {
+  tsAppStatus = await compilePieceApp({
+    filePath: "/repo/src/Greeter.ts",
+    source: tsSource,
+    compileAction: true,
+    actionPackage: tsActionPackage,
+    pieceTarget: "renderGreeting",
+    actionCacheStorePath: tsActionCacheStorePath
+  });
+  assertSuccess(tsAppStatus.compileAction, "TypeScript app-level Piece action");
+  if (
+    tsAppStatus.compileAction.language !== "typescript" ||
+    tsAppStatus.compileAction.backend !== "esbuild" ||
+    tsAppStatus.compileAction.actionCache?.status !== "miss" ||
+    tsAppStatus.compileAction.actionCache.persistence?.status !== "stored" ||
+    tsAppStatus.compileActionSelection?.actionPackageSource !== "explicit" ||
+    tsAppStatus.compileActionSelection.actionCache?.record?.key !== tsAppStatus.compileAction.actionCache.record?.key
+  ) {
+    throw new Error(`compilePieceApp did not persist TypeScript action-cache metadata: ${JSON.stringify({
+      compileAction: tsAppStatus.compileAction,
+      selection: tsAppStatus.compileActionSelection
+    })}`);
+  }
+  const tsActionCacheStore = JSON.parse(await readFile(tsActionCacheStorePath, "utf8"));
+  const tsStoredRecord = tsActionCacheStore.records?.[tsAppStatus.compileAction.actionCache.record.key];
+  if (
+    tsStoredRecord?.kind !== "piece-action-cache-record" ||
+    tsStoredRecord.result?.status !== "success" ||
+    !tsStoredRecord.result.outputFiles?.every((file) => file.path.includes("/artifacts/") && file.contentHash)
+  ) {
+    throw new Error(`TypeScript compile did not promote action-cache artifacts: ${JSON.stringify(tsActionCacheStore)}`);
+  }
+  tsActionCacheReuse = await compilePieceAction({
+    filePath: "/repo/src/Greeter.ts",
+    source: tsSource,
+    analysis: tsAppStatus.analysis,
+    actionPackage: tsActionPackage,
+    pieceTarget: "renderGreeting",
+    actionCacheStorePath: tsActionCacheStorePath,
+    actionCacheMode: "reuse-local"
+  });
+} finally {
+  await rm(tsActionCacheRoot, { recursive: true, force: true });
+}
+assertSuccess(tsActionCacheReuse, "TypeScript reused local action-cache hit");
+if (
+  tsActionCacheReuse.language !== "typescript" ||
+  tsActionCacheReuse.backend !== "esbuild" ||
+  tsActionCacheReuse.actionCache?.status !== "hit" ||
+  tsActionCacheReuse.actionCache.execution?.skipped !== true ||
+  tsActionCacheReuse.actionCache.reuse?.status !== "reused" ||
+  tsActionCacheReuse.commands.length !== 0 ||
+  !tsActionCacheReuse.outputFiles.every((file) => file.path.includes("/artifacts/"))
+) {
+  throw new Error(`TypeScript compile did not reuse trusted local cache artifacts: ${JSON.stringify({
+    actionCache: tsActionCacheReuse.actionCache,
+    commands: tsActionCacheReuse.commands,
+    outputFiles: tsActionCacheReuse.outputFiles
+  })}`);
 }
 
 const goPackageScopeStatus = await compilePieceApp({

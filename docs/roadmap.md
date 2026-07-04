@@ -345,7 +345,7 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should move beyond the shipped Phase 1-6 feedback loop:
 
-1. Extend action-cache persistence and `reuse-local` coverage to JS/TS package actions as a language rule family, without making React or TSX the product boundary.
+1. Audit the Phase 7 definition of done against current Go, Kotlin, and JS/TS action-cache evidence, then record any remaining runtime or distributed-cache work as explicit future productization.
 
 ### Phase 7: Distributed Action Cache and Runtime
 
@@ -414,6 +414,16 @@ The Kotlin action-cache coverage slice is now implemented:
 2. Safe Kotlin compile actions persist local action-cache records and promote JVM backend artifacts into the local artifact store.
 3. `reuse-local` can reuse a trusted Kotlin cache hit without invoking the JVM backend, while unsafe feedback fallback states still block persistence and reuse.
 4. `npm run language:compile:smoke` keeps the existing companion-source Kotlin JVM compile coverage and adds a safe Kotlin miss/store/reuse path.
+
+## Completed Phase 7 JS/TS Action Cache Coverage Slice
+
+The JS/TS action-cache coverage slice is now implemented:
+
+1. `compilePieceAction()` now recognizes `javascript` and `typescript` action packages and dispatches them to a Node-hosted JS/TS language executor.
+2. The JS/TS executor uses the existing `esbuild` dependency as the language rule backend, keeping JS/TS as a rule family rather than making React or TSX the product boundary.
+3. TypeScript app-level compile actions can persist action-cache records, promote esbuild outputs into the local artifact store, and expose cache status through `compileActionSelection.actionCache`.
+4. `reuse-local` can reuse a trusted TypeScript action-cache hit without invoking esbuild.
+5. `npm run language:compile:smoke` verifies a TypeScript miss/store path through `compilePieceApp({ compileAction: true })` and a direct `compilePieceAction()` `reuse-local` hit.
 
 ## Completed Roadmap Completion Audit Slice
 

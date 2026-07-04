@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import * as esbuild from "esbuild";
 import { createPieceActionCacheRecord, explainPieceActionCacheStatus } from "./core/action-cache.js";
 import { hashParts, stableTextHash } from "./core/hash.js";
 import { mergePiecePackages, piecePackageToPicDsl } from "./core/pic-dsl.js";
@@ -187,11 +188,23 @@ function languageForCompileAction(options = {}, actionPackage, filePath) {
   if (language === "go" || language === "kotlin") {
     return language;
   }
+  if (language === "typescript" || language === "ts") {
+    return "typescript";
+  }
+  if (language === "javascript" || language === "js") {
+    return "javascript";
+  }
   if (/\.go$/i.test(filePath ?? "")) {
     return "go";
   }
   if (/\.(?:kt|kts)$/i.test(filePath ?? "")) {
     return "kotlin";
+  }
+  if (/\.(?:tsx?|mts|cts)$/i.test(filePath ?? "")) {
+    return "typescript";
+  }
+  if (/\.(?:jsx?|mjs|cjs)$/i.test(filePath ?? "")) {
+    return "javascript";
   }
   throw new Error(`Unsupported Piece compile action language: ${options.language ?? actionPackage?.language ?? filePath ?? "unknown"}.`);
 }
@@ -1795,6 +1808,119 @@ export async function generateKotlinPieceDslFile(options = {}) {
   }
 }
 
+function jsTsLanguageForFile(filePath, fallback = "javascript") {
+  if (/\.(?:tsx?|mts|cts)$/i.test(filePath ?? "")) return "typescript";
+  if (/\.(?:jsx?|mjs|cjs)$/i.test(filePath ?? "")) return "javascript";
+  return fallback;
+}
+
+function jsTsOutputName(filePath) {
+  const sourceName = sourceBasename(filePath, "main.ts");
+  return `${sanitizeProjectName(sourceName.replace(/\.[^.]+$/, ""))}.js`;
+}
+
+function esbuildErrorText(error) {
+  const errors = error?.errors ?? [];
+  if (errors.length > 0) {
+    return errors
+      .map((entry) => {
+        const location = entry.location ? `${entry.location.file}:${entry.location.line}:${entry.location.column}: ` : "";
+        return `${location}${entry.text}`;
+      })
+      .join("\n");
+  }
+  return error?.message ?? String(error);
+}
+
+async function runEsbuildCompileCommand(buildOptions, commandArgs, cwd) {
+  const startedAt = performance.now();
+  try {
+    const result = await esbuild.build(buildOptions);
+    return {
+      command: "esbuild",
+      args: commandArgs,
+      cwd,
+      exitCode: 0,
+      signal: null,
+      stdout: "",
+      stderr: (result.warnings ?? []).map((warning) => warning.text).join("\n"),
+      durationMs: durationSince(startedAt)
+    };
+  } catch (error) {
+    return {
+      command: "esbuild",
+      args: commandArgs,
+      cwd,
+      exitCode: 1,
+      signal: null,
+      stdout: "",
+      stderr: esbuildErrorText(error),
+      durationMs: durationSince(startedAt)
+    };
+  }
+}
+
+export async function compileJavaScriptPieceFile(options = {}) {
+  const filePath = options.filePath ?? "main.ts";
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const sourcePath = resolveHostPath(filePath, cwd);
+  const source = options.source ?? ((await pathExists(sourcePath)) ? await readFile(sourcePath, "utf8") : "");
+  const language = jsTsLanguageForFile(filePath, options.language === "typescript" ? "typescript" : "javascript");
+  const pieceAction = resolveCompilePieceAction(options);
+  const workspaceInfo = await prepareWorkspace("piece-js-ts-", options.workspace);
+  const workspace = workspaceInfo.path;
+  const outputDir = resolve(options.outDir ?? join(workspace, "piece-out"));
+  const sourceFile = join(workspace, sourceBasename(filePath, language === "typescript" ? "main.ts" : "main.js"));
+  const outputFile = join(outputDir, jsTsOutputName(filePath));
+  const target = options.target ?? "esm";
+  const platform = options.platform ?? "browser";
+  const format = options.format ?? "esm";
+
+  try {
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(sourceFile, source, "utf8");
+    const buildOptions = {
+      entryPoints: [sourceFile],
+      outfile: outputFile,
+      bundle: options.bundle ?? true,
+      platform,
+      format,
+      sourcemap: options.sourcemap ?? false,
+      write: true,
+      logLevel: "silent"
+    };
+    const commandArgs = [
+      sourceFile,
+      "--bundle",
+      `--outfile=${outputFile}`,
+      `--platform=${platform}`,
+      `--format=${format}`
+    ];
+    const command = await runEsbuildCompileCommand(buildOptions, commandArgs, workspace);
+    const outputFiles = await collectFiles(outputDir);
+    const result = {
+      version: 1,
+      language,
+      backend: "esbuild",
+      filePath,
+      target,
+      workspace: options.keepWorkspace ? workspace : undefined,
+      ...(pieceAction ? { pieceAction } : {}),
+      outputFiles,
+      commands: [command],
+      status: compileStatus([command]),
+      diagnostics: diagnosticsFromCommands([command])
+    };
+    await writeFile(join(outputDir, "compile-report.json"), `${JSON.stringify(result, null, 2)}\n`, "utf8");
+    result.outputFiles = await collectFiles(outputDir);
+    return result;
+  } finally {
+    if (workspaceInfo.temporary) {
+      await cleanupWorkspace(workspace, options.keepWorkspace);
+    }
+  }
+}
+
 export async function compileGoPieceFile(options = {}) {
   const filePath = options.filePath ?? "Main.go";
   const source = options.source ?? "";
@@ -2090,6 +2216,8 @@ export async function compilePieceAction(options = {}) {
       result = await compileGoPieceFile(compileOptions);
     } else if (language === "kotlin") {
       result = await compileKotlinPieceFile(compileOptions);
+    } else if (language === "typescript" || language === "javascript") {
+      result = await compileJavaScriptPieceFile({ ...compileOptions, language });
     } else {
       throw new Error(`Unsupported Piece compile action language: ${language}.`);
     }

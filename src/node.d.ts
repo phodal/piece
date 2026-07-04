@@ -57,7 +57,7 @@ export interface PieceLanguageCompileDiagnostic {
 
 export interface PieceLanguageCompileResult {
   readonly version: 1;
-  readonly language: "go" | "kotlin";
+  readonly language: "go" | "kotlin" | "javascript" | "typescript";
   readonly backend?: string;
   readonly filePath: string;
   readonly target: string;
@@ -250,7 +250,7 @@ export interface NodeCompileActionSelection {
 }
 
 export interface NodeCompilePieceAppStatus extends CompilePieceAppStatus {
-  readonly compileAction?: GoPieceCompileResult | KotlinPieceCompileResult;
+  readonly compileAction?: GoPieceCompileResult | KotlinPieceCompileResult | JavaScriptPieceCompileResult;
   readonly compileActionSelection?: NodeCompileActionSelection;
   readonly compileActionDiagnostics?: readonly NodeCompileActionDiagnostic[];
 }
@@ -296,7 +296,7 @@ export interface CompileGoPieceFileOptions {
 export interface CompileKotlinPieceFileOptions {
   readonly filePath?: string;
   readonly source?: string;
-  readonly target?: "jvm" | "js" | "wasmJs" | "all";
+  readonly target?: "jvm" | "js" | "wasmJs" | "all" | (string & {});
   readonly sourceSet?: "commonMain" | "jvmMain" | "jsMain" | "wasmJsMain" | (string & {});
   readonly workspace?: string;
   readonly keepWorkspace?: boolean;
@@ -316,13 +316,36 @@ export interface CompileKotlinPieceFileOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
+export interface CompileJavaScriptPieceFileOptions {
+  readonly filePath?: string;
+  readonly source?: string;
+  readonly target?: "esm" | "browser" | "node" | (string & {});
+  readonly platform?: "browser" | "node" | "neutral" | (string & {});
+  readonly format?: "esm" | "cjs" | "iife" | (string & {});
+  readonly bundle?: boolean;
+  readonly sourcemap?: boolean;
+  readonly workspace?: string;
+  readonly outDir?: string;
+  readonly keepWorkspace?: boolean;
+  readonly cwd?: string;
+  readonly pieceAction?: PieceCompileActionReference;
+  readonly pieceTarget?: string;
+  readonly pieceActionName?: string;
+  readonly actionPackage?: SingleFilePiecePackage;
+  readonly env?: Record<string, string | undefined>;
+}
+
 export interface CompilePieceActionOptions extends CompileKotlinPieceFileOptions {
-  readonly language?: "go" | "kotlin" | (string & {});
+  readonly language?: "go" | "kotlin" | "javascript" | "typescript" | (string & {});
   readonly analysis?: PieceFileAnalysis;
   readonly outDir?: string;
   readonly goCommand?: string;
   readonly modulePath?: string;
   readonly runTests?: boolean;
+  readonly platform?: "browser" | "node" | "neutral" | (string & {});
+  readonly format?: "esm" | "cjs" | "iife" | (string & {});
+  readonly bundle?: boolean;
+  readonly sourcemap?: boolean;
   readonly actionCacheRecords?:
     | false
     | ReadonlyMap<string, PieceCompileActionCacheRecord>
@@ -401,15 +424,21 @@ export interface KotlinPieceCompileResult extends PieceLanguageCompileResult {
   readonly sourceSet: string;
 }
 
+export interface JavaScriptPieceCompileResult extends PieceLanguageCompileResult {
+  readonly language: "javascript" | "typescript";
+  readonly backend: "esbuild";
+}
+
 export interface GoPieceCompileResult extends PieceLanguageCompileResult {
   readonly language: "go";
   readonly target: "binary" | "package";
   readonly goList: PieceGoListMetadata;
 }
 
-export function compilePieceAction(options?: CompilePieceActionOptions): Promise<GoPieceCompileResult | KotlinPieceCompileResult>;
+export function compilePieceAction(options?: CompilePieceActionOptions): Promise<GoPieceCompileResult | KotlinPieceCompileResult | JavaScriptPieceCompileResult>;
 export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise<GoPieceCompileResult>;
 export function compileKotlinPieceFile(options?: CompileKotlinPieceFileOptions): Promise<KotlinPieceCompileResult>;
+export function compileJavaScriptPieceFile(options?: CompileJavaScriptPieceFileOptions): Promise<JavaScriptPieceCompileResult>;
 export function analyzePieceFile(options?: NodeAnalyzePieceFileOptions): Promise<NodePieceFileAnalysis>;
 export function compilePieceApp(options?: NodeCompilePieceAppOptions): Promise<NodeCompilePieceAppStatus>;
 export function buildPiecePreview(options?: NodeBuildPiecePreviewOptions): Promise<PiecePreviewBuild>;
