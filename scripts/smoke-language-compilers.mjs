@@ -238,6 +238,9 @@ if (
 ) {
   throw new Error(`compilePieceApp did not expose package-scope selection metadata: ${JSON.stringify(goPackageScopeStatus.compileActionSelection)}`);
 }
+if (goPackageScopeStatus.analysis?.snapshot?.actionPackage) {
+  throw new Error(`candidate package-scope compile should not write an action package snapshot: ${JSON.stringify(goPackageScopeStatus.analysis.snapshot.actionPackage)}`);
+}
 const selectedGoPackageScopeStatus = await compilePieceApp({
   filePath: "/repo/src/Pricing.go",
   source: goPricingSource,
@@ -260,6 +263,17 @@ if (
   throw new Error(`compilePieceApp did not use selected package-view action metadata: ${JSON.stringify({
     selection: selectedGoPackageScopeStatus.compileActionSelection,
     pieceAction: selectedGoPackageScopeStatus.compileAction?.pieceAction
+  })}`);
+}
+if (
+  selectedGoPackageScopeStatus.analysis?.actionPackage ||
+  !selectedGoPackageScopeStatus.analysis?.snapshot?.actionPackage?.targets.some(
+    (target) => target.label === "//repo/src:Discount.go__type_Discount"
+  )
+) {
+  throw new Error(`selected package-view compile status did not retain an action package snapshot: ${JSON.stringify({
+    analysisActionPackage: selectedGoPackageScopeStatus.analysis?.actionPackage,
+    snapshotActionPackage: selectedGoPackageScopeStatus.analysis?.snapshot?.actionPackage
   })}`);
 }
 

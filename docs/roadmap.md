@@ -343,8 +343,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Carry selected package-view action package identity into app-level compile status snapshots without changing default preview graph behavior.
-2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+1. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 5/6 Selected Package-View Status Snapshot Slice
+
+The selected package-view status snapshot slice is now implemented:
+
+1. `compilePieceApp({ compileAction: true, packageScopeSelection: "safe" })` can return an app-level status whose `analysis.snapshot.actionPackage` carries the selected package-view action package.
+2. Analysis-level metadata-only behavior remains unchanged: selected package-view analysis still leaves `analysis.actionPackage` and `snapshot.actionPackage` empty until app-level compile-action dispatch asks for the selected action package.
+3. Candidate/default package-scope compile action status still avoids writing an action package snapshot.
+4. The returned `compileActionSelection.actionPackageSource` continues to report `selected-package-view` for the selected package-view dispatch path.
+5. `npm run language:compile:smoke` verifies the selected Go companion target action package snapshot and the candidate package-scope non-snapshot path.
 
 ## Completed Phase 5/6 Selected Package-View Compile Action Slice
 

@@ -146,6 +146,35 @@ function compileActionSelectionForStatus(options = {}, status = {}) {
   };
 }
 
+function selectedPackageViewActionPackageForSnapshot(options = {}, analysis) {
+  if (options.actionPackage || analysis?.actionPackage || analysis?.snapshot?.actionPackage) {
+    return undefined;
+  }
+  if (analysis?.packageScope?.status === "selected" && analysis.packageScope.packageView) {
+    return analysis.packageScope.packageView;
+  }
+  return undefined;
+}
+
+function statusWithCompileActionSnapshot(status, actionPackage) {
+  const analysis = status.analysis;
+  if (!analysis?.snapshot || !actionPackage) {
+    return status;
+  }
+  const nextAnalysis = {
+    ...analysis,
+    snapshot: {
+      ...analysis.snapshot,
+      actionPackage
+    }
+  };
+  return {
+    ...status,
+    analysis: nextAnalysis,
+    ...(status.preview ? { preview: { ...status.preview, analysis: nextAnalysis } } : {})
+  };
+}
+
 function statusWithCompileActionDiagnostic(status, diagnostic, selection) {
   return {
     ...status,
@@ -226,15 +255,17 @@ export async function compilePieceApp(options = {}) {
     return status;
   }
   const compileActionSelection = compileActionSelectionForStatus(options, status);
+  const actionPackageSnapshot = selectedPackageViewActionPackageForSnapshot(options, status.analysis);
+  const statusForCompileAction = statusWithCompileActionSnapshot(status, actionPackageSnapshot);
   try {
-    const compileAction = await compilePieceAction(compileActionOptionsForStatus(options, status));
+    const compileAction = await compilePieceAction(compileActionOptionsForStatus(options, statusForCompileAction));
     return {
-      ...status,
+      ...statusForCompileAction,
       compileActionSelection,
       compileAction
     };
   } catch (error) {
-    return statusWithCompileActionDiagnostic(status, compileActionDiagnostic(error), compileActionSelection);
+    return statusWithCompileActionDiagnostic(statusForCompileAction, compileActionDiagnostic(error), compileActionSelection);
   }
 }
 
