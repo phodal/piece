@@ -390,6 +390,52 @@ fun detached(): String = "detached"
     })}`
   );
 
+  const manifestExtractor = (name, fixedManifest) => ({
+    name,
+    extract() {
+      return fixedManifest;
+    }
+  });
+  const detachedAnalysis = await analyzePieceFile({
+    filePath: detachedPath,
+    source: detachedSource,
+    declarationExtractor: manifestExtractor("detached-gradle-fallback-manifest", detachedManifest)
+  });
+  const detachedAppStatus = await compilePieceApp({
+    filePath: detachedPath,
+    source: detachedSource,
+    analysis: detachedAnalysis,
+    target: "__no_preview__",
+    compileAction: true,
+    pieceTarget: "__missing_piece_target__"
+  });
+  assert(
+    detachedAppStatus.compileActionSelection?.sourceSet?.status === "fallback" &&
+      detachedAppStatus.compileActionSelection.sourceSet.fallbackReason?.includes("source set") &&
+      detachedAppStatus.compileActionSelection.sourceSetScope === undefined,
+    `App-level selection did not expose detached Gradle source-set fallback metadata: ${JSON.stringify(detachedAppStatus.compileActionSelection)}`
+  );
+  const orphanAnalysis = await analyzePieceFile({
+    filePath: orphanPath,
+    source: orphanSource,
+    declarationExtractor: manifestExtractor("orphan-gradle-fallback-manifest", orphanManifest)
+  });
+  const orphanAppStatus = await compilePieceApp({
+    filePath: orphanPath,
+    source: orphanSource,
+    analysis: orphanAnalysis,
+    target: "__no_preview__",
+    compileAction: true,
+    pieceTarget: "__missing_piece_target__"
+  });
+  assert(
+    orphanAppStatus.compileActionSelection?.sourceSet?.status === "fallback" &&
+      orphanAppStatus.compileActionSelection.sourceSet.sourceSet === "orphanMain" &&
+      orphanAppStatus.compileActionSelection.sourceSet.fallbackReason?.includes("classpath") &&
+      orphanAppStatus.compileActionSelection.sourceSetScope === undefined,
+    `App-level selection did not expose orphan Gradle source-set fallback metadata: ${JSON.stringify(orphanAppStatus.compileActionSelection)}`
+  );
+
   const analysis = await analyzePieceFile({
     filePath: renderPath,
     source,

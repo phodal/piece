@@ -346,7 +346,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Extend app-level source-set diagnostics to real Gradle/KMP fallback scopes in `language:project-model:smoke`.
+1. Add source-set package-view artifact/cache-key coverage for promoted source-set targets.
+
+## Completed Phase 5/6 Gradle Source-Set Fallback App Diagnostics Slice
+
+The Gradle source-set fallback app diagnostics slice is now implemented:
+
+1. `npm run language:project-model:smoke` now verifies app-level compile selection metadata for real Gradle/KMP fallback manifests.
+2. Detached files outside discovered source sets surface `compileActionSelection.sourceSet.status: "fallback"` and a source-set fallback reason.
+3. Orphan source sets without a matching compile classpath surface the fallback source set name and classpath fallback reason.
+4. Fallback Gradle project-model scopes do not expose `sourceSetScope`, so hosts can distinguish "no safe package view" from a selected candidate package view.
+5. The checks reuse already discovered Gradle fallback manifests instead of starting another Gradle discovery pass.
 
 ## Completed Phase 5/6 App-Level Source-Set Fallback Diagnostics Slice
 
