@@ -339,6 +339,7 @@ function promotedPackageTarget(target, language) {
 }
 
 function promotedActionsForTarget(target, packageScopeInput) {
+  const scopeInputs = Array.isArray(packageScopeInput) ? packageScopeInput : [packageScopeInput];
   return target.actions.map((id) => {
     const kind = id.endsWith("%compile") ? "compile" : "feedback";
     return {
@@ -346,7 +347,7 @@ function promotedActionsForTarget(target, packageScopeInput) {
       target: target.label,
       kind,
       mnemonic: kind === "compile" ? "PieceCompile" : "PieceFeedback",
-      inputs: uniquePreserveOrder([target.source, packageScopeInput]),
+      inputs: uniquePreserveOrder([target.source, ...scopeInputs]),
       outputs: [`${target.label}.${kind === "compile" ? "compile" : "piece"}.json`]
     };
   });
@@ -438,7 +439,9 @@ function createSelectedPackageView(piecePackage, model) {
     ],
     actions: [
       ...piecePackage.actions.map((action) => applyPromotedDepsToAction(action, promotedEdgesByTarget)),
-      ...promotedTargets.flatMap((target) => promotedActionsForTarget(target, model.packageScopeInput))
+      ...promotedTargets.flatMap((target) =>
+        promotedActionsForTarget(target, model.scopeInputs ?? [model.packageScopeInput ?? model.sourceSetScopeInput].filter(Boolean))
+      )
     ],
     artifacts: [...piecePackage.artifacts, ...promotedTargets.flatMap(promotedArtifactsForTarget)]
   };
@@ -603,6 +606,214 @@ export function createPackageScopeTargetModel({ filePath, manifest, graph, piece
     promotedEdges: promotedEdges.sort((left, right) =>
       `${left.from}:${left.to}:${left.kind}:${left.symbols.join(",")}`.localeCompare(`${right.from}:${right.to}:${right.kind}:${right.symbols.join(",")}`)
     )
+  };
+  return promotion.appliedToPackageView
+    ? {
+        ...model,
+        packageView: createSelectedPackageView(currentPackage, model)
+      }
+    : model;
+}
+
+function sourceSetScopeFromManifest(manifest) {
+  const scope = manifest?.projectModel?.analysisScope;
+  return scope?.status === "selected" ? scope : undefined;
+}
+
+function isPathInsideDirectory(filePath, directory) {
+  const file = normalizePath(filePath);
+  const root = normalizePath(directory).replace(/\/$/, "");
+  return file === root || file.startsWith(`${root}/`);
+}
+
+function sourceFilesForSourceSetScope(scope, primaryFilePath, promotedTargets = []) {
+  const seen = new Set();
+  return [primaryFilePath, ...promotedTargets.map((target) => target.sourceFile)]
+    .filter(Boolean)
+    .filter((filePath) => {
+      const normalized = normalizePath(filePath);
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    })
+    .map((filePath) => ({
+      filePath,
+      label: sourceLabel(filePath),
+      role: normalizePath(filePath) === normalizePath(primaryFilePath) ? "primary" : "companion"
+    }));
+}
+
+function sourceSetScopeSelectionStatus({ selection, feedbackScope, targets, promotedEdges, currentTargets, sourceSetScope }) {
+  const requested = selection ?? "current-file";
+  const blockedReasons = [];
+  const currentLabels = new Set(currentTargets.map((target) => target.label));
+  const promotedLabels = new Set();
+
+  for (const target of targets) {
+    if (currentLabels.has(target.label)) {
+      blockedReasons.push({
+        code: "source-set-scope-target-label-conflict",
+        severity: "warning",
+        message: `Source-set target ${target.label} conflicts with an existing current-file target.`
+      });
+    }
+    if (promotedLabels.has(target.label)) {
+      blockedReasons.push({
+        code: "source-set-scope-target-duplicate",
+        severity: "warning",
+        message: `Source-set target ${target.label} was produced more than once.`
+      });
+    }
+    promotedLabels.add(target.label);
+  }
+
+  for (const edge of promotedEdges) {
+    if (edge.fromResolved === false) {
+      blockedReasons.push({
+        code: "source-set-scope-edge-unmapped-source",
+        severity: "warning",
+        message: `Source-set edge from ${edge.from} could not be mapped back to a generated current-file target.`
+      });
+    }
+  }
+
+  if (targets.length === 0) {
+    blockedReasons.push({
+      code: "source-set-scope-no-promoted-targets",
+      severity: "info",
+      message: "No source-set companion targets are available for selection."
+    });
+  }
+
+  if (feedbackScope?.fallbackRequired) {
+    blockedReasons.push({
+      code: "source-set-scope-feedback-fallback",
+      severity: "warning",
+      message: "Source-set package view selection is disabled while feedback scope already requires file or project fallback.",
+      fallbackLevel: feedbackScope.level,
+      fallbackReasonCodes: nonInfoReasonCodes(feedbackScope.reasons)
+    });
+  }
+
+  if (feedbackScope?.level !== "source-set") {
+    blockedReasons.push({
+      code: "source-set-scope-not-feedback-boundary",
+      severity: "warning",
+      message: "Source-set package view selection requires a proven source-set feedback boundary.",
+      feedbackLevel: feedbackScope?.level
+    });
+  }
+
+  if (sourceSetScope?.status !== "selected" || !sourceSetScope.hashes?.scopeHash) {
+    blockedReasons.push({
+      code: "source-set-scope-not-selected",
+      severity: "warning",
+      message: "Source-set package view selection requires a selected Gradle/KMP source-set scope."
+    });
+  }
+
+  const canSelect = requested === "safe" && targets.length > 0 && blockedReasons.every((reason) => reason.severity === "info");
+  return {
+    requested,
+    status: canSelect ? "selected" : targets.length > 0 ? "candidate" : "file",
+    appliedToDefaultPackage: false,
+    appliedToPackageView: canSelect,
+    blockedReasons,
+    reason: canSelect
+      ? "Source-set companion targets passed the safe selection gate and are available in packageView."
+      : targets.length > 0
+        ? "Source-set companion targets are available as a candidate model while the default feedback package keeps the current-file fast path."
+        : "No source-set companion targets are available for promotion."
+  };
+}
+
+export function createSourceSetScopeTargetModel({ filePath, manifest, graph, piecePackage, feedbackScope, selection }) {
+  const sourceSetScope = sourceSetScopeFromManifest(manifest);
+  if (!sourceSetScope) {
+    return undefined;
+  }
+
+  const sourceRoots = (sourceSetScope.sourceRoots ?? []).map(normalizePath);
+  const currentPackage = piecePackage ?? createSingleFilePiecePackage({ filePath, manifest, graph });
+  const currentTargets = currentPackage.targets.map((target) => ({
+    id: target.id,
+    label: target.label,
+    name: target.name,
+    kind: target.kind,
+    sourceFile: manifest.filePath,
+    source: target.source,
+    rule: target.rule
+  }));
+  const currentTargetsBySliceId = new Map(currentPackage.targets.map((target) => [target.id, target]));
+  const promotedTargets = new Map();
+  const promotedEdges = [];
+  const normalizedPrimary = normalizePath(filePath);
+
+  for (const edge of graph.edges ?? []) {
+    if (edge.kind !== "external") continue;
+    const source = externalSourceIdentity(edge);
+    const normalizedSource = normalizePath(source);
+    if (normalizedSource === normalizedPrimary) continue;
+    if (!sourceRoots.some((root) => isPathInsideDirectory(normalizedSource, root))) continue;
+    const declaration = inferredDeclarationForEdge(edge);
+    const label = `//${bazelPackageName(source)}:${targetNameForDeclaration(source, declaration)}`;
+    if (!promotedTargets.has(label)) {
+      promotedTargets.set(label, {
+        id: declaration.id,
+        label,
+        name: declaration.name,
+        kind: declaration.kind,
+        sourceFile: source,
+        source: sourceLabel(source),
+        rule: ruleForSlice(languageForManifest(manifest), declaration),
+        externalIdentity: externalDependencyId(edge)
+      });
+    }
+    promotedEdges.push({
+      from: currentTargetsBySliceId.get(edge.from)?.label ?? edge.from,
+      to: label,
+      kind: edge.kind,
+      symbols: edge.symbols ?? [],
+      externalIdentity: externalDependencyId(edge),
+      fromResolved: currentTargetsBySliceId.has(edge.from)
+    });
+  }
+
+  const targets = [...promotedTargets.values()].sort(compareByLabel);
+  const promotion = sourceSetScopeSelectionStatus({
+    selection,
+    feedbackScope,
+    targets,
+    promotedEdges,
+    currentTargets,
+    sourceSetScope
+  });
+  const scopeHash = sourceSetScope.hashes?.scopeHash;
+  const scopeInputs = scopeHash ? [`project-model:${scopeHash}`, `source-set:${scopeHash}`] : [];
+  const model = {
+    version: 1,
+    kind: "source-set-scope-target-model",
+    status: promotion.status,
+    language: languageForManifest(manifest),
+    packageName: bazelPackageName(filePath),
+    label: `//${bazelPackageName(filePath)}:__source_set_scope`,
+    filePath,
+    sourceFile: sourceLabel(filePath),
+    sourceSetScopeHash: scopeHash,
+    sourceSetScopeInput: scopeHash ? `source-set:${scopeHash}` : undefined,
+    projectModelInput: scopeHash ? `project-model:${scopeHash}` : undefined,
+    projectPath: sourceSetScope.projectPath,
+    projectPaths: sourceSetScope.projectPaths ?? [],
+    sourceSet: sourceSetScope.sourceSet,
+    requiredSourceSets: sourceSetScope.requiredSourceSets ?? [],
+    promotion,
+    sourceFiles: sourceFilesForSourceSetScope(sourceSetScope, filePath, targets),
+    currentTargets,
+    promotedTargets: targets,
+    promotedEdges: promotedEdges.sort((left, right) =>
+      `${left.from}:${left.to}:${left.kind}:${left.symbols.join(",")}`.localeCompare(`${right.from}:${right.to}:${right.kind}:${right.symbols.join(",")}`)
+    ),
+    scopeInputs
   };
   return promotion.appliedToPackageView
     ? {

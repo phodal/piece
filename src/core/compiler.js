@@ -82,7 +82,8 @@ export async function compilePieceApp(options = {}) {
       compilerOptionsHash: options.compilerOptionsHash,
       dependencyArtifacts: options.dependencyArtifacts,
       globals: options.globals,
-      packageScopeSelection: options.packageScopeSelection
+      packageScopeSelection: options.packageScopeSelection,
+      sourceSetScopeSelection: options.sourceSetScopeSelection
     }));
   const target = selectPiecePreviewTarget(analysis, {
     target: options.target ?? piece.target?.id,

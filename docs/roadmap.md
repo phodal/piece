@@ -22,6 +22,7 @@ The repository already has:
 - A Kotlin PSI `.pic` generator that emits deterministic package text and verifies the generated file by parsing it back through the same ANTLR backend.
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
 - Safe selected Go package-scope package views can become the primary generated `.pic` output and app-level compile action package while default analysis keeps the current-file `.pic` output.
+- Safe selected Kotlin Gradle/KMP source-set scopes can expose an explicit source-set package view for companion source declarations while the primary `.pic` output remains the current-file package.
 - User override `.pic` merging can use a selected package-scope package view as its generated merge base.
 - `piece-compiler/node` analysis can accept override `.pic` input and return merged primary `.pic` output plus merge diagnostics.
 - Merged override packages are metadata-only by default and can feed action/snapshot package views through explicit `pieceDslOverrideMode: "action-snapshot"`.
@@ -343,7 +344,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Promote safe source-set companion declarations into an explicit source-set package view without changing the default current-file inner loop.
+1. Carry explicit source-set package views into app-level compile action package selection and snapshots without changing default preview graph behavior.
+
+## Completed Phase 5/6 Source-Set Package View Slice
+
+The source-set package view slice is now implemented:
+
+1. `createSourceSetScopeTargetModel()` builds a source-set companion target model from selected Gradle/KMP `analysisScope` metadata and graph external edges.
+2. `analyzePieceFile({ sourceSetScopeSelection: "safe" })` exposes `analysis.sourceSetScope.packageView` when source-set feedback is proven safe.
+3. The source-set package view promotes source-root companion declarations such as `User.kt#User` into package-owned targets and rewrites current-file external deps to those targets.
+4. Classpath dependencies stay external and are not promoted into source-owned package targets.
+5. The primary generated `.pic` stays `current-file`; the source-set view is explicit metadata, not an automatic inner-loop widening.
+6. `npm run language:project-model:smoke` verifies the selected `:app` `jvmMain` source-set package view while preserving the current-file `.pic` output.
 
 ## Completed Phase 5/6 App-Level Source-Set Proof Metadata Slice
 

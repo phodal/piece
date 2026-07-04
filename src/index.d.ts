@@ -99,6 +99,8 @@ export interface CompilePieceAppOptions {
   readonly piece?: PieceCompileOptions;
   readonly preview?: PiecePreviewOptions;
   readonly toolchainInputs?: readonly string[];
+  readonly packageScopeSelection?: PiecePackageScopeSelection;
+  readonly sourceSetScopeSelection?: PiecePackageScopeSelection;
 }
 
 export type PieceCompilerOptions = Partial<CompilePieceAppOptions>;
@@ -278,6 +280,44 @@ export interface PiecePackageScopeTargetModel {
   readonly currentTargets: readonly PiecePackageScopeTarget[];
   readonly promotedTargets: readonly PiecePackageScopeTarget[];
   readonly promotedEdges: readonly PiecePackageScopeEdge[];
+  readonly packageView?: SingleFilePiecePackage;
+}
+
+export interface PieceSourceSetScopeSourceFile {
+  readonly filePath: string;
+  readonly label: string;
+  readonly role: "primary" | "companion" | (string & {});
+}
+
+export interface PieceSourceSetScopeTargetModel {
+  readonly version: 1;
+  readonly kind: "source-set-scope-target-model";
+  readonly status: "candidate" | "file" | "selected" | (string & {});
+  readonly language: string;
+  readonly packageName: string;
+  readonly label: string;
+  readonly filePath: string;
+  readonly sourceFile: string;
+  readonly sourceSetScopeHash?: string;
+  readonly sourceSetScopeInput?: string;
+  readonly projectModelInput?: string;
+  readonly projectPath?: string;
+  readonly projectPaths: readonly string[];
+  readonly sourceSet?: string;
+  readonly requiredSourceSets: readonly string[];
+  readonly promotion: {
+    readonly status: "candidate" | "file" | "selected" | (string & {});
+    readonly requested: PiecePackageScopeSelection;
+    readonly appliedToDefaultPackage: boolean;
+    readonly appliedToPackageView: boolean;
+    readonly reason: string;
+    readonly blockedReasons: readonly PieceFeedbackScopeReason[];
+  };
+  readonly sourceFiles: readonly PieceSourceSetScopeSourceFile[];
+  readonly currentTargets: readonly PiecePackageScopeTarget[];
+  readonly promotedTargets: readonly PiecePackageScopeTarget[];
+  readonly promotedEdges: readonly PiecePackageScopeEdge[];
+  readonly scopeInputs: readonly string[];
   readonly packageView?: SingleFilePiecePackage;
 }
 
@@ -749,6 +789,7 @@ export interface PieceFileAnalysis {
   readonly piecePackage: SingleFilePiecePackage;
   readonly actionPackage?: SingleFilePiecePackage;
   readonly packageScope?: PiecePackageScopeTargetModel;
+  readonly sourceSetScope?: PieceSourceSetScopeTargetModel;
   readonly pieceDsl: string;
   readonly pieceDslSource: PieceDslSource;
   readonly previewTargets: readonly string[];
@@ -882,6 +923,7 @@ export interface AnalyzePieceFileOptions {
   readonly toolchainInputs?: readonly string[];
   readonly globals?: readonly string[];
   readonly packageScopeSelection?: PiecePackageScopeSelection;
+  readonly sourceSetScopeSelection?: PiecePackageScopeSelection;
 }
 
 export interface SelectPiecePreviewTargetOptions {
@@ -1030,6 +1072,14 @@ export function createPackageScopeTargetModel(options: {
   readonly feedbackScope?: PieceFeedbackScope;
   readonly selection?: PiecePackageScopeSelection;
 }): PiecePackageScopeTargetModel | undefined;
+export function createSourceSetScopeTargetModel(options: {
+  readonly filePath: string;
+  readonly manifest: PieceFileManifest;
+  readonly graph: PieceSliceGraph;
+  readonly piecePackage?: SingleFilePiecePackage;
+  readonly feedbackScope?: PieceFeedbackScope;
+  readonly selection?: PiecePackageScopeSelection;
+}): PieceSourceSetScopeTargetModel | undefined;
 export function createPieceActionCacheMetadata(options?: {
   readonly compilerOptions?: Record<string, unknown>;
   readonly compilerOptionsHash?: string;

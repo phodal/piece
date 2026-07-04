@@ -8,7 +8,8 @@ import {
   analyzePieceFile,
   compileKotlinPieceFile,
   compilePieceApp,
-  createNodeKotlinPsiDeclarationExtractor
+  createNodeKotlinPsiDeclarationExtractor,
+  piecePackageToPicDsl
 } from "../src/node.js";
 
 const execFileAsync = promisify(execFile);
@@ -396,7 +397,8 @@ fun detached(): String = "detached"
       projectRoot: workspace,
       backend: "analysis-api",
       analysisApiEnabled: true
-    })
+    }),
+    sourceSetScopeSelection: "safe"
   });
   assert(
     analysis.graph.edges.some((edge) => edge.kind === "external" && edge.to === `${modelPath}#User` && edge.symbols.includes("User")),
@@ -428,6 +430,44 @@ fun detached(): String = "detached"
   assert(
     analysis.snapshot.feedbackScope.sourceSet?.hashes?.scopeHash === analysis.manifest.projectModel.analysisScope.hashes.scopeHash,
     `Snapshot feedback scope did not retain source-set scope metadata: ${JSON.stringify(analysis.snapshot.feedbackScope)}`
+  );
+  const promotedUserTarget = analysis.sourceSetScope?.promotedTargets.find(
+    (target) => target.sourceFile === modelPath && target.name === "User"
+  );
+  assert(
+    analysis.sourceSetScope?.kind === "source-set-scope-target-model" &&
+      analysis.sourceSetScope.status === "selected" &&
+      analysis.sourceSetScope.promotion.requested === "safe" &&
+      analysis.sourceSetScope.promotion.appliedToPackageView === true &&
+      analysis.sourceSetScope.sourceSetScopeHash === analysis.manifest.projectModel.analysisScope.hashes.scopeHash &&
+      promotedUserTarget,
+    `Source-set scope did not expose a selected companion package view model: ${JSON.stringify(analysis.sourceSetScope)}`
+  );
+  assert(
+    analysis.pieceDslSource === "current-file" && analysis.pieceDsl === piecePackageToPicDsl(analysis.piecePackage),
+    `Source-set package view selection should not replace the primary current-file .pic output: ${analysis.pieceDslSource}`
+  );
+  assert(
+    analysis.sourceSetScope.packageView?.targets.some(
+      (target) => target.label === promotedUserTarget.label && target.source === promotedUserTarget.source
+    ),
+    `Source-set package view did not include the promoted User target: ${JSON.stringify(analysis.sourceSetScope.packageView?.targets)}`
+  );
+  const renderPackageViewTarget = analysis.sourceSetScope.packageView?.targets.find((target) => target.name === "render");
+  assert(
+    renderPackageViewTarget?.deps.includes(promotedUserTarget.label) &&
+      !renderPackageViewTarget.externalDeps.includes(`${modelPath}#User`),
+    `Source-set package view did not replace the User external dep with a promoted target dep: ${JSON.stringify(renderPackageViewTarget)}`
+  );
+  assert(
+    !analysis.sourceSetScope.packageView?.targets.some((target) => String(target.sourceFile ?? "").startsWith("classpath:")),
+    `Source-set package view should not promote classpath dependencies: ${JSON.stringify(analysis.sourceSetScope.packageView?.targets)}`
+  );
+  assert(
+    analysis.sourceSetScope.packageView?.actions
+      .find((action) => action.id === `${promotedUserTarget.label}%compile`)
+      ?.inputs.includes(`source-set:${analysis.manifest.projectModel.analysisScope.hashes.scopeHash}`),
+    `Promoted source-set compile action did not include source-set scope input: ${JSON.stringify(analysis.sourceSetScope.packageView?.actions)}`
   );
   assert(
     analysis.piecePackage.actions.every((action) => action.inputs.includes(`project-model:${analysis.manifest.projectModel.analysisScope.hashes.scopeHash}`)),

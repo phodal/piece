@@ -1,5 +1,5 @@
 import { resolveDefaultDeclarationExtractor } from "./extractor-registry.js";
-import { createPackageScopeTargetModel, createSingleFilePiecePackage } from "./piece-package.js";
+import { createPackageScopeTargetModel, createSingleFilePiecePackage, createSourceSetScopeTargetModel } from "./piece-package.js";
 import { piecePackageToPicDsl } from "./pic-dsl.js";
 import { buildPieceClosure } from "./closure-builder.js";
 import { buildPiecePreviewBundle } from "./build-orchestrator.js";
@@ -131,6 +131,14 @@ export async function analyzePieceFile(options) {
     feedbackScope,
     selection: options.packageScopeSelection
   });
+  const sourceSetScope = createSourceSetScopeTargetModel({
+    filePath: options.filePath,
+    manifest: manifestResult.value,
+    graph: graphResult.value,
+    piecePackage,
+    feedbackScope,
+    selection: options.sourceSetScopeSelection
+  });
   const primaryPic = primaryPicPackage(piecePackage, packageScope);
 
   const analysis = {
@@ -142,6 +150,7 @@ export async function analyzePieceFile(options) {
     actionCache,
     piecePackage,
     ...(packageScope ? { packageScope } : {}),
+    ...(sourceSetScope ? { sourceSetScope } : {}),
     pieceDsl: piecePackageToPicDsl(primaryPic.piecePackage),
     pieceDslSource: primaryPic.source,
     previewTargets,
@@ -331,6 +340,14 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     feedbackScope,
     selection: options.packageScopeSelection
   });
+  const sourceSetScope = createSourceSetScopeTargetModel({
+    filePath: options.filePath,
+    manifest,
+    graph: graphResult.value,
+    piecePackage,
+    feedbackScope,
+    selection: options.sourceSetScopeSelection
+  });
   const primaryPic = primaryPicPackage(piecePackage, packageScope);
 
   const analysis = {
@@ -342,6 +359,7 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     actionCache,
     piecePackage,
     ...(packageScope ? { packageScope } : {}),
+    ...(sourceSetScope ? { sourceSetScope } : {}),
     pieceDsl: piecePackageToPicDsl(primaryPic.piecePackage),
     pieceDslSource: primaryPic.source,
     previewTargets,
