@@ -355,14 +355,26 @@ function promotedArtifactsForTarget(target) {
   });
 }
 
-function applyPromotedDepsToTarget(target, promotedEdges) {
+function isTypeLikeTarget(target) {
+  return ["type", "class", "header"].includes(target?.kind);
+}
+
+function applyPromotedDepsToTarget(target, promotedEdges, promotedTargetsByLabel) {
   if (promotedEdges.length === 0) {
     return target;
   }
   const promotedByExternal = new Map(promotedEdges.map((edge) => [edge.externalIdentity, edge.to]));
+  const promotedTypeDeps = promotedEdges
+    .filter((edge) => isTypeLikeTarget(promotedTargetsByLabel.get(edge.to)))
+    .map((edge) => edge.to);
+  const promotedRuntimeDeps = promotedEdges
+    .filter((edge) => !isTypeLikeTarget(promotedTargetsByLabel.get(edge.to)))
+    .map((edge) => edge.to);
   return {
     ...target,
     deps: uniqueSorted([...target.deps, ...promotedEdges.map((edge) => edge.to)]),
+    runtimeDeps: uniqueSorted([...target.runtimeDeps, ...promotedRuntimeDeps]),
+    typeDeps: uniqueSorted([...target.typeDeps, ...promotedTypeDeps]),
     externalDeps: target.externalDeps.filter((dep) => !promotedByExternal.has(dep))
   };
 }
@@ -404,10 +416,16 @@ function createSelectedPackageView(piecePackage, model) {
     promotedEdgesByTarget.get(edge.from).push(edge);
   }
   const promotedTargets = model.promotedTargets.map((target) => promotedPackageTarget(target, model.language));
+  const promotedTargetsByLabel = new Map(promotedTargets.map((target) => [target.label, target]));
   return {
     ...piecePackage,
     rules: packageViewRules(piecePackage, promotedTargets),
-    targets: [...piecePackage.targets.map((target) => applyPromotedDepsToTarget(target, promotedEdgesByTarget.get(target.label) ?? [])), ...promotedTargets],
+    targets: [
+      ...piecePackage.targets.map((target) =>
+        applyPromotedDepsToTarget(target, promotedEdgesByTarget.get(target.label) ?? [], promotedTargetsByLabel)
+      ),
+      ...promotedTargets
+    ],
     actions: [
       ...piecePackage.actions.map((action) => applyPromotedDepsToAction(action, promotedEdgesByTarget)),
       ...promotedTargets.flatMap((target) => promotedActionsForTarget(target, model.packageScopeInput))

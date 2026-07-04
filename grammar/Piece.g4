@@ -37,6 +37,7 @@ targetKind
 
 targetMember
     : labelDeclaration
+    | sourceDeclaration
     | visibilityDeclaration
     | depsDeclaration
     | runtimeDepsDeclaration

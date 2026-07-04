@@ -66,6 +66,7 @@ public final class AntlrPicParserBackend {
         PicTargetKind kind = targetKind(context.targetKind().getText());
         String name = stringValue(context.STRING().getSymbol());
         String label = null;
+        String source = null;
         List<String> visibility = new ArrayList<>();
         List<String> deps = new ArrayList<>();
         List<String> runtimeDeps = new ArrayList<>();
@@ -76,6 +77,8 @@ public final class AntlrPicParserBackend {
         for (PieceParser.TargetMemberContext member : context.targetMember()) {
             if (member.labelDeclaration() != null) {
                 label = stringValue(member.labelDeclaration().STRING().getSymbol());
+            } else if (member.sourceDeclaration() != null) {
+                source = stringValue(member.sourceDeclaration().STRING().getSymbol());
             } else if (member.visibilityDeclaration() != null) {
                 visibility.addAll(toStringList(member.visibilityDeclaration().stringList()));
             } else if (member.depsDeclaration() != null) {
@@ -91,7 +94,7 @@ public final class AntlrPicParserBackend {
             }
         }
 
-        return new PicTarget(kind, name, label, visibility, deps, runtimeDeps, typeDeps, externalDeps, actions);
+        return new PicTarget(kind, name, label, source, visibility, deps, runtimeDeps, typeDeps, externalDeps, actions);
     }
 
     private List<String> toStringList(PieceParser.StringListContext context) {

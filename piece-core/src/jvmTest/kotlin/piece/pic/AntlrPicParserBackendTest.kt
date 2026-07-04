@@ -52,6 +52,30 @@ class AntlrPicParserBackendTest {
     }
 
     @Test
+    fun parsesTargetLevelSource() {
+        val source = """
+            package "//repo/src:Pricing.go" {
+              language go
+              source "/repo/src/Pricing.go"
+
+              target type "Discount" {
+                source "//repo/src:Discount.go"
+                action compile {}
+              }
+            }
+        """.trimIndent()
+
+        val result = AntlrPicParserBackend().parse(source)
+        val pkg = assertNotNull(result.piecePackage)
+        val discount = pkg.targets.single()
+
+        assertEquals(emptyList(), result.diagnostics)
+        assertEquals("//repo/src:Discount.go", discount.source)
+        assertEquals("//repo/src:Discount.go__type_Discount", discount.label)
+        assertEquals("/repo/src/Discount.go#type:Discount", discount.id)
+    }
+
+    @Test
     fun reportsSyntaxDiagnostics() {
         val result = AntlrPicParserBackend().parse(
             """

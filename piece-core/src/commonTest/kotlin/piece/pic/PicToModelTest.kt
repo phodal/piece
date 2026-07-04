@@ -162,6 +162,38 @@ class PicToModelTest {
     }
 
     @Test
+    fun preservesTargetLevelSourceInPicRoundTripModel() {
+        val document = PicDocument(
+            packageLabel = "//repo/src:Pricing.go",
+            language = "go",
+            source = "/repo/src/Pricing.go",
+            targets = listOf(
+                PicTarget(
+                    kind = PicTargetKind.Type,
+                    name = "Greeting",
+                    typeDeps = listOf(":Discount"),
+                ),
+                PicTarget(
+                    kind = PicTargetKind.Type,
+                    name = "Discount",
+                    source = "//repo/src:Discount.go",
+                    actions = listOf(PicAction(PicActionKind.Compile)),
+                ),
+            ),
+        )
+
+        val pkg = picDocumentToPiecePackage(document)
+        val discount = pkg.targets.single { it.name == "Discount" }
+
+        assertEquals("/repo/src/Discount.go#type:Discount", discount.id)
+        assertEquals("//repo/src:Discount.go", discount.source)
+        assertEquals("//repo/src:Discount.go__type_Discount", discount.label)
+
+        val pic = piecePackageToPicDsl(pkg)
+        assertTrue(pic.contains("""source "//repo/src:Discount.go""""))
+    }
+
+    @Test
     fun appliesOverrideFieldsIntoPiecePackageAndPicDsl() {
         val document = PicDocument(
             packageLabel = "//repo/src:DashboardPage.tsx",

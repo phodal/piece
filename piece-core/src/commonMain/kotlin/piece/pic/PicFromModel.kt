@@ -26,6 +26,7 @@ fun piecePackageToPicDsl(piecePackage: PiecePackage): String {
             .append(' ')
             .append(target.name.picString())
             .append(" {\n")
+        appendSource(builder, piecePackage, target)
         appendLabel(builder, piecePackage, target)
         appendVisibility(builder, target.visibility)
         appendDeps(builder, "deps", target.unclassifiedDeps())
@@ -43,11 +44,32 @@ fun piecePackageToPicDsl(piecePackage: PiecePackage): String {
 fun PiecePackage.toPicDsl(): String = piecePackageToPicDsl(this)
 
 private fun appendLabel(builder: StringBuilder, piecePackage: PiecePackage, target: PieceTarget) {
-    val defaultLabel = pieceTargetLabel(piecePackage.filePath, target.kind, target.name)
+    val defaultLabel = pieceTargetLabel(target.sourcePath(piecePackage), target.kind, target.name)
     if (target.label == defaultLabel) return
     builder.append("    label ")
         .append(target.label.picString())
         .append('\n')
+}
+
+private fun appendSource(builder: StringBuilder, piecePackage: PiecePackage, target: PieceTarget) {
+    val packageSource = piece.model.pieceSourceLabel(piecePackage.filePath)
+    if (target.source == packageSource) return
+    builder.append("    source ")
+        .append(target.source.picString())
+        .append('\n')
+}
+
+private fun PieceTarget.sourcePath(piecePackage: PiecePackage): String {
+    return if (source.startsWith("//")) sourcePathFromLabel(source) ?: piecePackage.filePath else source
+}
+
+private fun sourcePathFromLabel(label: String): String? {
+    if (!label.startsWith("//")) return null
+    val separator = label.indexOf(':')
+    if (separator < 0) return null
+    val packageName = label.substring(2, separator)
+    val sourceName = label.substring(separator + 1)
+    return "/${listOf(packageName, sourceName).filter { it.isNotBlank() && it != "." }.joinToString("/")}"
 }
 
 private fun appendVisibility(builder: StringBuilder, visibility: List<String>) {

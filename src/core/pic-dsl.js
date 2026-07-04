@@ -78,9 +78,10 @@ function bazelPackageName(filePath) {
 }
 
 function defaultTargetLabel(piecePackage, target) {
-  const sourceName = sanitizeModulePart(basename(piecePackage?.filePath));
+  const sourcePath = targetSourcePath(piecePackage, target);
+  const sourceName = sanitizeModulePart(basename(sourcePath));
   const pieceName = sanitizeModulePart(target?.name ?? target?.id ?? target?.label);
-  return `//${bazelPackageName(piecePackage?.filePath)}:${sourceName}__${targetKindToken(target?.kind)}_${pieceName}`;
+  return `//${bazelPackageName(sourcePath)}:${sourceName}__${targetKindToken(target?.kind)}_${pieceName}`;
 }
 
 function defaultMnemonic(kind) {
@@ -126,6 +127,32 @@ function appendLabel(lines, piecePackage, target) {
   if (target.label && target.label !== defaultTargetLabel(piecePackage, target)) {
     lines.push(`    label ${picString(target.label)}`);
   }
+}
+
+function sourceLabel(filePath) {
+  return `//${bazelPackageName(filePath)}:${basename(filePath)}`;
+}
+
+function sourcePathFromLabel(label) {
+  const value = String(label ?? "");
+  if (!value.startsWith("//")) return undefined;
+  const separator = value.indexOf(":");
+  if (separator < 0) return undefined;
+  const packageName = value.slice(2, separator);
+  const sourceName = value.slice(separator + 1);
+  return `/${[packageName, sourceName].filter((item) => item && item !== ".").join("/")}`;
+}
+
+function targetSourcePath(piecePackage, target) {
+  const source = target?.source;
+  if (!source) return piecePackage?.filePath;
+  return source.startsWith("//") ? (sourcePathFromLabel(source) ?? piecePackage?.filePath) : source;
+}
+
+function appendSource(lines, piecePackage, target) {
+  const packageSource = sourceLabel(piecePackage.filePath);
+  if (!target.source || target.source === packageSource) return;
+  lines.push(`    source ${picString(target.source)}`);
 }
 
 function appendVisibility(lines, visibility = []) {
@@ -215,6 +242,7 @@ export function piecePackageToPicDsl(piecePackage) {
   for (const target of piecePackage.targets ?? []) {
     lines.push("");
     lines.push(`  target ${targetKindToken(target.kind)} ${picString(target.name ?? target.id ?? target.label)} {`);
+    appendSource(lines, piecePackage, target);
     appendLabel(lines, piecePackage, target);
     appendVisibility(lines, target.visibility);
     appendDeps(lines, "deps", unclassifiedDeps(target));

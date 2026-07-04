@@ -245,6 +245,23 @@ assert(
     !selectedGreetingTarget?.externalDeps.includes("/repo/src/Discount.go#Discount"),
   `Expected selected Go package view to replace Discount external dep with promoted target dep: ${JSON.stringify(selectedGreetingTarget)}`
 );
+const selectedPackageViewPic = piecePackageToPicDsl(selectedGoAnalysis.packageScope.packageView);
+assert(
+  selectedPackageViewPic.includes('source "//repo/src:Discount.go"'),
+  `Expected selected package view .pic to retain promoted target source label:\n${selectedPackageViewPic}`
+);
+const selectedPackageViewParsed = await parsePieceDslFile({
+  filePath: "/repo/src/Pricing.package.pic",
+  source: selectedPackageViewPic
+});
+assert(
+  selectedPackageViewParsed.diagnostics.length === 0,
+  `Unexpected selected package view .pic diagnostics: ${JSON.stringify(selectedPackageViewParsed.diagnostics)}\n${selectedPackageViewPic}`
+);
+assert(
+  JSON.stringify(selectedPackageViewParsed.piecePackage) === JSON.stringify(selectedGoAnalysis.packageScope.packageView),
+  `Selected package view .pic did not round-trip:\nsource=${JSON.stringify(selectedGoAnalysis.packageScope.packageView)}\nparsed=${JSON.stringify(selectedPackageViewParsed.piecePackage)}\npic=${selectedPackageViewPic}`
+);
 assert(
   goAnalysis.actionCache.toolchainInputs.includes(`go-list:${goAnalysis.manifest.toolchain.goList.packageHash}`),
   `Expected action cache to include Go list input: ${JSON.stringify(goAnalysis.actionCache)}`

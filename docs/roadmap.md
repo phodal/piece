@@ -18,10 +18,10 @@ The repository already has:
 - A Go single-file adapter plus a Node-hosted Go AST analyzer, package-local companion graph edges, explicit current-file companion target policy, candidate package-scope target models with a safe opt-in selection gate, package-scoped Go action metadata, and `compileGoPieceFile()` using `go list -json`, `go build`, and `go test`.
 - `piece-core` as a Kotlin Multiplatform core with model, builder DSL, graph, and reconcile contracts in `commonMain`.
 - Kotlin/JVM PSI extraction, compiler diagnostics, BindingContext-backed symbol refinement, source-set companion files, host-provided classpath entries, Gradle/KMP `projectRoot` analysis input discovery, dependency coordinates, project dependencies, target variants, source-set-scoped project model inputs, stable project model hashes in action/cache identities, and a Gradle/KMP compile backend.
-- An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain` and a Node smoke entrypoint.
+- An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain`, target-level source preservation, and a Node smoke entrypoint.
 - A Kotlin PSI `.pic` generator that emits deterministic package text and verifies the generated file by parsing it back through the same ANTLR backend.
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
-- Generated `.pic` plus user override `.pic` merging, including selected target labels, visibility, fixture inputs, and explicit action config.
+- Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
 - JS and Wasm bridges that expose Kotlin core package and graph objects to npm and browser hosts.
@@ -333,8 +333,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Decide how selected package-scope package views should round-trip through `.pic` without losing per-target source labels.
+1. Decide when selected package-scope `packageView` should become the primary generated `.pic` output instead of an auxiliary view.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 2/6 Target Source Round-Trip Slice
+
+The target-source `.pic` slice is now implemented:
+
+1. `.pic` target declarations can carry an optional `source` member.
+2. The JVM ANTLR parser, `PicAst`, `PicToModel`, and `PicFromModel` preserve target-level source labels while keeping package-level source as the default.
+3. The JS `.pic` writer emits target-level `source` only when a target source differs from the package source label.
+4. Selected package-scope package views can round-trip through `.pic` without losing promoted companion target source labels.
+5. `npm run pic:source:smoke` and `./gradlew jvmTest` verify source-label preservation through the JS writer and JVM parser.
 
 ## Completed Phase 5/6 Package Scope Selection Gate Slice
 

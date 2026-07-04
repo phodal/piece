@@ -11,6 +11,7 @@ data class PicTarget(
     val kind: PicTargetKind,
     val name: String,
     val label: String? = null,
+    val source: String? = null,
     val visibility: List<String> = emptyList(),
     val deps: List<String> = emptyList(),
     val runtimeDeps: List<String> = emptyList(),

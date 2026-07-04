@@ -21,6 +21,8 @@ fun picDocumentToPiecePackage(document: PicDocument): PiecePackage {
     val targets = document.targets.map { target ->
         val targetKind = target.kind.toPieceTargetKind()
         val label = target.effectiveLabel(document.source)
+        val targetSourcePath = target.effectiveSourcePath(document.source)
+        val targetSourceLabel = target.effectiveSourceLabel(document.source)
         val normalizedDeps = target.normalizedDeps(packageName, targetLabelsByName)
         val normalizedRuntimeDeps = target.normalizedRuntimeDeps(packageName, targetLabelsByName)
         val normalizedTypeDeps = target.normalizedTypeDeps(packageName, targetLabelsByName)
@@ -31,12 +33,12 @@ fun picDocumentToPiecePackage(document: PicDocument): PiecePackage {
             artifactId(label, action)
         }
         PieceTarget(
-            id = "${document.source}#${targetKind.name.lowercase()}:${target.name}",
+            id = "$targetSourcePath#${targetKind.name.lowercase()}:${target.name}",
             label = label,
             name = target.name,
             kind = targetKind,
             rule = "${document.language}_piece_${targetKind.name.lowercase()}",
-            source = sourceLabel,
+            source = targetSourceLabel,
             deps = normalizedDeps,
             runtimeDeps = normalizedRuntimeDeps,
             typeDeps = normalizedTypeDeps,
@@ -60,6 +62,7 @@ fun picDocumentToPiecePackage(document: PicDocument): PiecePackage {
     val actions = document.targets.flatMap { target ->
         val targetKind = target.kind.toPieceTargetKind()
         val label = target.effectiveLabel(document.source)
+        val targetSourceLabel = target.effectiveSourceLabel(document.source)
         val normalizedDeps = target.normalizedDeps(packageName, targetLabelsByName)
         val externalDeps = target.externalDeps.distinct().sorted()
         target.effectiveActions().map { action ->
@@ -70,7 +73,7 @@ fun picDocumentToPiecePackage(document: PicDocument): PiecePackage {
                 target = label,
                 kind = actionKind,
                 mnemonic = action.mnemonic ?: "Piece${actionKind.name}",
-                inputs = (listOf(sourceLabel) + normalizedDeps + externalDeps + action.inputs.distinct().sorted()).distinct(),
+                inputs = (listOf(targetSourceLabel) + normalizedDeps + externalDeps + action.inputs.distinct().sorted()).distinct(),
                 outputs = listOf(action.output ?: artifactId),
             )
         }
@@ -118,7 +121,26 @@ private fun PicTarget.primaryRuleAction(): PicAction {
 }
 
 private fun PicTarget.effectiveLabel(source: String): String {
-    return label ?: pieceTargetLabel(source, kind.toPieceTargetKind(), name)
+    return label ?: pieceTargetLabel(effectiveSourcePath(source), kind.toPieceTargetKind(), name)
+}
+
+private fun PicTarget.effectiveSourceLabel(packageSource: String): String {
+    val value = source?.takeIf { it.isNotBlank() } ?: packageSource
+    return if (value.startsWith("//")) value else pieceSourceLabel(value)
+}
+
+private fun PicTarget.effectiveSourcePath(packageSource: String): String {
+    val value = source?.takeIf { it.isNotBlank() } ?: packageSource
+    return if (value.startsWith("//")) sourcePathFromLabel(value) ?: packageSource else value
+}
+
+private fun sourcePathFromLabel(label: String): String? {
+    if (!label.startsWith("//")) return null
+    val separator = label.indexOf(':')
+    if (separator < 0) return null
+    val packageName = label.substring(2, separator)
+    val sourceName = label.substring(separator + 1)
+    return "/${listOf(packageName, sourceName).filter { it.isNotBlank() && it != "." }.joinToString("/")}"
 }
 
 private fun PicTarget.normalizedDeps(packageName: String, targetLabelsByName: Map<String, String>): List<String> {

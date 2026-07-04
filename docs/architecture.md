@@ -202,7 +202,7 @@ Keep the implementation honest:
 - declaration graphs and default packages are still single-file first, while selected toolchain scopes can include same-package companion files and expose candidate or safely selected package-scope targets;
 - no workspace-wide dependency resolver yet;
 - no handwritten BUILD files;
-- generated `.pic` files and package targets are metadata first;
+- generated `.pic` files and package targets are metadata first, with target-level `source` only emitted when a target belongs to a different source label than the package default;
 - unknown edges force fallback instead of pretending local feedback is safe;
 - `feedbackScope` records whether the current graph is safe at piece, file, source-set, or project level, with reason codes for unknown edges, top-level effects, slice safety fallback, and Gradle project-model scope fallback;
 - selected Kotlin Gradle/KMP source-set scopes carry their scoped source roots, classpath, dependency coordinates, project dependencies, target variants, and `source-set:<scopeHash>` action input without widening to unrelated projects;
