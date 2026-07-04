@@ -47,6 +47,13 @@ data class User(val name: String)
 data class Greeting(val message: String)
 `;
 
+const simpleKotlinSource = `package demo.pricing
+
+fun renderGreeting(name: String): String {
+    return "Hello, " + name
+}
+`;
+
 const kotlinOverrideSource = `package "//repo/src:Pricing.kt" {
   language kotlin
   source "/repo/src/Pricing.kt"
@@ -55,6 +62,21 @@ const kotlinOverrideSource = `package "//repo/src:Pricing.kt" {
     label "//repo/src:pricing_kotlin_render_greeting"
     action compile {
       output "kotlin-render-greeting.compile.json"
+      cacheKey "kotlin-render-greeting.compile.json:cache-key"
+    }
+  }
+}
+`;
+
+const simpleKotlinOverrideSource = `package "//repo/src/SimplePricing.kt" {
+  language kotlin
+  source "/repo/src/SimplePricing.kt"
+
+  target function "renderGreeting" {
+    label "//repo/src:simple_kotlin_render_greeting"
+    action compile {
+      output "simple-kotlin-render-greeting.compile.json"
+      cacheKey "simple-kotlin-render-greeting.compile.json:cache-key"
     }
   }
 }
@@ -395,6 +417,69 @@ if (!kotlinResult.outputFiles.some((file) => file.path.endsWith(".wasm"))) {
 }
 if (!kotlinResult.outputFiles.some((file) => file.path.endsWith(".js"))) {
   throw new Error("Kotlin/JS compile did not produce a JavaScript artifact.");
+}
+
+const simpleKotlinActionCacheRoot = await mkdtemp(join(tmpdir(), "piece-simple-kotlin-action-cache-"));
+const simpleKotlinActionCacheStorePath = join(simpleKotlinActionCacheRoot, "action-cache.json");
+let simpleKotlinResult;
+let simpleKotlinActionCacheReuse;
+try {
+  const simpleKotlinAnalysis = await analyzePieceFile({
+    filePath: "/repo/src/SimplePricing.kt",
+    source: simpleKotlinSource,
+    overrideFilePath: "/repo/src/SimplePricing.override.pic",
+    overrideSource: simpleKotlinOverrideSource,
+    pieceDslOverrideMode: "action-snapshot"
+  });
+  if (simpleKotlinAnalysis.feedbackScope?.fallbackRequired) {
+    throw new Error(`Simple Kotlin action-cache smoke should not require fallback: ${JSON.stringify(simpleKotlinAnalysis.feedbackScope)}`);
+  }
+  simpleKotlinResult = await compilePieceAction({
+    analysis: simpleKotlinAnalysis,
+    target: "jvm",
+    pieceTarget: "renderGreeting",
+    actionCacheStorePath: simpleKotlinActionCacheStorePath
+  });
+  if (
+    simpleKotlinResult.actionCache?.status !== "miss" ||
+    simpleKotlinResult.actionCache.persistence?.status !== "stored" ||
+    !simpleKotlinResult.actionCache.record?.key
+  ) {
+    throw new Error(`Simple Kotlin compile did not persist action-cache metadata: ${JSON.stringify(simpleKotlinResult.actionCache)}`);
+  }
+  const simpleKotlinActionCacheStore = JSON.parse(await readFile(simpleKotlinActionCacheStorePath, "utf8"));
+  const simpleKotlinStoredRecord = simpleKotlinActionCacheStore.records?.[simpleKotlinResult.actionCache.record.key];
+  if (
+    simpleKotlinStoredRecord?.kind !== "piece-action-cache-record" ||
+    simpleKotlinStoredRecord.result?.status !== "success" ||
+    !simpleKotlinStoredRecord.result.outputFiles?.every((file) => file.path.includes("/artifacts/") && file.contentHash)
+  ) {
+    throw new Error(`Simple Kotlin compile did not promote action-cache artifacts: ${JSON.stringify(simpleKotlinActionCacheStore)}`);
+  }
+  simpleKotlinActionCacheReuse = await compilePieceAction({
+    analysis: simpleKotlinAnalysis,
+    target: "jvm",
+    pieceTarget: "renderGreeting",
+    actionCacheStorePath: simpleKotlinActionCacheStorePath,
+    actionCacheMode: "reuse-local"
+  });
+} finally {
+  await rm(simpleKotlinActionCacheRoot, { recursive: true, force: true });
+}
+assertSuccess(simpleKotlinResult, "Simple Kotlin cached compile");
+assertSuccess(simpleKotlinActionCacheReuse, "Simple Kotlin reused local action-cache hit");
+if (
+  simpleKotlinActionCacheReuse.actionCache?.status !== "hit" ||
+  simpleKotlinActionCacheReuse.actionCache.execution?.skipped !== true ||
+  simpleKotlinActionCacheReuse.actionCache.reuse?.status !== "reused" ||
+  simpleKotlinActionCacheReuse.commands.length !== 0 ||
+  !simpleKotlinActionCacheReuse.outputFiles.every((file) => file.path.includes("/artifacts/"))
+) {
+  throw new Error(`Simple Kotlin compile did not reuse trusted local cache artifacts: ${JSON.stringify({
+    actionCache: simpleKotlinActionCacheReuse.actionCache,
+    commands: simpleKotlinActionCacheReuse.commands,
+    outputFiles: simpleKotlinActionCacheReuse.outputFiles
+  })}`);
 }
 
 console.log("Language compiler smoke passed");

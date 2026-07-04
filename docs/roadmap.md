@@ -345,7 +345,7 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should move beyond the shipped Phase 1-6 feedback loop:
 
-1. Extend action-cache persistence and `reuse-local` coverage beyond the current Go smoke path to Kotlin and JS/TS package actions, keeping Kotlin execution in the JVM backend and JS/TS as a language rule family.
+1. Extend action-cache persistence and `reuse-local` coverage to JS/TS package actions as a language rule family, without making React or TSX the product boundary.
 
 ### Phase 7: Distributed Action Cache and Runtime
 
@@ -405,6 +405,15 @@ The local artifact store slice is now implemented:
 3. `compilePieceAction()` creates a controlled temporary workspace for action-cache store writes when callers do not provide `workspace`, `outDir`, or `keepWorkspace`, then cleans it after artifact promotion completes.
 4. `reuse-local` validates and returns promoted artifact-store paths, so reuse no longer depends on caller-managed workspaces or temporary output paths.
 5. `npm run language:compile:smoke` verifies a Go persisted miss, a default non-skipping hit, and a `reuse-local` hit without passing a persistent workspace.
+
+## Completed Phase 7 Kotlin Action Cache Coverage Slice
+
+The Kotlin action-cache coverage slice is now implemented:
+
+1. Kotlin `.pic` compile actions can carry artifact `cacheKey` metadata through the ANTLR parser into action-cache identity.
+2. Safe Kotlin compile actions persist local action-cache records and promote JVM backend artifacts into the local artifact store.
+3. `reuse-local` can reuse a trusted Kotlin cache hit without invoking the JVM backend, while unsafe feedback fallback states still block persistence and reuse.
+4. `npm run language:compile:smoke` keeps the existing companion-source Kotlin JVM compile coverage and adds a safe Kotlin miss/store/reuse path.
 
 ## Completed Roadmap Completion Audit Slice
 
