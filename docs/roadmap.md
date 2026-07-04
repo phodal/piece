@@ -345,7 +345,7 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should move beyond the shipped Phase 1-6 feedback loop:
 
-1. Audit the Phase 7 definition of done against current Go, Kotlin, and JS/TS action-cache evidence, then record any remaining runtime or distributed-cache work as explicit future productization.
+1. No required implementation slice remains for the current local Phase 7 roadmap. Future productization can add remote cache protocols, remote execution, repository-level runtime planning, and hosted cache credentials as a separate roadmap.
 
 ### Phase 7: Distributed Action Cache and Runtime
 
@@ -424,6 +424,18 @@ The JS/TS action-cache coverage slice is now implemented:
 3. TypeScript app-level compile actions can persist action-cache records, promote esbuild outputs into the local artifact store, and expose cache status through `compileActionSelection.actionCache`.
 4. `reuse-local` can reuse a trusted TypeScript action-cache hit without invoking esbuild.
 5. `npm run language:compile:smoke` verifies a TypeScript miss/store path through `compilePieceApp({ compileAction: true })` and a direct `compilePieceAction()` `reuse-local` hit.
+
+## Completed Phase 7 Definition of Done Audit Slice
+
+The Phase 7 definition of done is now satisfied for the local action-cache roadmap:
+
+1. Durable local action-cache records exist for Go, Kotlin, and JS/TS package actions. `npm run language:compile:smoke` verifies Go, safe Kotlin, and TypeScript miss/store paths and promoted local artifact-store outputs.
+2. App-level cache status is exposed through `compilePieceApp({ compileAction: true })`: the smoke covers Go and TypeScript app-level status, and `compilePieceAction()` provides the shared status contract for Go, Kotlin, JavaScript, and TypeScript dispatch.
+3. Cached artifact reuse is opt-in through `actionCacheMode: "reuse-local"` and requires a local record hit plus validated artifact-store files. Missing files, non-files, empty outputs, failed cached results, and size mismatches force a miss and normal execution.
+4. Action-cache identity includes action/package/artifact identity, action inputs/outputs, source hash, fallback-scope hash, project/source-set scope hash, compiler options, dependency artifacts, toolchain inputs, and `.pic` artifact `cacheKey`.
+5. Safety gates are covered by `npm test`: feedback fallback, project-model fallback, unsafe package/source-set promotion, missing artifact ids, missing artifact cache keys, bypass mode, and local record misses produce `unsafe`, `bypass`, or `miss` instead of reuse.
+6. Language execution boundaries remain owned by official backends: Go uses `go list`, `go build`, and `go test`; Kotlin compile execution stays in the JVM backend; JS/TS uses the Node-hosted esbuild language rule family; browser/Wasm hosts remain protocol-only.
+7. Machine-local cache paths stay out of generated `.pic`; Node hosts pass `actionCacheStorePath`, and local artifact-store paths live only in action-cache store records and compile reports.
 
 ## Completed Roadmap Completion Audit Slice
 

@@ -351,6 +351,62 @@ describe("piece compiler", () => {
       status: "unsafe",
       reasons: [expect.objectContaining({ code: "feedback-scope-fallback" })]
     });
+    expect(
+      explainPieceActionCacheStatus({
+        record,
+        records: [record],
+        analysis: {
+          manifest: {
+            projectModel: {
+              analysisScope: {
+                status: "fallback",
+                fallbackReason: "source set not found",
+                sourceSet: "jvmMain"
+              }
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      status: "unsafe",
+      reasons: [expect.objectContaining({ code: "project-model-fallback" })]
+    });
+    expect(
+      explainPieceActionCacheStatus({
+        record,
+        records: [record],
+        analysis: {
+          packageScope: {
+            status: "candidate",
+            promotion: {
+              requested: "safe",
+              appliedToPackageView: false,
+              reason: "feedback fallback"
+            }
+          }
+        }
+      })
+    ).toMatchObject({
+      status: "unsafe",
+      reasons: [expect.objectContaining({ code: "package-scope-not-selected" })]
+    });
+    const recordWithoutArtifactCacheKey = {
+      ...record,
+      artifact: {
+        ...record.artifact,
+        cacheKey: ""
+      },
+      identity: {
+        ...record.identity,
+        artifactCacheKey: ""
+      }
+    };
+    const missingArtifactCacheKey = explainPieceActionCacheStatus({
+      record: recordWithoutArtifactCacheKey,
+      records: [recordWithoutArtifactCacheKey]
+    });
+    expect(missingArtifactCacheKey.status).toBe("miss");
+    expect(missingArtifactCacheKey.reasons).toContainEqual(expect.objectContaining({ code: "artifact-cache-key-missing" }));
   });
 
   it("creates a minimal closure module for a preview target", async () => {
