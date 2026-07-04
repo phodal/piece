@@ -59,6 +59,7 @@ data class KotlinPsiImportBinding(
     val source: String,
     val kind: String,
     val isTypeOnly: Boolean = false,
+    val signature: String? = null,
 )
 
 data class KotlinPsiDiagnostic(
@@ -644,6 +645,7 @@ private fun KotlinPsiImportBinding.toJson(): String = buildKotlinPsiJsonObject {
     field("source", source)
     field("kind", kind)
     field("isTypeOnly", isTypeOnly)
+    signature?.let { field("signature", it) }
 }
 
 private fun KotlinPsiDiagnostic.toJson(): String = buildKotlinPsiJsonObject {

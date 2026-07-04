@@ -151,7 +151,7 @@ function reverseDependents(graph, seedIds) {
 }
 
 function changedHeaderHash(manifest) {
-  return hashParts(manifest.importBindings.map((binding) => `${binding.local}:${binding.imported}:${binding.source}:${binding.kind}:${binding.isTypeOnly}`));
+  return hashParts(manifest.importBindings.map((binding) => `${binding.local}:${binding.imported}:${binding.source}:${binding.kind}:${binding.isTypeOnly}:${binding.signature ?? ""}`));
 }
 
 function changedEffectHash(manifest) {

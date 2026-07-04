@@ -151,8 +151,8 @@ internal class KotlinBindingSymbolBackend {
                 symbolsByDeclaration = symbolsByDeclaration,
                 importBindings = symbolsByDeclaration.values
                     .flatMap { it.importBindings }
-                    .distinctBy { "${it.local}:${it.imported}:${it.source}:${it.kind}" }
-                    .sortedWith(compareBy({ it.source }, { it.imported }, { it.local })),
+                    .distinctBy { "${it.local}:${it.imported}:${it.source}:${it.kind}:${it.isTypeOnly}:${it.signature.orEmpty()}" }
+                    .sortedWith(compareBy({ it.source }, { it.imported }, { it.local }, { it.signature.orEmpty() })),
             )
         } catch (error: Throwable) {
             KotlinBindingSymbolResult(
@@ -205,7 +205,7 @@ private fun KtDeclaration.collectSemanticSymbols(
         } else {
             val externalBinding = resolvedDescriptor?.let(descriptorToExternalBinding::get)
             if (externalBinding != null) {
-                importBindings["${externalBinding.local}:${externalBinding.imported}:${externalBinding.source}"] = externalBinding
+                importBindings["${externalBinding.local}:${externalBinding.imported}:${externalBinding.source}:${externalBinding.isTypeOnly}:${externalBinding.signature.orEmpty()}"] = externalBinding
             }
         }
     }
@@ -215,7 +215,7 @@ private fun KtDeclaration.collectSemanticSymbols(
         typeReferences = typeReferences.sorted(),
         resolvedRuntimeNames = resolvedRuntimeNames.sorted(),
         resolvedTypeNames = resolvedTypeNames.sorted(),
-        importBindings = importBindings.values.sortedWith(compareBy({ it.source }, { it.imported }, { it.local })),
+        importBindings = importBindings.values.sortedWith(compareBy({ it.source }, { it.imported }, { it.local }, { it.signature.orEmpty() })),
     )
 }
 

@@ -305,6 +305,7 @@ export interface PieceImportBinding {
   readonly source: string;
   readonly kind: "default" | "namespace" | "named";
   readonly isTypeOnly: boolean;
+  readonly signature?: string;
 }
 
 export interface PieceHeaderSegment {

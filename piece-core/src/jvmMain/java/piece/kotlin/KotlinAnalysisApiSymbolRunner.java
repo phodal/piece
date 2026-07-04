@@ -59,6 +59,10 @@ public final class KotlinAnalysisApiSymbolRunner {
         private final Class<?> kaClassLikeSymbolClass;
         private final Class<?> kaConstructorSymbolClass;
         private final Class<?> kaCallableSymbolClass;
+        private final Class<?> kaFunctionSymbolClass;
+        private final Class<?> kaClassTypeClass;
+        private final Class<?> kaTypeParameterTypeClass;
+        private final Class<?> kaTypeProjectionClass;
         private final Class<?> kaSymbolBasedReferenceClass;
         private final Class<?> psiTreeUtilClass;
 
@@ -107,6 +111,10 @@ public final class KotlinAnalysisApiSymbolRunner {
             kaClassLikeSymbolClass = cls("org.jetbrains.kotlin.analysis.api.symbols.KaClassLikeSymbol");
             kaConstructorSymbolClass = cls("org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol");
             kaCallableSymbolClass = cls("org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol");
+            kaFunctionSymbolClass = cls("org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol");
+            kaClassTypeClass = cls("org.jetbrains.kotlin.analysis.api.types.KaClassType");
+            kaTypeParameterTypeClass = cls("org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType");
+            kaTypeProjectionClass = cls("org.jetbrains.kotlin.analysis.api.types.KaTypeProjection");
             kaSymbolBasedReferenceClass = cls("org.jetbrains.kotlin.analysis.api.resolution.KaSymbolBasedReference");
             psiTreeUtilClass = cls("com.intellij.psi.util.PsiTreeUtil");
         }
@@ -220,7 +228,8 @@ public final class KotlinAnalysisApiSymbolRunner {
                             "\t" + binding.imported +
                             "\t" + binding.source +
                             "\t" + binding.kind +
-                            "\t" + binding.typeOnly
+                            "\t" + binding.typeOnly +
+                            "\t" + (binding.signature == null ? "" : binding.signature)
                     );
                 }
             }
@@ -258,7 +267,8 @@ public final class KotlinAnalysisApiSymbolRunner {
                             symbol.name,
                             symbol.source,
                             symbol.kind,
-                            false
+                            false,
+                            symbol.signature
                         ));
                     } else {
                         if (typeReference) {
@@ -314,7 +324,7 @@ public final class KotlinAnalysisApiSymbolRunner {
         private SymbolIdentity symbolIdentity(Object symbol, Object psi) throws Exception {
             TopLevelSymbol topLevelSymbol = topLevelDeclaration(psi);
             if (topLevelSymbol != null) {
-                return new SymbolIdentity(topLevelSymbol.name, topLevelSymbol.source, "named");
+                return new SymbolIdentity(topLevelSymbol.name, topLevelSymbol.source, "named", null);
             }
             if (kaClassLikeSymbolClass.isInstance(symbol)) {
                 Object classId = kaClassLikeSymbolClass.getMethod("getClassId").invoke(symbol);
@@ -329,12 +339,14 @@ public final class KotlinAnalysisApiSymbolRunner {
                 return new SymbolIdentity(
                     nameString(shortClassName),
                     classpathSource(psi, packageName),
-                    "named"
+                    "named",
+                    null
                 );
             }
             if (kaConstructorSymbolClass.isInstance(symbol)) {
                 Object classId = kaConstructorSymbolClass.getMethod("getContainingClassId").invoke(symbol);
-                return classLikeIdentity(classId, psi);
+                SymbolIdentity identity = classLikeIdentity(classId, psi);
+                return identity == null ? null : identity.withSignature(functionSignature(symbol));
             }
             if (kaCallableSymbolClass.isInstance(symbol)) {
                 Object callableId = kaCallableSymbolClass.getMethod("getCallableId").invoke(symbol);
@@ -354,13 +366,15 @@ public final class KotlinAnalysisApiSymbolRunner {
                     return new SymbolIdentity(
                         nameString(callableName),
                         classMemberSource(psi, packageName, className.toString()),
-                        "named"
+                        "named",
+                        functionSignature(symbol)
                     );
                 }
                 return new SymbolIdentity(
                     nameString(callableName),
                     classpathSource(psi, packageName),
-                    "named"
+                    "named",
+                    functionSignature(symbol)
                 );
             }
             return null;
@@ -379,8 +393,59 @@ public final class KotlinAnalysisApiSymbolRunner {
             return new SymbolIdentity(
                 nameString(shortClassName),
                 sourcePath == null ? classpathSource(psi, packageName) : sourcePath,
-                "named"
+                "named",
+                null
             );
+        }
+
+        private String functionSignature(Object symbol) throws Exception {
+            if (!kaFunctionSymbolClass.isInstance(symbol)) {
+                return null;
+            }
+            List<?> parameters = (List<?>) kaFunctionSymbolClass
+                .getMethod("getValueParameters")
+                .invoke(symbol);
+            List<String> parameterTypes = new ArrayList<>();
+            for (Object parameter : parameters) {
+                Object parameterType = kaCallableSymbolClass.getMethod("getReturnType").invoke(parameter);
+                parameterTypes.add(typeName(parameterType));
+            }
+            return "(" + String.join(",", parameterTypes) + ")";
+        }
+
+        private String typeName(Object type) throws Exception {
+            if (type == null) {
+                return "<unknown>";
+            }
+            if (kaClassTypeClass.isInstance(type)) {
+                Object classId = kaClassTypeClass.getMethod("getClassId").invoke(type);
+                Object shortClassName = classId.getClass().getMethod("getShortClassName").invoke(classId);
+                String baseName = nameString(shortClassName);
+                List<?> arguments = (List<?>) kaClassTypeClass.getMethod("getTypeArguments").invoke(type);
+                if (!arguments.isEmpty()) {
+                    List<String> renderedArguments = new ArrayList<>();
+                    for (Object argument : arguments) {
+                        Object argumentType = kaTypeProjectionClass.getMethod("getType").invoke(argument);
+                        renderedArguments.add(typeName(argumentType));
+                    }
+                    baseName += "<" + String.join(",", renderedArguments) + ">";
+                }
+                return baseName + typeNullabilitySuffix(type);
+            }
+            if (kaTypeParameterTypeClass.isInstance(type)) {
+                Object name = kaTypeParameterTypeClass.getMethod("getName").invoke(type);
+                return nameString(name) + typeNullabilitySuffix(type);
+            }
+            return type.toString().replaceAll("\\s+", " ").trim();
+        }
+
+        private String typeNullabilitySuffix(Object type) throws Exception {
+            Object nullability = kaTypeClass().getMethod("getNullability").invoke(type);
+            return nullability != null && "NULLABLE".equals(nullability.toString()) ? "?" : "";
+        }
+
+        private Class<?> kaTypeClass() throws ClassNotFoundException {
+            return cls("org.jetbrains.kotlin.analysis.api.types.KaType");
         }
 
         private boolean isInsideTypeReference(Object reference) throws Exception {
@@ -562,10 +627,13 @@ public final class KotlinAnalysisApiSymbolRunner {
     private record TopLevelSymbol(String name, String source) {
     }
 
-    private record SymbolIdentity(String name, String source, String kind) {
+    private record SymbolIdentity(String name, String source, String kind, String signature) {
+        SymbolIdentity withSignature(String signature) {
+            return new SymbolIdentity(name, source, kind, signature);
+        }
     }
 
-    private record ExternalBinding(String local, String imported, String source, String kind, boolean typeOnly)
+    private record ExternalBinding(String local, String imported, String source, String kind, boolean typeOnly, String signature)
         implements Comparable<ExternalBinding> {
         @Override
         public int compareTo(ExternalBinding other) {
@@ -575,7 +643,12 @@ public final class KotlinAnalysisApiSymbolRunner {
             if (importedCompare != 0) return importedCompare;
             int localCompare = local.compareTo(other.local);
             if (localCompare != 0) return localCompare;
-            return Boolean.compare(typeOnly, other.typeOnly);
+            int typeOnlyCompare = Boolean.compare(typeOnly, other.typeOnly);
+            if (typeOnlyCompare != 0) return typeOnlyCompare;
+            if (signature == null && other.signature == null) return 0;
+            if (signature == null) return -1;
+            if (other.signature == null) return 1;
+            return signature.compareTo(other.signature);
         }
     }
 }

@@ -87,7 +87,7 @@ export function buildPieceClosure({ target, manifest, graph }) {
   const runtimeSlices = [...runtimeSliceIds].map((id) => slices.get(id)).filter(Boolean).sort(sourceOrder);
   const typeSlices = [...typeSliceIds].map((id) => slices.get(id)).filter(Boolean).sort(sourceOrder);
   const valueSlices = [...valueSliceIds].map((id) => slices.get(id)).filter(Boolean).sort(sourceOrder);
-  const runtimeClosureHash = hashParts([targetSlice.id, ...runtimeSlices.map((slice) => slice.hashes.bodyHash), ...manifest.importBindings.map((binding) => `${binding.local}:${binding.source}:${binding.imported}`)]);
+  const runtimeClosureHash = hashParts([targetSlice.id, ...runtimeSlices.map((slice) => slice.hashes.bodyHash), ...manifest.importBindings.map((binding) => `${binding.local}:${binding.source}:${binding.imported}:${binding.signature ?? ""}`)]);
   const typeClosureHash = hashParts([...typeSlices.map((slice) => slice.hashes.typeHash ?? slice.hashes.signatureHash)]);
 
   return {

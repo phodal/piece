@@ -126,6 +126,7 @@ internal class KotlinAnalysisApiSymbolBackend {
                         source = parts[4],
                         kind = parts[5],
                         isTypeOnly = isTypeOnly,
+                        signature = parts.getOrNull(7)?.takeIf { it.isNotBlank() },
                     )
                     if (isTypeOnly) {
                         symbols.typeReferences += parts[2]
@@ -142,16 +143,16 @@ internal class KotlinAnalysisApiSymbolBackend {
                 resolvedRuntimeNames = symbols.resolvedRuntimeNames.distinct().sorted(),
                 resolvedTypeNames = symbols.resolvedTypeNames.distinct().sorted(),
                 importBindings = symbols.importBindings.distinctBy {
-                    "${it.local}:${it.imported}:${it.source}:${it.kind}:${it.isTypeOnly}"
-                }.sortedWith(compareBy({ it.source }, { it.imported }, { it.local })),
+                    "${it.local}:${it.imported}:${it.source}:${it.kind}:${it.isTypeOnly}:${it.signature.orEmpty()}"
+                }.sortedWith(compareBy({ it.source }, { it.imported }, { it.local }, { it.signature.orEmpty() })),
             )
         }
         return KotlinBindingSymbolResult(
             symbolsByDeclaration = immutableSymbols,
             importBindings = immutableSymbols.values
                 .flatMap { it.importBindings }
-                .distinctBy { "${it.local}:${it.imported}:${it.source}:${it.kind}:${it.isTypeOnly}" }
-                .sortedWith(compareBy({ it.source }, { it.imported }, { it.local })),
+                .distinctBy { "${it.local}:${it.imported}:${it.source}:${it.kind}:${it.isTypeOnly}:${it.signature.orEmpty()}" }
+                .sortedWith(compareBy({ it.source }, { it.imported }, { it.local }, { it.signature.orEmpty() })),
         )
     }
 }

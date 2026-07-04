@@ -48,6 +48,9 @@ class ExternalUser(val name: String) {
 
 fun formatName(name: String): String = "External: $name"
 fun String.decorate(): String = "[$this]"
+fun parse(value: String): String = value
+fun parse(value: Int): String = value.toString()
+fun <T> box(value: T): T = value
 `,
     target: "jvm",
     workspace
@@ -453,6 +456,78 @@ fun render(user: ExternalUser): String = user.displayName
         edge.symbols.includes("displayName")
     ),
     `Kotlin Analysis API member property binding did not become an owner-qualified external graph edge: ${JSON.stringify(memberPropertyAnalysis.graph.edges)}`
+  );
+
+  const stringOverloadSource = `package demo.externaluse
+
+import demo.external.parse
+
+fun render(): String = parse("x")
+`;
+  const stringOverloadManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/UseStringOverload.kt",
+    source: stringOverloadSource,
+    backend: "analysis-api",
+    analysisApiEnabled: true,
+    classpath: [formatterJar]
+  });
+  assert(
+    stringOverloadManifest.importBindings.some(
+      (binding) =>
+        binding.local === "parse" &&
+        binding.imported === "parse" &&
+        binding.source === `classpath:${formatterJar}!demo/external` &&
+        binding.signature === "(String)"
+    ),
+    `Kotlin Analysis API did not retain the selected String overload signature: ${JSON.stringify(stringOverloadManifest.importBindings)}`
+  );
+
+  const intOverloadSource = `package demo.externaluse
+
+import demo.external.parse
+
+fun render(): String = parse(1)
+`;
+  const intOverloadManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/UseIntOverload.kt",
+    source: intOverloadSource,
+    backend: "analysis-api",
+    analysisApiEnabled: true,
+    classpath: [formatterJar]
+  });
+  assert(
+    intOverloadManifest.importBindings.some(
+      (binding) =>
+        binding.local === "parse" &&
+        binding.imported === "parse" &&
+        binding.source === `classpath:${formatterJar}!demo/external` &&
+        binding.signature === "(Int)"
+    ),
+    `Kotlin Analysis API did not retain the selected Int overload signature: ${JSON.stringify(intOverloadManifest.importBindings)}`
+  );
+
+  const genericFunctionSource = `package demo.externaluse
+
+import demo.external.box
+
+fun render(): String = box("x")
+`;
+  const genericFunctionManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/UseGenericFunction.kt",
+    source: genericFunctionSource,
+    backend: "analysis-api",
+    analysisApiEnabled: true,
+    classpath: [formatterJar]
+  });
+  assert(
+    genericFunctionManifest.importBindings.some(
+      (binding) =>
+        binding.local === "box" &&
+        binding.imported === "box" &&
+        binding.source === `classpath:${formatterJar}!demo/external` &&
+        binding.signature === "(T)"
+    ),
+    `Kotlin Analysis API did not retain the generic callable signature: ${JSON.stringify(genericFunctionManifest.importBindings)}`
   );
 } finally {
   await rm(classpathWorkspace, { recursive: true, force: true });
