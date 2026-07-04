@@ -39,16 +39,15 @@ The repository already has:
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope plus structured fallback-reason identity into generated actions, snapshots, and preview runtime cache hashes.
 - JS and Wasm bridges that expose Kotlin core package and graph objects to npm and browser hosts.
 
-## What Is Still Missing
+## Remaining Future Work
 
-The important gaps are:
+The shipped Phase 1-6 system now has a functional single-file, package-view, and source-set feedback loop. The remaining work is future hardening and productization rather than a blocker for the current Kotlin/source-set path:
 
-- Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing, companion source-set external bindings, imported aliases, simple jar-backed classpath classes, Kotlin constructors, Kotlin top-level jar functions, Kotlin extension jar functions, owner-qualified member properties, callable signatures for overload and generic fixtures, and signature-qualified graph edges when one declaration calls multiple overloads of the same imported function.
-- Kotlin project discovery has a JVM Gradle Tooling API path for analysis and compile inputs. `projectRoot` can discover KMP source roots, compile classpaths, dependency coordinates, project dependencies, and target variants; saved-file compile can run an inferred real project variant; source-set-scoped project model hashes now feed action/cache identities; and unsafe or incomplete project discovery produces explicit scope fallback diagnostics.
-- Kotlin compile actions are real and owned by the JVM backend, with real-project `projectRoot` compile for saved files and generated temporary MPP projects for unsaved single-file buffers. The final shape should keep making Kotlin/JVM the rule owner and Node only the invoker.
-- Go extraction now has a Node-hosted Go AST analyzer with a JavaScript fallback for root/browser use. Go action identity can include same-package companion files through `go list` metadata and package source hashes, current-file graphs can resolve companion declarations as package-local external edges, `packageScope.targetPolicy` makes the current external-binding decision explicit, and `analysis.packageScope` can expose candidate package-owned companion targets without applying them to the default single-file package. When callers pass `packageScopeSelection: "safe"`, Piece can expose a selected `packageScope.packageView` after checking feedback fallback state, source-target mapping, and label conflicts. The long-term Go rule should expand toward full package/source-set targets using `go list`, `go test`, and `go build` as source-of-truth boundaries.
+- Kotlin semantic analysis can keep expanding Analysis API coverage beyond the current guarded PSI, FE10 `BindingContext`, source-set, classpath, callable signature, overload, constructor, top-level function, extension function, and member-property cases.
+- Kotlin rule ownership should keep moving deeper into JVM APIs as the rule surface grows; Node should remain the invoker and JSON/status bridge.
+- Go can expand from current package-local companion edges and safe selected package views toward full package/source-set targets using `go list`, `go test`, and `go build` as source-of-truth boundaries.
 - The root/browser-safe Kotlin extractor remains a lightweight fallback. Production Kotlin semantics should be routed through `piece-compiler/node` or a service/local agent.
-- Cache keys, artifact reuse, and fallback policy now include source, dependency, project-model, fallback-scope, source-set, Go toolchain/package-source scope, compiler-options, and dependency-artifact identity for single-file feedback, but they are not yet a complete multi-language action cache.
+- Cache keys, artifact reuse, and fallback policy now include source, dependency, project-model, fallback-scope, source-set, Go toolchain/package-source scope, compiler-options, dependency-artifact identity, and `.pic` artifact cacheKey round-trips, but they are not yet a distributed multi-language action cache.
 
 ## `.pic` DSL Direction
 
@@ -344,9 +343,21 @@ The third Phase 6 slice is now implemented:
 
 ## Next Small Slice
 
-The next implementation slice should keep moving through Phase 5 and Phase 6:
+The next implementation slice should move beyond the shipped Phase 1-6 feedback loop:
 
-1. Audit the Phase 1-6 roadmap definitions of done against shipped behavior and split any remaining work into final functional gaps versus future action-cache/product work.
+1. Extract the future distributed action-cache/runtime work into a separate Phase 7 plan, so Phase 1-6 can stay focused on the shipped single-file/package-view/source-set feedback loop.
+
+## Completed Roadmap Completion Audit Slice
+
+The Phase 1-6 roadmap completion audit is now recorded:
+
+1. Phase 1 `.pic` parsing is covered by `grammar/Piece.g4`, JVM ANTLR generation, common AST/model conversion, and `npm run pic:dsl:smoke`.
+2. Phase 2 generated `.pic` and overrides are covered by Kotlin, Go, TypeScript source generation, selected package-view round trips, and `npm run pic:kotlin:smoke`, `npm run pic:source:smoke`, and `npm run pic:override:smoke`.
+3. Phase 3 Kotlin semantic backend selection is covered by PSI, FE10 fallback metadata, Analysis API gate/prototype coverage, and `npm run language:analysis-api:smoke`.
+4. Phase 4 Gradle/KMP source-set discovery and compile inputs are covered by `npm run language:project-model:smoke` and real project compile dispatch.
+5. Phase 5 language rule ownership is covered by Go list/AST metadata, Kotlin JVM compile backends, `compilePieceAction()`, `compilePieceApp({ compileAction: true })`, and `npm run language:compile:smoke`.
+6. Phase 6 cache/fallback/source-set behavior is covered by app-level source-set diagnostics, safe package/source-set package views, fallback blockers, artifact cache keys, `.pic` cacheKey round trips, `npm test`, and the Gradle/KMP source-set smoke.
+7. The remaining work is now classified as future Phase 7 productization: a distributed multi-language action cache and broader repository-level package/runtime planning.
 
 ## Completed Phase 5/6 `.pic` Artifact CacheKey Round-Trip Slice
 
