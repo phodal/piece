@@ -24,6 +24,7 @@ The repository already has:
 - Safe selected Go package-scope package views can become the primary generated `.pic` output and app-level compile action package while default analysis keeps the current-file `.pic` output.
 - Safe selected Kotlin Gradle/KMP source-set scopes can expose an explicit source-set package view for companion source declarations while the primary `.pic` output remains the current-file package.
 - User override `.pic` merging can use a selected package-scope package view as its generated merge base.
+- User override `.pic` merging can also use a selected source-set package view as its generated merge base when explicitly requested.
 - `piece-compiler/node` analysis can accept override `.pic` input and return merged primary `.pic` output plus merge diagnostics.
 - Merged override packages are metadata-only by default and can feed action/snapshot package views through explicit `pieceDslOverrideMode: "action-snapshot"`.
 - Node compile/build helpers retain explicit `actionPackage` metadata when override or action-snapshot options require Node analysis.
@@ -345,7 +346,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Allow selected source-set package views to participate in `.pic` override merge bases behind an explicit mode, while keeping metadata-only defaults.
+1. Let explicit source-set package view overrides feed action/snapshot package views through `pieceDslOverrideMode: "action-snapshot"` while preserving metadata-only defaults.
+
+## Completed Phase 5/6 Source-Set Override Merge Base Slice
+
+The source-set override merge base slice is now implemented:
+
+1. Node analysis accepts `pieceDslOverrideBase: "source-set-package-view"` for callers that explicitly want override `.pic` merges to use `analysis.sourceSetScope.packageView` as the generated base.
+2. The default override base remains the primary/current-file package unless callers opt into the selected source-set package view.
+3. Successful source-set package-view override merges mark `pieceDslSource` as `source-set-package-view-override`.
+4. Source-set package-view overrides remain metadata-only by default and do not set `analysis.actionPackage` or `snapshot.actionPackage`.
+5. `npm run language:project-model:smoke` verifies a selected `:app` `jvmMain` source-set override can patch the promoted `User.kt#User` target while preserving metadata-only defaults.
 
 ## Completed Phase 5/6 App-Level Source-Set Action Package Slice
 

@@ -114,11 +114,13 @@ export interface MergePieceDslFilesOptions {
 }
 
 export type PieceDslOverrideMode = "metadata-only" | "action-snapshot" | (string & {});
+export type PieceDslOverrideBase = "primary" | "current-file" | "selected-package-view" | "source-set-package-view" | (string & {});
 
 export interface NodeAnalyzePieceFileOptions extends AnalyzePieceFileOptions {
   readonly generatedFilePath?: string;
   readonly overrideFilePath?: string;
   readonly overrideSource?: string;
+  readonly pieceDslOverrideBase?: PieceDslOverrideBase;
   readonly pieceDslOverrideMode?: PieceDslOverrideMode;
 }
 
@@ -126,6 +128,7 @@ export interface NodeCompilePieceAppOptions extends CompilePieceAppOptions {
   readonly generatedFilePath?: string;
   readonly overrideFilePath?: string;
   readonly overrideSource?: string;
+  readonly pieceDslOverrideBase?: PieceDslOverrideBase;
   readonly pieceDslOverrideMode?: PieceDslOverrideMode;
   readonly compileAction?: boolean;
   readonly pieceTarget?: string;
@@ -139,6 +142,7 @@ export interface NodeBuildPiecePreviewOptions extends BuildPiecePreviewOptions {
   readonly generatedFilePath?: string;
   readonly overrideFilePath?: string;
   readonly overrideSource?: string;
+  readonly pieceDslOverrideBase?: PieceDslOverrideBase;
   readonly pieceDslOverrideMode?: PieceDslOverrideMode;
 }
 

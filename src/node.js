@@ -214,14 +214,32 @@ function statusWithCompileActionDiagnostic(status, diagnostic, selection) {
   };
 }
 
-function primaryGeneratedPackageForAnalysis(analysis) {
+function pieceDslOverrideBase(options = {}) {
+  return options.pieceDslOverrideBase ?? "primary";
+}
+
+function primaryGeneratedPackageForAnalysis(analysis, options = {}) {
+  const overrideBase = pieceDslOverrideBase(options);
+  if (overrideBase === "source-set-package-view" && analysis.sourceSetScope?.packageView) {
+    return analysis.sourceSetScope.packageView;
+  }
+  if (overrideBase === "selected-package-view" && analysis.packageScope?.packageView) {
+    return analysis.packageScope.packageView;
+  }
+  if (overrideBase === "current-file") {
+    return analysis.piecePackage;
+  }
   if (analysis.pieceDslSource === "selected-package-view" && analysis.packageScope?.packageView) {
     return analysis.packageScope.packageView;
   }
   return analysis.piecePackage;
 }
 
-function overridePieceDslSource(source) {
+function overridePieceDslSource(source, options = {}) {
+  const overrideBase = pieceDslOverrideBase(options);
+  if (overrideBase === "source-set-package-view") return "source-set-package-view-override";
+  if (overrideBase === "selected-package-view") return "selected-package-view-override";
+  if (overrideBase === "current-file") return "current-file-override";
   return source === "selected-package-view" ? "selected-package-view-override" : "current-file-override";
 }
 
@@ -235,7 +253,7 @@ async function applyPieceDslOverride(analysis, options = {}) {
   }
   const merged = await mergePieceDslFiles({
     generatedFilePath: options.generatedFilePath ?? options.filePath?.replace(/\.[^.]+$/, ".generated.pic"),
-    generatedPackage: primaryGeneratedPackageForAnalysis(analysis),
+    generatedPackage: primaryGeneratedPackageForAnalysis(analysis, options),
     overrideFilePath: options.overrideFilePath,
     overrideSource: options.overrideSource,
     cwd: options.cwd ?? options.fileSystem?.cwd,
@@ -250,7 +268,7 @@ async function applyPieceDslOverride(analysis, options = {}) {
   const nextAnalysis = {
     ...analysis,
     pieceDsl: merged.pieceDsl,
-    pieceDslSource: overridePieceDslSource(analysis.pieceDslSource),
+    pieceDslSource: overridePieceDslSource(analysis.pieceDslSource, options),
     pieceDslMerge: merged
   };
   if (pieceDslOverrideMode(options) !== "action-snapshot") {
