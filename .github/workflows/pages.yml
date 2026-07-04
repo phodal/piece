@@ -68,6 +68,9 @@ jobs:
       - name: Language analysis API gate smoke
         run: npm run language:analysis-api-gate:smoke
 
+      - name: Language analysis API smoke
+        run: npm run language:analysis-api:smoke
+
       - name: Language compile smoke
         run: npm run language:compile:smoke
 

@@ -226,7 +226,7 @@ function kotlinAnalysisBackendMetadata({ backend, semanticDiagnostics = false, s
   const fallbackReason =
     requested === "analysis-api"
       ? analysisApiEnabled
-        ? "Kotlin Analysis API runtime is gated on, but the analysis-api backend implementation is not wired yet; using explicit FE10 BindingContext fallback."
+        ? "Kotlin Analysis API runtime is gated on, but the isolated Analysis API runner did not return a usable report; using explicit FE10 BindingContext fallback."
         : "Kotlin Analysis API Gradle gate is disabled; enable -PpieceAnalysisApi.enabled=true before using the analysis-api backend."
       : undefined;
   return {

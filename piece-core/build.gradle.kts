@@ -19,10 +19,17 @@ val pieceAnalysisApiEnabled = providers.gradleProperty("pieceAnalysisApi.enabled
     .orElse(false)
 val pieceAnalysisApiVersion = providers.gradleProperty("pieceAnalysisApi.version")
     .orElse("2.2.21-484")
+val pieceAnalysisApiCompilerVersion = providers.gradleProperty("pieceAnalysisApi.compilerVersion")
+    .orElse("2.2.21")
+val pieceAnalysisApiSerializationVersion = providers.gradleProperty("pieceAnalysisApi.serializationVersion")
+    .orElse("1.7.3")
+val pieceAnalysisApiCaffeineVersion = providers.gradleProperty("pieceAnalysisApi.caffeineVersion")
+    .orElse("3.1.8")
 val pieceAnalysisApiRepository = providers.gradleProperty("pieceAnalysisApi.repository")
     .orElse("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
 
 repositories {
+    mavenCentral()
     if (pieceAnalysisApiEnabled.get()) {
         maven {
             name = "JetBrainsIntelliJDependencies"
@@ -61,7 +68,42 @@ kotlin {
 dependencies {
     antlrTool("org.antlr:antlr4:4.13.2")
     if (pieceAnalysisApiEnabled.get()) {
-        pieceAnalysisApiClasspath("org.jetbrains.kotlin:analysis-api-standalone-for-ide:${pieceAnalysisApiVersion.get()}")
+        listOf(
+            "kotlin-compiler",
+            "kotlin-stdlib",
+            "kotlin-stdlib-jdk8",
+            "kotlin-script-runtime",
+        ).forEach { artifact ->
+            pieceAnalysisApiClasspath("org.jetbrains.kotlin:$artifact:${pieceAnalysisApiCompilerVersion.get()}") {
+                isTransitive = false
+            }
+        }
+        pieceAnalysisApiClasspath("org.jetbrains.kotlin:kotlin-reflect:1.6.10") {
+            isTransitive = false
+        }
+        pieceAnalysisApiClasspath("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0") {
+            isTransitive = false
+        }
+        pieceAnalysisApiClasspath("org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:${pieceAnalysisApiSerializationVersion.get()}") {
+            isTransitive = false
+        }
+        pieceAnalysisApiClasspath("com.github.ben-manes.caffeine:caffeine:${pieceAnalysisApiCaffeineVersion.get()}") {
+            isTransitive = false
+        }
+        listOf(
+            "analysis-api-for-ide",
+            "analysis-api-impl-base-for-ide",
+            "analysis-api-fe10-for-ide",
+            "analysis-api-k2-for-ide",
+            "low-level-api-fir-for-ide",
+            "symbol-light-classes-for-ide",
+            "analysis-api-platform-interface-for-ide",
+            "analysis-api-standalone-for-ide",
+        ).forEach { artifact ->
+            pieceAnalysisApiClasspath("org.jetbrains.kotlin:$artifact:${pieceAnalysisApiVersion.get()}") {
+                isTransitive = false
+            }
+        }
     }
 }
 

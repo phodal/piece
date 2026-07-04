@@ -161,7 +161,7 @@ data class KotlinPsiManifest(
 
 class KotlinPsiAnalysisBackend {
     fun analyze(request: KotlinPsiAnalysisRequest): KotlinPsiManifest {
-        val backend = request.resolveBackend()
+        var backend = request.resolveBackend()
         val file = SourceFile(request.filePath, request.source)
         return withKtFile(file) { ktFile ->
             val declarations = ktFile.declarations.mapNotNull { declaration ->
@@ -169,22 +169,41 @@ class KotlinPsiAnalysisBackend {
             }
             val headers = ktFile.toHeaders(file)
             val localTargetNames = declarations.map { declaration -> declaration.name }.toSet()
-            val semanticResult = if (backend.useFe10Symbols) {
-                KotlinBindingSymbolBackend().symbols(
-                    KotlinBindingSymbolRequest(
-                        filePath = request.filePath,
-                        source = request.source,
-                        companionFiles = request.companionFiles.map { companion ->
-                            KotlinBindingSourceFile(
-                                filePath = companion.filePath,
-                                source = companion.source,
-                            )
-                        },
-                        classpath = request.classpath,
-                    ),
-                )
-            } else {
-                KotlinBindingSymbolResult(emptyMap())
+            val semanticRequest = KotlinBindingSymbolRequest(
+                filePath = request.filePath,
+                source = request.source,
+                companionFiles = request.companionFiles.map { companion ->
+                    KotlinBindingSourceFile(
+                        filePath = companion.filePath,
+                        source = companion.source,
+                    )
+                },
+                classpath = request.classpath,
+            )
+            val semanticResult = when (backend.symbols) {
+                KotlinAnalysisBackendKind.Psi -> KotlinBindingSymbolResult(emptyMap())
+                KotlinAnalysisBackendKind.Fe10BindingContext -> KotlinBindingSymbolBackend().symbols(semanticRequest)
+                KotlinAnalysisBackendKind.AnalysisApi -> {
+                    val analysisApiResult = KotlinAnalysisApiSymbolBackend().symbols(semanticRequest)
+                    val failed = analysisApiResult.diagnostics.any { diagnostic ->
+                        diagnostic.code == "kotlin-analysis-api-symbol-analysis-error"
+                    }
+                    if (failed) {
+                        backend = backend.copy(
+                            actual = KotlinAnalysisBackendKind.Fe10BindingContext,
+                            symbols = KotlinAnalysisBackendKind.Fe10BindingContext,
+                            fallbackReason = "Kotlin Analysis API runner did not return a usable report; using explicit FE10 BindingContext fallback.",
+                        )
+                        val fe10Result = KotlinBindingSymbolBackend().symbols(semanticRequest)
+                        KotlinBindingSymbolResult(
+                            symbolsByDeclaration = fe10Result.symbolsByDeclaration,
+                            importBindings = fe10Result.importBindings,
+                            diagnostics = analysisApiResult.diagnostics + fe10Result.diagnostics,
+                        )
+                    } else {
+                        analysisApiResult
+                    }
+                }
             }
             val importBindings = headers.flatMap { it.importBindings } + semanticResult.importBindings
             val importLocals = importBindings.map { binding -> binding.local }.toSet()
@@ -303,7 +322,7 @@ fun kotlinPsiGenerationBackendMetadata(
 private data class KotlinAnalysisBackendResolution(
     val requested: KotlinAnalysisBackendKind,
     val actual: KotlinAnalysisBackendKind,
-    val useFe10Symbols: Boolean,
+    val symbols: KotlinAnalysisBackendKind,
     val fallbackReason: String? = null,
     val analysisApiEnabled: Boolean? = null,
     val analysisApiAvailable: Boolean? = null,
@@ -325,7 +344,7 @@ private data class KotlinAnalysisBackendResolution(
             requested = requested.wireName,
             actual = actual.wireName,
             declarations = KotlinAnalysisBackendKind.Psi.wireName,
-            symbols = if (useFe10Symbols) KotlinAnalysisBackendKind.Fe10BindingContext.wireName else KotlinAnalysisBackendKind.Psi.wireName,
+            symbols = symbols.wireName,
             diagnostics = if (semanticDiagnostics) "kotlin-compiler-diagnostics" else "none",
             status = if (fallbackReason == null) "ready" else "fallback",
             fallbackReason = fallbackReason,
@@ -346,24 +365,38 @@ private fun KotlinPsiAnalysisRequest.resolveBackend(): KotlinAnalysisBackendReso
         KotlinAnalysisBackendKind.Psi -> KotlinAnalysisBackendResolution(
             requested = requested,
             actual = KotlinAnalysisBackendKind.Psi,
-            useFe10Symbols = false,
+            symbols = KotlinAnalysisBackendKind.Psi,
         )
 
         KotlinAnalysisBackendKind.Fe10BindingContext -> KotlinAnalysisBackendResolution(
             requested = requested,
             actual = KotlinAnalysisBackendKind.Fe10BindingContext,
-            useFe10Symbols = true,
+            symbols = KotlinAnalysisBackendKind.Fe10BindingContext,
         )
 
-        KotlinAnalysisBackendKind.AnalysisApi -> KotlinAnalysisBackendResolution(
-            requested = requested,
-            actual = KotlinAnalysisBackendKind.Fe10BindingContext,
-            useFe10Symbols = true,
-            fallbackReason = analysisApiFallbackReason(),
-            analysisApiEnabled = analysisApiEnabled,
-            analysisApiAvailable = isKotlinAnalysisApiRuntimeAvailable().takeIf { analysisApiEnabled },
-            analysisApiVersion = analysisApiVersion,
-        )
+        KotlinAnalysisBackendKind.AnalysisApi -> {
+            val available = isKotlinAnalysisApiRuntimeAvailable().takeIf { analysisApiEnabled }
+            if (analysisApiEnabled && available == true) {
+                KotlinAnalysisBackendResolution(
+                    requested = requested,
+                    actual = KotlinAnalysisBackendKind.AnalysisApi,
+                    symbols = KotlinAnalysisBackendKind.AnalysisApi,
+                    analysisApiEnabled = true,
+                    analysisApiAvailable = true,
+                    analysisApiVersion = analysisApiVersion,
+                )
+            } else {
+                KotlinAnalysisBackendResolution(
+                    requested = requested,
+                    actual = KotlinAnalysisBackendKind.Fe10BindingContext,
+                    symbols = KotlinAnalysisBackendKind.Fe10BindingContext,
+                    fallbackReason = analysisApiFallbackReason(),
+                    analysisApiEnabled = analysisApiEnabled,
+                    analysisApiAvailable = available,
+                    analysisApiVersion = analysisApiVersion,
+                )
+            }
+        }
     }
 }
 
@@ -380,6 +413,9 @@ private fun KotlinPsiAnalysisRequest.analysisApiFallbackReason(): String {
 private fun isKotlinAnalysisApiRuntimeAvailable(): Boolean {
     return runCatching {
         Class.forName("org.jetbrains.kotlin.analysis.api.KaSession")
+        Class.forName("org.jetbrains.kotlin.analysis.api.standalone.StandaloneAnalysisAPISessionBuilderKt")
+        Class.forName("com.intellij.openapi.Disposable")
+        Class.forName("org.jetbrains.kotlin.cli.common.config.ContentRootsKt")
     }.isSuccess
 }
 

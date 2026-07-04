@@ -28,6 +28,7 @@
     "pic:override:smoke": "node scripts/smoke-pic-override-merge.mjs",
     "language:analysis:smoke": "node scripts/smoke-kotlin-psi-analysis.mjs",
     "language:analysis-api-gate:smoke": "./gradlew checkKotlinAnalysisApiGate",
+    "language:analysis-api:smoke": "node scripts/smoke-kotlin-analysis-api.mjs",
     "language:compile:smoke": "node scripts/smoke-language-compilers.mjs",
     "benchmark:kotlin-piece": "node scripts/benchmark-kotlin-piece.mjs",
     "preview:build": "node preview/build.mjs",
