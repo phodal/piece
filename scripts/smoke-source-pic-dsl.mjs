@@ -54,6 +54,8 @@ type Discount struct {
 }
 `;
 
+const unsafeGoSource = goSource.replace('prefix + ", " + user.Name', 'missingPrefix() + ", " + user.Name');
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -155,6 +157,17 @@ const selectedGoAnalysis = await analyzePieceFile({
   ],
   packageScopeSelection: "safe"
 });
+const unsafeSelectedGoAnalysis = await analyzePieceFile({
+  filePath: "/repo/src/Pricing.go",
+  source: unsafeGoSource,
+  sourceFiles: [
+    {
+      filePath: "/repo/src/Discount.go",
+      source: goCompanionSource
+    }
+  ],
+  packageScopeSelection: "safe"
+});
 assert(
   selectedGoAnalysis.pieceDslSource === "selected-package-view",
   `Expected safe package-scope selection to make selected package view the primary .pic source: ${selectedGoAnalysis.pieceDslSource}`
@@ -166,6 +179,31 @@ assert(
 assert(
   selectedGoAnalysis.pieceDsl !== piecePackageToPicDsl(selectedGoAnalysis.piecePackage),
   `Expected selected package-scope .pic to differ from default current-file package .pic.`
+);
+assert(
+  unsafeSelectedGoAnalysis.feedbackScope.fallbackRequired === true &&
+    unsafeSelectedGoAnalysis.feedbackScope.reasons.some((reason) => reason.code === "unknown-edge-fallback"),
+  `Expected unsafe Go source to force documented unknown-edge fallback: ${JSON.stringify(unsafeSelectedGoAnalysis.feedbackScope)}`
+);
+const unsafePackageScopeFallbackBlocker = unsafeSelectedGoAnalysis.packageScope?.promotion?.blockedReasons.find(
+  (reason) => reason.code === "package-scope-feedback-fallback"
+);
+assert(
+  unsafeSelectedGoAnalysis.packageScope?.status === "candidate" &&
+    unsafeSelectedGoAnalysis.packageScope?.promotion?.requested === "safe" &&
+    unsafeSelectedGoAnalysis.packageScope?.promotion?.appliedToPackageView === false &&
+    unsafePackageScopeFallbackBlocker?.fallbackLevel === "file" &&
+    unsafePackageScopeFallbackBlocker?.fallbackReasonCodes?.includes("unknown-edge-fallback"),
+  `Expected safe package-scope selection to stay current-file when fallback is required: ${JSON.stringify(unsafeSelectedGoAnalysis.packageScope)}`
+);
+assert(
+  unsafeSelectedGoAnalysis.pieceDslSource === "current-file" &&
+    unsafeSelectedGoAnalysis.pieceDsl === piecePackageToPicDsl(unsafeSelectedGoAnalysis.piecePackage) &&
+    !unsafeSelectedGoAnalysis.packageScope?.packageView,
+  `Expected unsafe package-scope selection to keep current-file .pic output: ${JSON.stringify({
+    pieceDslSource: unsafeSelectedGoAnalysis.pieceDslSource,
+    packageView: unsafeSelectedGoAnalysis.packageScope?.packageView
+  })}`
 );
 assert(goAnalysis.manifest.parser === "go-ast-declaration-extractor", `Expected Node Go analysis to use Go AST backend: ${goAnalysis.manifest.parser}`);
 assert(goAnalysis.manifest.analysisBackend?.actual === "go-ast", `Expected Go-owned analysis backend metadata: ${JSON.stringify(goAnalysis.manifest.analysisBackend)}`);

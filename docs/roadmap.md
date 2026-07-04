@@ -343,7 +343,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+1. Expand from single-file package feedback to safe multi-file source-set feedback without changing the default current-file inner loop.
+
+## Completed Phase 5/6 Safe Fast-Path Fallback Gate Slice
+
+The safe fast-path fallback gate slice is now implemented:
+
+1. Safe package-scope selection keeps the generated `.pic` output on the current-file package when `feedbackScope.fallbackRequired` is true.
+2. The package-scope promotion blocker now records the fallback level and non-info fallback reason codes such as `unknown-edge-fallback`.
+3. Unknown graph edges therefore force a documented fallback before Piece can widen to a selected package view.
+4. Candidate package-scope target metadata remains available for diagnostics, but `packageView` is not produced unless the safe gate passes.
+5. `npm run pic:source:smoke` verifies a Go companion package with an unresolved reference stays on the current-file fast path even when `packageScopeSelection: "safe"` is requested.
 
 ## Completed Phase 5/6 Selected Package-View Status Snapshot Slice
 

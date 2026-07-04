@@ -76,6 +76,10 @@ function supportsCompileAction(language) {
   return language === "go" || language === "kotlin";
 }
 
+function nonInfoReasonCodes(reasons = []) {
+  return [...new Set(reasons.filter((reason) => reason?.severity !== "info").map((reason) => reason.code).filter(Boolean))].sort();
+}
+
 function languageForManifest(manifest) {
   if (manifest.parser?.includes("go")) return "go";
   if (manifest.parser?.includes("kotlin")) return "kotlin";
@@ -486,7 +490,9 @@ function packageScopeSelectionStatus({ selection, feedbackScope, targets, promot
     blockedReasons.push({
       code: "package-scope-feedback-fallback",
       severity: "warning",
-      message: "Package-scope selection is disabled while feedback scope already requires file or project fallback."
+      message: "Package-scope selection is disabled while feedback scope already requires file or project fallback.",
+      fallbackLevel: feedbackScope.level,
+      fallbackReasonCodes: nonInfoReasonCodes(feedbackScope.reasons)
     });
   }
 
