@@ -374,6 +374,22 @@ export interface PieceProjectModelHashes {
   readonly modelHash: string;
 }
 
+export interface PieceProjectModelAnalysisScopeHashes {
+  readonly sourceRootsHash: string;
+  readonly classpathHash: string;
+  readonly scopeHash: string;
+}
+
+export interface PieceProjectModelAnalysisScope {
+  readonly status: "selected" | "fallback" | (string & {});
+  readonly sourceSet?: string;
+  readonly requiredSourceSets: readonly string[];
+  readonly sourceRoots: readonly string[];
+  readonly classpath: readonly string[];
+  readonly classpathConfigurations: readonly string[];
+  readonly hashes: PieceProjectModelAnalysisScopeHashes;
+}
+
 export interface PieceProjectModelMetadata {
   readonly kind: "gradle-kmp" | (string & {});
   readonly projectRoot: string;
@@ -383,6 +399,7 @@ export interface PieceProjectModelMetadata {
   readonly sourceSets: readonly PieceProjectModelSourceSet[];
   readonly classpaths: readonly PieceProjectModelClasspath[];
   readonly hashes: PieceProjectModelHashes;
+  readonly analysisScope?: PieceProjectModelAnalysisScope;
 }
 
 export interface PieceFileManifest {

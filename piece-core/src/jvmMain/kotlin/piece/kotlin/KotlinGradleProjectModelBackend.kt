@@ -18,6 +18,7 @@ data class KotlinGradleProjectModelRequest(
     val projectRoot: Path,
     val gradleCommand: String,
     val gradleVersion: String = "9.6.1",
+    val sourceSet: String? = null,
 )
 
 data class KotlinGradleProjectModelSourceSet(
@@ -81,7 +82,7 @@ class KotlinGradleProjectModelBackend {
         val parsedDiagnostics = mutableListOf<KotlinGradleProjectModelDiagnostic>()
 
         try {
-            initScript.writeText(gradleProjectModelInitScript())
+            initScript.writeText(gradleProjectModelInitScript(request.sourceSet))
             commands += runGradleProjectModelToolingApi(projectRoot, initScript, request.gradleVersion)
             if (commands.last().errorCode == "tooling-api-unavailable") {
                 commands += runCommand(
@@ -206,7 +207,7 @@ private fun splitPathList(value: String): List<String> {
         .filter { it.isNotBlank() }
 }
 
-private fun projectModelHashes(
+internal fun projectModelHashes(
     projectRoot: String,
     status: String,
     sourceSets: List<KotlinGradleProjectModelSourceSet>,
@@ -426,8 +427,27 @@ private fun runCommand(command: String, args: List<String>, cwd: Path): KotlinCo
     )
 }
 
-private fun gradleProjectModelInitScript(): String = """
+private fun gradleProjectModelInitScript(sourceSet: String?): String = """
 gradle.projectsLoaded {
+    def pieceFocusSourceSet = '${sourceSet.orEmpty().replace("\\", "\\\\").replace("'", "\\'")}'
+    def pieceFocusTarget = pieceFocusSourceSet.replaceAll(/(Main|Test)${'$'}/, '').toLowerCase(java.util.Locale.ROOT)
+    def pieceFocusIsTest = pieceFocusSourceSet.endsWith('Test')
+    def pieceShouldResolveClasspath = { cfg ->
+        if (!cfg.canBeResolved) {
+            return false
+        }
+        def lowerName = cfg.name.toLowerCase(java.util.Locale.ROOT)
+        if (!lowerName.contains('compileclasspath')) {
+            return false
+        }
+        if (pieceFocusTarget.length() == 0 || pieceFocusTarget == 'common') {
+            return true
+        }
+        if (!lowerName.contains(pieceFocusTarget)) {
+            return false
+        }
+        return pieceFocusIsTest || !lowerName.contains('test')
+    }
     def root = gradle.rootProject
     if (root.tasks.findByName('printPieceKotlinProjectModel') == null) {
         root.tasks.register('printPieceKotlinProjectModel') {
@@ -470,9 +490,7 @@ gradle.projectsLoaded {
                             println('PIECE_KOTLIN_DIAGNOSTIC\twarning\tkotlin-gradle-source-sets-unavailable\t' + pieceEscape(error.message))
                         }
                     }
-                    project.configurations.findAll { cfg ->
-                        cfg.canBeResolved && cfg.name.toLowerCase(java.util.Locale.ROOT).contains('compileclasspath')
-                    }.each { cfg ->
+                    project.configurations.findAll { cfg -> pieceShouldResolveClasspath(cfg) }.each { cfg ->
                         try {
                             def files = cfg.resolve().findAll { file -> file.exists() }.collect { file -> file.absolutePath }.sort()
                             println('PIECE_KOTLIN_CLASSPATH\t' + pieceEscape(project.path) + '\t' + pieceEscape(cfg.name) + '\t' + pieceJoinPaths(files))

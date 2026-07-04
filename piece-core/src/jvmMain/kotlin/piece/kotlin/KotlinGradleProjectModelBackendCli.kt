@@ -18,17 +18,27 @@ fun main(args: Array<String>) {
         projectRoot = projectRoot,
         gradleCommand = options["gradleCommand"]?.takeIf { it.isNotBlank() } ?: "./gradlew",
         gradleVersion = options["gradleVersion"]?.takeIf { it.isNotBlank() } ?: "9.6.1",
+        sourceSet = options["sourceSet"]?.takeIf { it.isNotBlank() },
     )
     val result = try {
         KotlinGradleProjectModelBackend().discover(request)
     } catch (error: Throwable) {
+        val fallbackProjectRoot = projectRoot.toAbsolutePath().normalize().toString()
         KotlinGradleProjectModelResult(
-            projectRoot = projectRoot.toAbsolutePath().normalize().toString(),
+            projectRoot = fallbackProjectRoot,
             status = "fallback",
             sourceSets = emptyList(),
             classpaths = emptyList(),
             sourceRoots = emptyList(),
             classpath = emptyList(),
+            hashes = projectModelHashes(
+                projectRoot = fallbackProjectRoot,
+                status = "fallback",
+                sourceSets = emptyList(),
+                classpaths = emptyList(),
+                sourceRoots = emptyList(),
+                classpath = emptyList(),
+            ),
             commands = emptyList(),
             diagnostics = listOf(
                 KotlinGradleProjectModelDiagnostic(

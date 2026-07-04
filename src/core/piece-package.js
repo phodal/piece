@@ -82,7 +82,7 @@ function outgoingEdges(graph) {
 }
 
 function projectModelActionInput(manifest) {
-  const modelHash = manifest?.projectModel?.hashes?.modelHash;
+  const modelHash = manifest?.projectModel?.analysisScope?.hashes?.scopeHash ?? manifest?.projectModel?.hashes?.modelHash;
   return modelHash ? `project-model:${modelHash}` : undefined;
 }
 

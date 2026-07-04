@@ -227,12 +227,25 @@ async function readJsonFile(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
+function inferKotlinSourceSetFromProjectFile(projectRoot, filePath, cwd) {
+  if (!projectRoot || !filePath) return undefined;
+  const sourcePath = resolveHostPath(String(filePath), cwd);
+  const root = resolveHostPath(String(projectRoot), cwd);
+  if (!isPathInside(root, sourcePath)) return undefined;
+  const relativePath = relative(root, sourcePath);
+  const parts = relativePath.split(/[\\/]+/);
+  const sourceIndex = parts.indexOf("src");
+  if (sourceIndex < 0 || parts[sourceIndex + 2] !== "kotlin") return undefined;
+  return parts[sourceIndex + 1];
+}
+
 async function collectKotlinGradleProjectModel(options = {}) {
   const projectRootOption = options.gradleProjectRoot ?? options.projectRoot;
   if (!projectRootOption) return null;
 
   const cwd = resolve(options.cwd ?? process.cwd());
   const projectRoot = resolveHostPath(String(projectRootOption), cwd);
+  const sourceSet = options.sourceSet ?? inferKotlinSourceSetFromProjectFile(projectRoot, options.filePath, cwd);
   const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-gradle-model-host-");
   const hostWorkspace = hostWorkspaceInfo.path;
   const outputReport = join(hostWorkspace, "gradle-project-model.json");
@@ -247,7 +260,8 @@ async function collectKotlinGradleProjectModel(options = {}) {
       `-PpieceGradleProjectModel.projectRoot=${projectRoot}`,
       `-PpieceGradleProjectModel.outputReport=${outputReport}`,
       `-PpieceGradleProjectModel.gradleCommand=${gradleCommand}`,
-      `-PpieceGradleProjectModel.gradleVersion=${options.gradleVersion ?? ""}`
+      `-PpieceGradleProjectModel.gradleVersion=${options.gradleVersion ?? ""}`,
+      `-PpieceGradleProjectModel.sourceSet=${sourceSet ?? ""}`
     ];
     const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
     if (await pathExists(outputReport)) {
@@ -336,14 +350,121 @@ function withKotlinProjectModelHashes(projectModel) {
   };
 }
 
+function isPathInside(root, child) {
+  const relativePath = relative(root, child);
+  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
+}
+
+function sourceSetForKotlinProjectFile(projectModel, filePath, cwd) {
+  if (!filePath) return undefined;
+  const sourcePath = resolveHostPath(filePath, cwd);
+  let bestMatch;
+  for (const sourceSet of projectModel?.sourceSets ?? []) {
+    for (const sourceRoot of sourceSet.sourceRoots ?? []) {
+      const root = resolveHostPath(sourceRoot, cwd);
+      if (!isPathInside(root, sourcePath)) continue;
+      const score = root.length;
+      if (!bestMatch || score > bestMatch.score) {
+        bestMatch = { sourceSet, score };
+      }
+    }
+  }
+  return bestMatch?.sourceSet;
+}
+
+function requiredKotlinSourceSetNames(sourceSetName) {
+  if (!sourceSetName) return [];
+  const names = new Set([sourceSetName]);
+  if (sourceSetName !== "commonMain" && sourceSetName.endsWith("Main")) {
+    names.add("commonMain");
+  }
+  if (sourceSetName.endsWith("Test")) {
+    names.add("commonMain");
+    names.add("commonTest");
+    names.add(sourceSetName.replace(/Test$/, "Main"));
+  }
+  return [...names].sort();
+}
+
+function kotlinTargetPrefix(sourceSetName) {
+  if (!sourceSetName || sourceSetName.startsWith("common")) return undefined;
+  return sourceSetName.replace(/(?:Main|Test)$/, "");
+}
+
+function classpathMatchesKotlinSourceSet(classpathEntry, sourceSetName) {
+  const prefix = kotlinTargetPrefix(sourceSetName);
+  if (!prefix) return false;
+  const lowerName = String(classpathEntry?.name ?? "").toLowerCase();
+  const lowerPrefix = prefix.toLowerCase();
+  if (!lowerName.includes(lowerPrefix) || !lowerName.includes("compileclasspath")) {
+    return false;
+  }
+  return sourceSetName.endsWith("Test") || !lowerName.includes("test");
+}
+
+function kotlinProjectModelScopeHashes(scope) {
+  const sourceRoots = [...new Set(scope.sourceRoots ?? [])].sort();
+  const classpath = [...new Set(scope.classpath ?? [])].sort();
+  const sourceRootsHash = hashParts(sourceRoots);
+  const classpathHash = hashParts(classpath);
+  const scopeHash = hashParts([
+    "v1",
+    scope.sourceSet ?? "",
+    ...(scope.requiredSourceSets ?? []),
+    sourceRootsHash,
+    classpathHash,
+    ...(scope.classpathConfigurations ?? [])
+  ]);
+  return {
+    sourceRootsHash,
+    classpathHash,
+    scopeHash
+  };
+}
+
+function focusKotlinProjectModel(projectModel, options = {}) {
+  if (!projectModel) return projectModel;
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const modelWithHashes = withKotlinProjectModelHashes(projectModel);
+  const selectedSourceSet = sourceSetForKotlinProjectFile(modelWithHashes, options.filePath, cwd);
+  const requiredSourceSets = requiredKotlinSourceSetNames(selectedSourceSet?.name);
+  const requiredNames = new Set(requiredSourceSets);
+  const selectedSourceRoots =
+    requiredNames.size > 0
+      ? [...new Set((modelWithHashes.sourceSets ?? []).filter((sourceSet) => requiredNames.has(sourceSet.name)).flatMap((sourceSet) => sourceSet.sourceRoots ?? []))].sort()
+      : [...(modelWithHashes.sourceRoots ?? [])];
+  const matchingClasspaths =
+    selectedSourceSet?.name
+      ? (modelWithHashes.classpaths ?? []).filter((classpathEntry) => classpathMatchesKotlinSourceSet(classpathEntry, selectedSourceSet.name))
+      : [];
+  const selectedClasspath = matchingClasspaths.length > 0 ? [...new Set(matchingClasspaths.flatMap((entry) => entry.files ?? []))].sort() : [...(modelWithHashes.classpath ?? [])];
+  const scope = {
+    status: selectedSourceSet ? "selected" : "fallback",
+    sourceSet: selectedSourceSet?.name,
+    requiredSourceSets,
+    sourceRoots: selectedSourceRoots,
+    classpath: selectedClasspath,
+    classpathConfigurations: matchingClasspaths.map((entry) => `${entry.projectPath}:${entry.name}`).sort()
+  };
+  return {
+    ...modelWithHashes,
+    analysisScope: {
+      ...scope,
+      hashes: kotlinProjectModelScopeHashes(scope)
+    }
+  };
+}
+
 function mergeKotlinProjectModelOptions(options, projectModel) {
   if (!projectModel) return options;
 
   const cwd = resolve(options.cwd ?? process.cwd());
+  const modelSourceRoots = projectModel.analysisScope?.sourceRoots ?? projectModel.sourceRoots ?? [];
+  const modelClasspath = projectModel.analysisScope?.classpath ?? projectModel.classpath ?? [];
   return {
     ...options,
-    sourceRoots: uniqueResolvedPaths([...(projectModel.sourceRoots ?? []), ...(Array.isArray(options.sourceRoots) ? options.sourceRoots : [])], cwd),
-    classpath: uniqueResolvedPaths([...(projectModel.classpath ?? []), ...(Array.isArray(options.classpath) ? options.classpath : [])], cwd)
+    sourceRoots: uniqueResolvedPaths([...modelSourceRoots, ...(Array.isArray(options.sourceRoots) ? options.sourceRoots : [])], cwd),
+    classpath: uniqueResolvedPaths([...modelClasspath, ...(Array.isArray(options.classpath) ? options.classpath : [])], cwd)
   };
 }
 
@@ -360,7 +481,8 @@ function attachKotlinProjectModel(manifest, projectModel) {
       classpath: modelWithHashes.classpath ?? [],
       sourceSets: modelWithHashes.sourceSets ?? [],
       classpaths: modelWithHashes.classpaths ?? [],
-      hashes: modelWithHashes.hashes
+      hashes: modelWithHashes.hashes,
+      analysisScope: modelWithHashes.analysisScope
     },
     diagnostics: [...(manifest.diagnostics ?? []), ...(modelWithHashes.diagnostics ?? [])]
   };
@@ -691,7 +813,7 @@ export async function analyzeKotlinPieceFile(options = {}) {
   const analysisApiVersion = options.analysisApiVersion ?? options.kotlinAnalysisApiVersion;
   const semanticDiagnostics = options.semanticDiagnostics === true;
   const semanticSymbols = options.semanticSymbols === true;
-  const projectModel = await collectKotlinGradleProjectModel(options);
+  const projectModel = focusKotlinProjectModel(await collectKotlinGradleProjectModel(options), { ...options, filePath });
   const analysisOptions = mergeKotlinProjectModelOptions(options, projectModel);
   const companionSources = await collectKotlinCompanionSources(analysisOptions, filePath);
   const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-analysis-host-");

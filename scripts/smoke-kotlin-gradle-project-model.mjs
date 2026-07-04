@@ -80,6 +80,8 @@ kotlin {
   jvm()
 
   sourceSets {
+    val unusedMain by creating
+
     val jvmMain by getting {
       dependencies {
         implementation(files("libs/external-user.jar"))
@@ -93,10 +95,13 @@ kotlin {
 
   const modelDir = join(projectRoot, "src", "commonMain", "kotlin", "demo", "model");
   const appDir = join(projectRoot, "src", "jvmMain", "kotlin", "demo", "app");
+  const unusedDir = join(projectRoot, "src", "unusedMain", "kotlin", "demo", "unused");
   await mkdir(modelDir, { recursive: true });
   await mkdir(appDir, { recursive: true });
+  await mkdir(unusedDir, { recursive: true });
   const modelPath = join(modelDir, "User.kt");
   const renderPath = join(appDir, "Render.kt");
+  const unusedPath = join(unusedDir, "Unused.kt");
   await writeFile(
     modelPath,
     `package demo.model
@@ -113,6 +118,14 @@ import demo.external.ExternalUser
 import demo.model.User
 
 fun render(user: User, external: ExternalUser): String = user.name + ":" + external.name
+`,
+    "utf8"
+  );
+  await writeFile(
+    unusedPath,
+    `package demo.unused
+
+class UnusedModel
 `,
     "utf8"
   );
@@ -148,6 +161,30 @@ try {
       manifest.projectModel.hashes?.sourceRootsHash &&
       manifest.projectModel.hashes?.classpathHash,
     `Gradle project model did not include stable hashes: ${JSON.stringify(manifest.projectModel)}`
+  );
+  assert(
+    manifest.projectModel.sourceSets.some((sourceSet) => sourceSet.name === "unusedMain"),
+    `Full Gradle project model did not retain the unused source set: ${JSON.stringify(manifest.projectModel.sourceSets)}`
+  );
+  assert(
+    manifest.projectModel.analysisScope?.status === "selected" &&
+      manifest.projectModel.analysisScope?.sourceSet === "jvmMain" &&
+      JSON.stringify(manifest.projectModel.analysisScope?.requiredSourceSets) === JSON.stringify(["commonMain", "jvmMain"]),
+    `Gradle project model did not select the jvmMain analysis scope: ${JSON.stringify(manifest.projectModel.analysisScope)}`
+  );
+  assert(
+    manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/src/commonMain/kotlin")) &&
+      manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/src/jvmMain/kotlin")) &&
+      !manifest.projectModel.analysisScope.sourceRoots.some((root) => root.endsWith("/src/unusedMain/kotlin")),
+    `Gradle project model analysis scope did not narrow source roots: ${JSON.stringify(manifest.projectModel.analysisScope.sourceRoots)}`
+  );
+  assert(
+    manifest.projectModel.analysisScope.classpath.includes(projectJar),
+    `Gradle project model analysis scope did not retain the jvmMain classpath: ${JSON.stringify(manifest.projectModel.analysisScope.classpath)}`
+  );
+  assert(
+    manifest.projectModel.analysisScope.hashes?.scopeHash,
+    `Gradle project model analysis scope did not include stable hashes: ${JSON.stringify(manifest.projectModel.analysisScope)}`
   );
   assert(
     manifest.importBindings.some((binding) => binding.local === "User" && binding.imported === "User" && binding.source === modelPath),
@@ -186,11 +223,11 @@ try {
     `Gradle-discovered classpath binding did not become an external graph edge: ${JSON.stringify(analysis.graph.edges)}`
   );
   assert(
-    analysis.snapshot.projectModelHash === analysis.manifest.projectModel.hashes.modelHash,
+    analysis.snapshot.projectModelHash === analysis.manifest.projectModel.analysisScope.hashes.scopeHash,
     `Snapshot did not include the Gradle project model hash: ${JSON.stringify(analysis.snapshot)}`
   );
   assert(
-    analysis.piecePackage.actions.every((action) => action.inputs.includes(`project-model:${analysis.manifest.projectModel.hashes.modelHash}`)),
+    analysis.piecePackage.actions.every((action) => action.inputs.includes(`project-model:${analysis.manifest.projectModel.analysisScope.hashes.scopeHash}`)),
     `Piece actions did not include the Gradle project model hash input: ${JSON.stringify(analysis.piecePackage.actions)}`
   );
   assert(

@@ -281,6 +281,7 @@ tasks.register<JavaExec>("runKotlinGradleProjectModelBackend") {
                 "--outputReport=$outputReport",
                 "--gradleCommand=${providers.gradleProperty("pieceGradleProjectModel.gradleCommand").orNull ?: rootProject.file("gradlew").absolutePath}",
                 "--gradleVersion=${providers.gradleProperty("pieceGradleProjectModel.gradleVersion").orNull ?: gradle.gradleVersion}",
+                "--sourceSet=${providers.gradleProperty("pieceGradleProjectModel.sourceSet").orNull.orEmpty()}",
             ),
         )
     }
