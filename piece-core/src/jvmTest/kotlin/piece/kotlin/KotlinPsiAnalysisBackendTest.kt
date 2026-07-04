@@ -115,4 +115,43 @@ class KotlinPsiAnalysisBackendTest {
         assertEquals(emptyList(), semanticRender.symbols.typeReferences)
         assertFalse("User" in semanticRender.symbols.references)
     }
+
+    @Test
+    fun resolvesCompanionFileSymbolsAsExternalBindings() {
+        val source = """
+            package demo.symbols
+
+            fun render(user: User): String = user.name
+        """.trimIndent()
+
+        val semanticManifest = KotlinPsiAnalysisBackend().analyze(
+            KotlinPsiAnalysisRequest(
+                filePath = "/repo/src/Render.kt",
+                source = source,
+                semanticSymbols = true,
+                companionFiles = listOf(
+                    KotlinPsiAnalysisSourceFile(
+                        filePath = "/repo/src/Models.kt",
+                        source = """
+                            package demo.symbols
+
+                            data class User(val name: String)
+                        """.trimIndent(),
+                    ),
+                ),
+            ),
+        )
+
+        val render = semanticManifest.slices.first { it.name == "render" }
+        assertEquals(listOf("User"), render.symbols.typeReferences)
+        assertEquals(
+            KotlinPsiImportBinding(
+                local = "User",
+                imported = "User",
+                source = "/repo/src/Models.kt",
+                kind = "named",
+            ),
+            semanticManifest.importBindings.single(),
+        )
+    }
 }

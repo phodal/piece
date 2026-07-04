@@ -109,4 +109,43 @@ assert(
   `Kotlin semantic symbols did not remove type-parameter shadowed User references: ${JSON.stringify(symbolRender.symbols)}`
 );
 
+const crossFileSource = `package demo.symbols
+
+fun render(user: User): String = user.name
+`;
+const crossFileCompanions = [
+  {
+    filePath: "/repo/src/Models.kt",
+    source: `package demo.symbols
+
+data class User(val name: String)
+`
+  }
+];
+const crossFileManifest = await analyzeKotlinPieceFile({
+  filePath: "/repo/src/Render.kt",
+  source: crossFileSource,
+  sourceFiles: crossFileCompanions,
+  semanticSymbols: true
+});
+assert(
+  JSON.stringify(crossFileManifest.importBindings) ===
+    JSON.stringify([{ local: "User", imported: "User", source: "/repo/src/Models.kt", kind: "named", isTypeOnly: false }]),
+  `Kotlin companion file binding was not returned: ${JSON.stringify(crossFileManifest.importBindings)}`
+);
+const crossFileAnalysis = await analyzePieceFile({
+  filePath: "/repo/src/Render.kt",
+  source: crossFileSource,
+  declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
+    semanticSymbols: true,
+    sourceFiles: crossFileCompanions
+  })
+});
+assert(
+  crossFileAnalysis.graph.edges.some(
+    (edge) => edge.kind === "external" && edge.to === "/repo/src/Models.kt#User" && edge.symbols.includes("User")
+  ),
+  `Kotlin companion file binding did not become an external graph edge: ${JSON.stringify(crossFileAnalysis.graph.edges)}`
+);
+
 console.log("Kotlin PSI analysis smoke passed");

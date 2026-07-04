@@ -33,11 +33,18 @@ import kotlin.io.path.writeText
 data class KotlinBindingSymbolRequest(
     val filePath: String,
     val source: String,
+    val companionFiles: List<KotlinBindingSourceFile> = emptyList(),
     val classpath: List<String> = defaultKotlinSemanticClasspath(),
+)
+
+data class KotlinBindingSourceFile(
+    val filePath: String,
+    val source: String,
 )
 
 data class KotlinBindingSymbolResult(
     val symbolsByDeclaration: Map<String, KotlinSemanticSymbols>,
+    val importBindings: List<KotlinPsiImportBinding> = emptyList(),
     val diagnostics: List<KotlinPsiDiagnostic> = emptyList(),
 )
 
@@ -46,6 +53,7 @@ data class KotlinSemanticSymbols(
     val typeReferences: List<String> = emptyList(),
     val resolvedRuntimeNames: List<String> = emptyList(),
     val resolvedTypeNames: List<String> = emptyList(),
+    val importBindings: List<KotlinPsiImportBinding> = emptyList(),
 )
 
 internal class KotlinBindingSymbolBackend {
@@ -53,15 +61,30 @@ internal class KotlinBindingSymbolBackend {
         val workspace = Files.createTempDirectory("piece-kotlin-binding-")
         val disposable = Disposer.newDisposable()
         return try {
-            val sourceName = request.filePath.replace('\\', '/').substringAfterLast('/').ifBlank { "Main.kt" }
-            val sourceFile = workspace.resolve(sourceName)
+            val sourceFile = workspace.resolve("primary").resolve(sourceName(request.filePath, "Main.kt"))
             workspace.createDirectories()
+            sourceFile.parent.createDirectories()
             sourceFile.writeText(request.source)
+            val virtualPathByActualPath = mutableMapOf(
+                sourceFile.toAbsolutePath().normalize().toString() to request.filePath,
+            )
+            val companionSourceFiles = request.companionFiles
+                .filterNot { it.filePath == request.filePath }
+                .mapIndexed { index, companion ->
+                    val companionFile = workspace
+                        .resolve("companions")
+                        .resolve("${index}-${sourceName(companion.filePath, "Companion.kt")}")
+                    companionFile.parent.createDirectories()
+                    companionFile.writeText(companion.source)
+                    virtualPathByActualPath[companionFile.toAbsolutePath().normalize().toString()] = companion.filePath
+                    companionFile
+                }
+            val allSourceFiles = listOf(sourceFile) + companionSourceFiles
 
             val configuration = CompilerConfiguration().apply {
                 put(CommonConfigurationKeys.MODULE_NAME, "piece-semantic-symbols")
                 put(CommonConfigurationKeys.MESSAGE_COLLECTOR_KEY, MessageCollector.NONE)
-                addKotlinSourceRoot(sourceFile.toString())
+                allSourceFiles.forEach { file -> addKotlinSourceRoot(file.toString()) }
                 request.classpath
                     .filter { it.isNotBlank() }
                     .map(::File)
@@ -95,14 +118,42 @@ internal class KotlinBindingSymbolBackend {
                     descriptor to name
                 }
                 .toMap()
+            val descriptorToExternalBinding = sourceFiles
+                .filterNot { ktFile -> ktFile == sourceKtFile }
+                .flatMap { ktFile ->
+                    val virtualPath = virtualPathByActualPath[ktFile.virtualFilePath] ?: ktFile.virtualFilePath
+                    ktFile.declarations.mapNotNull { declaration ->
+                        val name = declaration.name ?: return@mapNotNull null
+                        val descriptor = bindingContext.get(BindingContext.DECLARATION_TO_DESCRIPTOR, declaration)?.topLevelOriginal()
+                            ?: return@mapNotNull null
+                        descriptor to KotlinPsiImportBinding(
+                            local = name,
+                            imported = name,
+                            source = virtualPath,
+                            kind = "named",
+                            isTypeOnly = false,
+                        )
+                    }
+                }
+                .toMap()
 
             val symbolsByDeclaration = sourceKtFile.declarations
                 .mapNotNull { declaration ->
                     val name = declaration.name ?: return@mapNotNull null
-                    name to declaration.collectSemanticSymbols(bindingContext, descriptorToDeclaration)
+                    name to declaration.collectSemanticSymbols(
+                        bindingContext = bindingContext,
+                        descriptorToDeclaration = descriptorToDeclaration,
+                        descriptorToExternalBinding = descriptorToExternalBinding,
+                    )
                 }
                 .toMap()
-            KotlinBindingSymbolResult(symbolsByDeclaration)
+            KotlinBindingSymbolResult(
+                symbolsByDeclaration = symbolsByDeclaration,
+                importBindings = symbolsByDeclaration.values
+                    .flatMap { it.importBindings }
+                    .distinctBy { "${it.local}:${it.imported}:${it.source}:${it.kind}" }
+                    .sortedWith(compareBy({ it.source }, { it.imported }, { it.local })),
+            )
         } catch (error: Throwable) {
             KotlinBindingSymbolResult(
                 symbolsByDeclaration = emptyMap(),
@@ -125,11 +176,13 @@ internal class KotlinBindingSymbolBackend {
 private fun KtDeclaration.collectSemanticSymbols(
     bindingContext: BindingContext,
     descriptorToDeclaration: Map<DeclarationDescriptor, String>,
+    descriptorToExternalBinding: Map<DeclarationDescriptor, KotlinPsiImportBinding>,
 ): KotlinSemanticSymbols {
     val runtimeReferences = linkedSetOf<String>()
     val typeReferences = linkedSetOf<String>()
     val resolvedRuntimeNames = linkedSetOf<String>()
     val resolvedTypeNames = linkedSetOf<String>()
+    val importBindings = linkedMapOf<String, KotlinPsiImportBinding>()
 
     for (reference in collectDescendantsOfType<KtNameReferenceExpression>()) {
         val referencedName = reference.getReferencedName()
@@ -149,6 +202,11 @@ private fun KtDeclaration.collectSemanticSymbols(
             } else {
                 runtimeReferences += localDeclaration
             }
+        } else {
+            val externalBinding = resolvedDescriptor?.let(descriptorToExternalBinding::get)
+            if (externalBinding != null) {
+                importBindings["${externalBinding.local}:${externalBinding.imported}:${externalBinding.source}"] = externalBinding
+            }
         }
     }
 
@@ -157,7 +215,12 @@ private fun KtDeclaration.collectSemanticSymbols(
         typeReferences = typeReferences.sorted(),
         resolvedRuntimeNames = resolvedRuntimeNames.sorted(),
         resolvedTypeNames = resolvedTypeNames.sorted(),
+        importBindings = importBindings.values.sortedWith(compareBy({ it.source }, { it.imported }, { it.local })),
     )
+}
+
+private fun sourceName(filePath: String, fallback: String): String {
+    return filePath.replace('\\', '/').substringAfterLast('/').ifBlank { fallback }
 }
 
 private fun KtNameReferenceExpression.resolveTargetDescriptor(bindingContext: BindingContext): DeclarationDescriptor? {

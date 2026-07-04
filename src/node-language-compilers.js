@@ -267,13 +267,30 @@ export async function analyzeKotlinPieceFile(options = {}) {
   const parserName = options.parserName ?? "kotlin-psi-declaration-extractor";
   const semanticDiagnostics = options.semanticDiagnostics === true;
   const semanticSymbols = options.semanticSymbols === true;
+  const companionSources = Array.isArray(options.sourceFiles) ? options.sourceFiles : [];
   const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-analysis-host-");
   const hostWorkspace = hostWorkspaceInfo.path;
   const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
+  const companionDir = join(hostWorkspace, "companions");
+  const companionSourcesFile = join(hostWorkspace, "companion-sources.tsv");
   const outputReport = join(hostWorkspace, "analysis-report.json");
 
   try {
     await writeFile(sourceFile, source, "utf8");
+    const companionLines = [];
+    if (companionSources.length > 0) {
+      await mkdir(companionDir, { recursive: true });
+      for (const [index, companion] of companionSources.entries()) {
+        const companionFilePath = companion?.filePath;
+        if (!companionFilePath || companionFilePath === filePath) continue;
+        const companionSourceFile = join(companionDir, `${index}-${sourceBasename(companionFilePath, "Companion.kt")}`);
+        await writeFile(companionSourceFile, companion.source ?? "", "utf8");
+        companionLines.push(`${companionFilePath}\t${companionSourceFile}`);
+      }
+      if (companionLines.length > 0) {
+        await writeFile(companionSourcesFile, `${companionLines.join("\n")}\n`, "utf8");
+      }
+    }
     const args = [
       "-p",
       join(PACKAGE_ROOT, "piece-core"),
@@ -284,7 +301,8 @@ export async function analyzeKotlinPieceFile(options = {}) {
       `-PpieceAnalysis.outputReport=${outputReport}`,
       `-PpieceAnalysis.parserName=${parserName}`,
       `-PpieceAnalysis.semanticDiagnostics=${semanticDiagnostics ? "true" : "false"}`,
-      `-PpieceAnalysis.semanticSymbols=${semanticSymbols ? "true" : "false"}`
+      `-PpieceAnalysis.semanticSymbols=${semanticSymbols ? "true" : "false"}`,
+      `-PpieceAnalysis.companionSources=${companionLines.length > 0 ? companionSourcesFile : ""}`
     ];
 
     const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
@@ -308,6 +326,7 @@ export function createNodeKotlinPsiDeclarationExtractor(options = {}) {
         parserName: name,
         semanticDiagnostics: options.semanticDiagnostics === true,
         semanticSymbols: options.semanticSymbols === true,
+        sourceFiles: options.sourceFiles,
         env: options.env
       });
     }

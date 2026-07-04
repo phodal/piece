@@ -15,6 +15,12 @@ data class KotlinPsiAnalysisRequest(
     val parserName: String = DEFAULT_KOTLIN_PSI_PARSER_NAME,
     val semanticDiagnostics: Boolean = false,
     val semanticSymbols: Boolean = false,
+    val companionFiles: List<KotlinPsiAnalysisSourceFile> = emptyList(),
+)
+
+data class KotlinPsiAnalysisSourceFile(
+    val filePath: String,
+    val source: String,
 )
 
 data class KotlinPsiImportBinding(
@@ -129,18 +135,25 @@ class KotlinPsiAnalysisBackend {
                 declaration.toPieceDeclaration(file)
             }
             val headers = ktFile.toHeaders(file)
-            val importLocals = headers.flatMap { header -> header.importBindings }.map { binding -> binding.local }.toSet()
             val localTargetNames = declarations.map { declaration -> declaration.name }.toSet()
             val semanticResult = if (request.semanticSymbols) {
                 KotlinBindingSymbolBackend().symbols(
                     KotlinBindingSymbolRequest(
                         filePath = request.filePath,
                         source = request.source,
+                        companionFiles = request.companionFiles.map { companion ->
+                            KotlinBindingSourceFile(
+                                filePath = companion.filePath,
+                                source = companion.source,
+                            )
+                        },
                     ),
                 )
             } else {
                 KotlinBindingSymbolResult(emptyMap())
             }
+            val importBindings = headers.flatMap { it.importBindings } + semanticResult.importBindings
+            val importLocals = importBindings.map { binding -> binding.local }.toSet()
             val slices = declarations.map { declaration ->
                 declaration.toManifestSlice(
                     file = file,
@@ -168,7 +181,7 @@ class KotlinPsiAnalysisBackend {
                 slices = slices,
                 headers = headers,
                 effects = effects,
-                importBindings = headers.flatMap { it.importBindings },
+                importBindings = importBindings,
                 hasTopLevelEffect = effects.isNotEmpty(),
                 diagnostics = diagnostics,
             )
