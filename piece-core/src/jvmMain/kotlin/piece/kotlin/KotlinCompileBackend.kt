@@ -25,6 +25,7 @@ data class KotlinCompileRequest(
     val source: String,
     val target: String = "jvm",
     val sourceSet: String? = null,
+    val companionFiles: List<KotlinCompileSourceFile> = emptyList(),
     val pieceAction: KotlinCompilePieceAction? = null,
     val pieceTarget: String? = null,
     val pieceActionName: String = "compile",
@@ -34,6 +35,11 @@ data class KotlinCompileRequest(
     val gradleVersion: String = DEFAULT_GRADLE_VERSION,
     val kotlinPluginVersion: String = DEFAULT_KOTLIN_PLUGIN_VERSION,
     val tasks: List<String> = emptyList(),
+)
+
+data class KotlinCompileSourceFile(
+    val filePath: String,
+    val source: String,
 )
 
 data class KotlinCompilePieceAction(
@@ -118,6 +124,9 @@ class KotlinCompileBackend {
             val sourceDir = workspace.resolve("src").resolve(sourceSet).resolve("kotlin")
             sourceDir.createDirectories()
             sourceDir.resolve(sourceName).writeText(request.source)
+            request.companionFiles.forEachIndexed { index, companion ->
+                sourceDir.resolve(companionSourceName(index, companion.filePath)).writeText(companion.source)
+            }
 
             val tasks = request.tasks.ifEmpty { tasksForTarget(request.target) }
             commands += runGradleBuild(request, workspace, tasks)
@@ -192,6 +201,15 @@ private fun tasksForTarget(target: String): List<String> = when (target) {
 private fun sourceBasename(filePath: String): String {
     val name = filePath.replace('\\', '/').substringAfterLast('/').takeIf { it.contains('.') }
     return name ?: "Main.kt"
+}
+
+private fun companionSourceName(index: Int, filePath: String): String {
+    val baseName = sourceBasename(filePath)
+        .replace(Regex("\\.kts?$"), "")
+        .replace(Regex("[^A-Za-z0-9_]+"), "_")
+        .trim('_')
+        .ifBlank { "Companion" }
+    return "PieceCompanion_${index}_$baseName.kt"
 }
 
 private fun projectName(sourceName: String): String {

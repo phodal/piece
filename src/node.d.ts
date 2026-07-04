@@ -74,6 +74,9 @@ export interface CompileKotlinPieceFileOptions {
   readonly gradleCommand?: string;
   readonly kotlinPluginVersion?: string;
   readonly tasks?: readonly string[];
+  readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
+  readonly sourceRoots?: readonly string[];
+  readonly cwd?: string;
   readonly pieceAction?: PieceCompileActionReference;
   readonly pieceTarget?: string;
   readonly pieceActionName?: string;

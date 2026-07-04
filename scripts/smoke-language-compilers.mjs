@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { compileGoPieceFile, compileKotlinPieceFile } from "../src/node.js";
 
 const goSource = `package main
@@ -19,12 +22,15 @@ func main() {
 
 const kotlinSource = `package demo.pricing
 
-data class User(val name: String)
-data class Greeting(val message: String)
-
 fun renderGreeting(user: User): Greeting {
     return Greeting("Hello, " + user.name)
 }
+`;
+
+const kotlinModelSource = `package demo.pricing
+
+data class User(val name: String)
+data class Greeting(val message: String)
 `;
 
 function assertSuccess(result, label) {
@@ -43,12 +49,20 @@ if (!goResult.outputFiles.some((file) => file.path.endsWith("Pricing"))) {
   throw new Error("Go compile did not produce the expected main binary artifact.");
 }
 
-const kotlinResult = await compileKotlinPieceFile({
-  filePath: "/repo/src/Pricing.kt",
-  source: kotlinSource,
-  target: "all",
-  pieceTarget: "renderGreeting"
-});
+const kotlinSourceRoot = await mkdtemp(join(tmpdir(), "piece-kotlin-compile-source-root-"));
+let kotlinResult;
+try {
+  await writeFile(join(kotlinSourceRoot, "Models.kt"), kotlinModelSource, "utf8");
+  kotlinResult = await compileKotlinPieceFile({
+    filePath: "/repo/src/Pricing.kt",
+    source: kotlinSource,
+    sourceRoots: [kotlinSourceRoot],
+    target: "all",
+    pieceTarget: "renderGreeting"
+  });
+} finally {
+  await rm(kotlinSourceRoot, { recursive: true, force: true });
+}
 assertSuccess(kotlinResult, "Kotlin");
 if (kotlinResult.backend !== "kotlin-jvm") {
   throw new Error(`Expected Kotlin compile backend to be kotlin-jvm, got ${kotlinResult.backend}.`);

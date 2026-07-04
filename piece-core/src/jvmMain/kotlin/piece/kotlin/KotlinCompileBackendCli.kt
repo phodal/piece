@@ -18,11 +18,16 @@ fun main(args: Array<String>) {
     val outputReport = Path.of(options.required("outputReport"))
     val gradleCommand = options["gradleCommand"]?.takeIf { it.isNotBlank() } ?: "./gradlew"
     val source = Path.of(sourceFile).readText()
+    val companionFiles = options["companionSources"]
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::readCompanionSources)
+        .orEmpty()
     val request = KotlinCompileRequest(
         filePath = options["filePath"]?.takeIf { it.isNotBlank() } ?: "Main.kt",
         source = source,
         target = options["target"]?.takeIf { it.isNotBlank() } ?: "jvm",
         sourceSet = options["sourceSet"]?.takeIf { it.isNotBlank() },
+        companionFiles = companionFiles,
         pieceAction = options.toPieceAction(),
         pieceTarget = options["pieceTarget"]?.takeIf { it.isNotBlank() },
         pieceActionName = options["pieceActionName"]?.takeIf { it.isNotBlank() } ?: "compile",
@@ -66,6 +71,25 @@ fun main(args: Array<String>) {
 
 private fun Map<String, String>.required(name: String): String {
     return this[name]?.takeIf { it.isNotBlank() } ?: error("Missing --$name=<value>")
+}
+
+private fun readCompanionSources(path: String): List<KotlinCompileSourceFile> {
+    return Path.of(path)
+        .readText()
+        .lineSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .map { line ->
+            val parts = line.split('\t', limit = 2)
+            require(parts.size == 2) {
+                "Companion source rows must be tab-separated as: filePath<TAB>sourceFile"
+            }
+            KotlinCompileSourceFile(
+                filePath = parts[0],
+                source = Path.of(parts[1]).readText(),
+            )
+        }
+        .toList()
 }
 
 private fun Map<String, String>.toPieceAction(): KotlinCompilePieceAction? {

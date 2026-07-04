@@ -265,6 +265,7 @@ export async function compileKotlinPieceFile(options = {}) {
   const source = options.source ?? "";
   const target = options.target ?? "jvm";
   const pieceAction = options.pieceAction;
+  const companionSources = await collectKotlinCompanionSources(options, filePath);
   if (!["jvm", "js", "wasmJs", "all"].includes(target)) {
     throw new TypeError(`Unsupported Kotlin compile target: ${target}`);
   }
@@ -272,10 +273,26 @@ export async function compileKotlinPieceFile(options = {}) {
   const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-host-");
   const hostWorkspace = hostWorkspaceInfo.path;
   const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
+  const companionDir = join(hostWorkspace, "compile-companions");
+  const companionSourcesFile = join(hostWorkspace, "compile-companion-sources.tsv");
   const outputReport = join(hostWorkspace, "compile-report.json");
 
   try {
     await writeFile(sourceFile, source, "utf8");
+    const companionLines = [];
+    if (companionSources.length > 0) {
+      await mkdir(companionDir, { recursive: true });
+      for (const [index, companion] of companionSources.entries()) {
+        const companionFilePath = companion?.filePath;
+        if (!companionFilePath || companionFilePath === filePath) continue;
+        const companionSourceFile = join(companionDir, `${index}-${sourceBasename(companionFilePath, "Companion.kt")}`);
+        await writeFile(companionSourceFile, companion.source ?? "", "utf8");
+        companionLines.push(`${companionFilePath}\t${companionSourceFile}`);
+      }
+      if (companionLines.length > 0) {
+        await writeFile(companionSourcesFile, `${companionLines.join("\n")}\n`, "utf8");
+      }
+    }
     const args = [
       "-p",
       join(PACKAGE_ROOT, "piece-core"),
@@ -290,6 +307,7 @@ export async function compileKotlinPieceFile(options = {}) {
       `-PpieceCompile.kotlinPluginVersion=${options.kotlinPluginVersion ?? ""}`,
       `-PpieceCompile.tasks=${options.tasks?.join(",") ?? ""}`,
       `-PpieceCompile.keepWorkspace=${options.keepWorkspace ? "true" : "false"}`,
+      `-PpieceCompile.companionSources=${companionLines.length > 0 ? companionSourcesFile : ""}`,
       `-PpieceCompile.pieceTargetLabel=${pieceAction?.targetLabel ?? ""}`,
       `-PpieceCompile.pieceActionId=${pieceAction?.actionId ?? ""}`,
       `-PpieceCompile.pieceArtifactId=${pieceAction?.artifactId ?? ""}`,
