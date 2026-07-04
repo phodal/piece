@@ -110,11 +110,39 @@ function nonInfoReasons(reasons = []) {
   return reasons.filter((reason) => reason?.severity !== "info");
 }
 
+function compileActionSourceSetSelection(analysis) {
+  const feedbackSourceSet = analysis?.feedbackScope?.sourceSet;
+  const projectSourceSet = analysis?.manifest?.projectModel?.analysisScope;
+  const sourceSet = feedbackSourceSet ?? projectSourceSet;
+  if (!sourceSet) {
+    return undefined;
+  }
+  const sourceRoots = sourceSet.sourceRoots ?? [];
+  const classpath = sourceSet.classpath ?? [];
+  const dependencyCoordinates = sourceSet.dependencyCoordinates ?? [];
+  const projectDependencies = sourceSet.projectDependencies ?? [];
+  const targetVariants = sourceSet.targetVariants ?? [];
+  return {
+    status: projectSourceSet?.status ?? (feedbackSourceSet ? "selected" : undefined),
+    projectPath: sourceSet.projectPath,
+    projectPaths: sourceSet.projectPaths,
+    sourceSet: sourceSet.sourceSet,
+    requiredSourceSets: sourceSet.requiredSourceSets,
+    fallbackReason: projectSourceSet?.fallbackReason,
+    scopeHash: sourceSet.hashes?.scopeHash,
+    sourceRootCount: sourceRoots.length,
+    classpathCount: classpath.length,
+    dependencyCoordinateCount: dependencyCoordinates.length,
+    projectDependencyCount: projectDependencies.length,
+    targetVariantCount: targetVariants.length
+  };
+}
+
 function compileActionSelectionForStatus(options = {}, status = {}) {
   const analysis = status.analysis;
   const packageScope = analysis?.packageScope;
   const packagePromotion = packageScope?.promotion;
-  const sourceSet = analysis?.feedbackScope?.sourceSet ?? analysis?.manifest?.projectModel?.analysisScope;
+  const sourceSet = compileActionSourceSetSelection(analysis);
   return {
     actionPackageSource: actionPackageSource(options, analysis),
     feedbackScope: {
@@ -135,12 +163,7 @@ function compileActionSelectionForStatus(options = {}, status = {}) {
       : {}),
     ...(sourceSet
       ? {
-          sourceSet: {
-            status: sourceSet.status,
-            projectPath: sourceSet.projectPath,
-            sourceSet: sourceSet.sourceSet,
-            fallbackReason: sourceSet.fallbackReason
-          }
+          sourceSet
         }
       : {})
   };

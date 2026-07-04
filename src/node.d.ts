@@ -183,8 +183,16 @@ export interface NodeCompileActionSelection {
   readonly sourceSet?: {
     readonly status?: string;
     readonly projectPath?: string;
+    readonly projectPaths?: readonly string[];
     readonly sourceSet?: string;
+    readonly requiredSourceSets?: readonly string[];
     readonly fallbackReason?: string;
+    readonly scopeHash?: string;
+    readonly sourceRootCount?: number;
+    readonly classpathCount?: number;
+    readonly dependencyCoordinateCount?: number;
+    readonly projectDependencyCount?: number;
+    readonly targetVariantCount?: number;
   };
 }
 

@@ -343,7 +343,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Expand from single-file package feedback to safe multi-file source-set feedback without changing the default current-file inner loop.
+1. Promote safe source-set companion declarations into an explicit source-set package view without changing the default current-file inner loop.
+
+## Completed Phase 5/6 App-Level Source-Set Proof Metadata Slice
+
+The app-level source-set proof metadata slice is now implemented:
+
+1. `compilePieceApp({ compileAction: true })` exposes selected Gradle/KMP source-set proof metadata through `compileActionSelection.sourceSet`.
+2. The metadata includes project path, reachable project paths, required source sets, scoped hash, source-root count, classpath count, dependency coordinate count, project dependency count, and target variant count.
+3. Source-set fallback metadata still reports fallback status and reason when Gradle project-model discovery cannot prove a safe boundary.
+4. The normal app status and preview path remain unchanged; source-set metadata is exposed as selection diagnostics, not as an automatic package widening.
+5. `npm run language:project-model:smoke` verifies the selected `:app` `jvmMain` source-set proof appears on app-level compile action selection metadata.
 
 ## Completed Phase 5/6 Safe Fast-Path Fallback Gate Slice
 

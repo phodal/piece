@@ -3,7 +3,13 @@ import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile, readFile } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { analyzeKotlinPieceFile, analyzePieceFile, compileKotlinPieceFile, createNodeKotlinPsiDeclarationExtractor } from "../src/node.js";
+import {
+  analyzeKotlinPieceFile,
+  analyzePieceFile,
+  compileKotlinPieceFile,
+  compilePieceApp,
+  createNodeKotlinPsiDeclarationExtractor
+} from "../src/node.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -430,6 +436,32 @@ fun detached(): String = "detached"
   assert(
     analysis.piecePackage.actions.every((action) => action.inputs.includes(`source-set:${analysis.manifest.projectModel.analysisScope.hashes.scopeHash}`)),
     `Piece actions did not include the source-set feedback scope input: ${JSON.stringify(analysis.piecePackage.actions)}`
+  );
+  const appStatus = await compilePieceApp({
+    filePath: renderPath,
+    source,
+    analysis,
+    target: "__no_preview__",
+    compileAction: true,
+    pieceTarget: "__missing_piece_target__"
+  });
+  assert(
+    appStatus.compileActionDiagnostics?.[0]?.code === "piece-compile-action-dispatch-failed",
+    `Expected app-level compile action dispatch to return diagnostics for missing target: ${JSON.stringify(appStatus)}`
+  );
+  assert(
+    appStatus.compileActionSelection?.sourceSet?.status === "selected" &&
+      appStatus.compileActionSelection.sourceSet.projectPath === ":app" &&
+      JSON.stringify(appStatus.compileActionSelection.sourceSet.projectPaths) === JSON.stringify([":app", ":domain"]) &&
+      appStatus.compileActionSelection.sourceSet.sourceSet === "jvmMain" &&
+      JSON.stringify(appStatus.compileActionSelection.sourceSet.requiredSourceSets) === JSON.stringify(["commonMain", "jvmMain"]) &&
+      appStatus.compileActionSelection.sourceSet.scopeHash === analysis.manifest.projectModel.analysisScope.hashes.scopeHash &&
+      appStatus.compileActionSelection.sourceSet.sourceRootCount >= 2 &&
+      appStatus.compileActionSelection.sourceSet.classpathCount >= 1 &&
+      appStatus.compileActionSelection.sourceSet.dependencyCoordinateCount >= 1 &&
+      appStatus.compileActionSelection.sourceSet.projectDependencyCount >= 1 &&
+      appStatus.compileActionSelection.sourceSet.targetVariantCount >= 2,
+    `App-level compile action selection did not expose source-set proof metadata: ${JSON.stringify(appStatus.compileActionSelection)}`
   );
   assert(
     Object.values(analysis.snapshot.artifacts).every((artifact) => artifact.cacheKey),
