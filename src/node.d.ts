@@ -215,6 +215,8 @@ export interface NodeGoDeclarationExtractorOptions {
   readonly modulePath?: string;
   readonly goModulePath?: string;
   readonly goList?: boolean;
+  readonly goAnalyzer?: boolean;
+  readonly backend?: "go-ast" | "javascript" | (string & {});
   readonly env?: Record<string, string | undefined>;
   readonly declarationExtractor?: PieceDeclarationExtractor;
 }

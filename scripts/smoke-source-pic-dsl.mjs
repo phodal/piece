@@ -125,6 +125,8 @@ const goAnalysis = await assertRoundTrip({
     'action compile {'
   ]
 });
+assert(goAnalysis.manifest.parser === "go-ast-declaration-extractor", `Expected Node Go analysis to use Go AST backend: ${goAnalysis.manifest.parser}`);
+assert(goAnalysis.manifest.analysisBackend?.actual === "go-ast", `Expected Go-owned analysis backend metadata: ${JSON.stringify(goAnalysis.manifest.analysisBackend)}`);
 assert(goAnalysis.manifest.toolchain?.kind === "go-list", `Expected Go analysis to include go-list metadata: ${JSON.stringify(goAnalysis.manifest.toolchain)}`);
 assert(goAnalysis.manifest.toolchain?.goList?.packageHash, `Expected Go list package hash: ${JSON.stringify(goAnalysis.manifest.toolchain)}`);
 assert(

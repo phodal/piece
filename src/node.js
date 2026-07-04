@@ -26,6 +26,8 @@ function withNodeDeclarationExtractor(options = {}) {
         goCommand: options.goCommand,
         modulePath: options.goModulePath ?? options.modulePath,
         goList: options.goList,
+        goAnalyzer: options.goAnalyzer,
+        backend: options.goAnalysisBackend,
         env: options.env
       })
     };

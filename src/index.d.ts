@@ -74,6 +74,8 @@ export interface CompilePieceAppOptions {
   readonly goCommand?: string;
   readonly goModulePath?: string;
   readonly goList?: boolean;
+  readonly goAnalyzer?: boolean;
+  readonly goAnalysisBackend?: "go-ast" | "javascript" | (string & {});
   readonly env?: Record<string, string | undefined>;
   readonly fileSystem?: VirtualFileSystem;
   readonly previousTree?: unknown;
@@ -770,6 +772,8 @@ export interface AnalyzePieceFileOptions {
   readonly goCommand?: string;
   readonly goModulePath?: string;
   readonly goList?: boolean;
+  readonly goAnalyzer?: boolean;
+  readonly goAnalysisBackend?: "go-ast" | "javascript" | (string & {});
   readonly env?: Record<string, string | undefined>;
   readonly cwd?: string;
   readonly semanticDiagnostics?: boolean;

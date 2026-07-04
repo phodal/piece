@@ -10,6 +10,7 @@ import { mergePiecePackages, piecePackageToPicDsl } from "./core/pic-dsl.js";
 import { createGoDeclarationExtractor } from "./languages/go/declaration-extractor.js";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const GO_ANALYZER_PATH = join(PACKAGE_ROOT, "go-backend", "analyzer", "main.go");
 
 function durationSince(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
@@ -167,6 +168,53 @@ function createGoListToolchainMetadata(goList) {
     inputs,
     goList
   };
+}
+
+function goAnalyzerFallbackDiagnostic(commandResult, message) {
+  return {
+    code: commandResult?.errorCode === "ENOENT" ? "go-analyzer-tool-not-found" : "go-analyzer-fallback",
+    severity: "warning",
+    message: commandResult?.stderr?.trim() || commandResult?.stdout?.trim() || message || "Go AST analyzer was unavailable",
+    command: commandResult ? [commandResult.command, ...commandResult.args].join(" ") : undefined
+  };
+}
+
+function goAnalyzerFallbackBackend(reason) {
+  return {
+    requested: "go-ast",
+    actual: "javascript-go-extractor",
+    declarations: "javascript",
+    symbols: "javascript",
+    diagnostics: "javascript",
+    status: "fallback",
+    fallbackReason: reason
+  };
+}
+
+async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env }) {
+  const workspaceInfo = await prepareWorkspace("piece-go-analyzer-");
+  const workspace = workspaceInfo.path;
+  const sourceName = sourceBasename(filePath, "Main.go");
+  const sourceFile = join(workspace, sourceName);
+  try {
+    await writeFile(sourceFile, source, "utf8");
+    const command = await runCommand(goCommand, ["run", GO_ANALYZER_PATH, "--file", sourceFile, "--path", filePath], {
+      cwd: workspace,
+      env
+    });
+    if (command.exitCode !== 0) {
+      return { command };
+    }
+    try {
+      return { command, manifest: JSON.parse(command.stdout) };
+    } catch (error) {
+      return { command, error };
+    }
+  } finally {
+    if (workspaceInfo.temporary) {
+      await cleanupWorkspace(workspace, false);
+    }
+  }
 }
 
 async function collectGoListForSource({ filePath, source, goCommand = "go", modulePath, env }) {
@@ -1066,7 +1114,31 @@ export function createNodeGoDeclarationExtractor(options = {}) {
   return {
     name: options.name ?? baseExtractor.name,
     async extract({ filePath, source, previousTree }) {
-      const manifest = await baseExtractor.extract({ filePath, source, previousTree });
+      let manifest;
+      if (options.goAnalyzer === false || options.backend === "javascript") {
+        manifest = await baseExtractor.extract({ filePath, source, previousTree });
+      } else {
+        const analyzerResult = await runGoAstAnalyzer({
+          filePath,
+          source,
+          goCommand: options.goCommand ?? "go",
+          env: options.env
+        });
+        if (analyzerResult.manifest) {
+          manifest = analyzerResult.manifest;
+        } else {
+          const fallbackManifest = await baseExtractor.extract({ filePath, source, previousTree });
+          const diagnostic = goAnalyzerFallbackDiagnostic(
+            analyzerResult.command,
+            analyzerResult.error ? `Go AST analyzer returned invalid JSON: ${analyzerResult.error.message}` : undefined
+          );
+          manifest = {
+            ...fallbackManifest,
+            analysisBackend: goAnalyzerFallbackBackend(diagnostic.message),
+            diagnostics: [...(fallbackManifest.diagnostics ?? []), diagnostic]
+          };
+        }
+      }
       if (options.goList === false) {
         return manifest;
       }
