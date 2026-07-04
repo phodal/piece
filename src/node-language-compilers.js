@@ -293,7 +293,9 @@ export async function compileKotlinPieceFile(options = {}) {
       `-PpieceCompile.pieceTargetLabel=${pieceAction?.targetLabel ?? ""}`,
       `-PpieceCompile.pieceActionId=${pieceAction?.actionId ?? ""}`,
       `-PpieceCompile.pieceArtifactId=${pieceAction?.artifactId ?? ""}`,
-      `-PpieceCompile.pieceActionKind=${pieceAction?.kind ?? "compile"}`
+      `-PpieceCompile.pieceActionKind=${pieceAction?.kind ?? "compile"}`,
+      `-PpieceCompile.pieceTarget=${options.pieceTarget ?? ""}`,
+      `-PpieceCompile.pieceActionName=${options.pieceActionName ?? ""}`
     ];
     if (options.workspace) {
       args.push(`-PpieceCompile.workspace=${resolve(options.workspace)}`);

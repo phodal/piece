@@ -47,12 +47,7 @@ const kotlinResult = await compileKotlinPieceFile({
   filePath: "/repo/src/Pricing.kt",
   source: kotlinSource,
   target: "all",
-  pieceAction: {
-    targetLabel: "//repo/src:Pricing.kt__function_renderGreeting",
-    actionId: "//repo/src:Pricing.kt__function_renderGreeting%compile",
-    artifactId: "//repo/src:Pricing.kt__function_renderGreeting.compile.json",
-    kind: "compile"
-  }
+  pieceTarget: "renderGreeting"
 });
 assertSuccess(kotlinResult, "Kotlin");
 if (kotlinResult.backend !== "kotlin-jvm") {

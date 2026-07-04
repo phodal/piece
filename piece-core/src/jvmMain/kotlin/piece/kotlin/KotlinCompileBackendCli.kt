@@ -24,6 +24,8 @@ fun main(args: Array<String>) {
         target = options["target"]?.takeIf { it.isNotBlank() } ?: "jvm",
         sourceSet = options["sourceSet"]?.takeIf { it.isNotBlank() },
         pieceAction = options.toPieceAction(),
+        pieceTarget = options["pieceTarget"]?.takeIf { it.isNotBlank() },
+        pieceActionName = options["pieceActionName"]?.takeIf { it.isNotBlank() } ?: "compile",
         workspace = options["workspace"]?.takeIf { it.isNotBlank() }?.let { Path.of(it) },
         keepWorkspace = options["keepWorkspace"] == "true",
         gradleCommand = gradleCommand,

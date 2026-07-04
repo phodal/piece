@@ -75,6 +75,8 @@ export interface CompileKotlinPieceFileOptions {
   readonly kotlinPluginVersion?: string;
   readonly tasks?: readonly string[];
   readonly pieceAction?: PieceCompileActionReference;
+  readonly pieceTarget?: string;
+  readonly pieceActionName?: string;
   readonly env?: Record<string, string | undefined>;
 }
 

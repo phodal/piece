@@ -14,6 +14,8 @@ import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.system.measureTimeMillis
+import piece.extract.SourceFile
+import piece.model.PieceActionKind
 
 private const val DEFAULT_KOTLIN_PLUGIN_VERSION = "2.2.21"
 private const val DEFAULT_GRADLE_VERSION = "9.6.1"
@@ -24,6 +26,8 @@ data class KotlinCompileRequest(
     val target: String = "jvm",
     val sourceSet: String? = null,
     val pieceAction: KotlinCompilePieceAction? = null,
+    val pieceTarget: String? = null,
+    val pieceActionName: String = "compile",
     val workspace: Path? = null,
     val keepWorkspace: Boolean = false,
     val gradleCommand: String,
@@ -103,6 +107,7 @@ class KotlinCompileBackend {
         val temporaryWorkspace = request.workspace == null
         val sourceSet = request.sourceSet?.takeIf { it.isNotBlank() } ?: sourceSetForTarget(request.target)
         val sourceName = sourceBasename(request.filePath)
+        val pieceAction = request.resolvePieceAction()
         val commands = mutableListOf<KotlinCommandResult>()
 
         try {
@@ -126,7 +131,7 @@ class KotlinCompileBackend {
                 sourceSet = sourceSet,
                 status = status,
                 workspace = workspace.takeIf { request.keepWorkspace }?.toString(),
-                pieceAction = request.pieceAction,
+                pieceAction = pieceAction,
                 outputFiles = collectFiles(workspace.resolve("build").resolve("libs")) +
                     collectFiles(workspace.resolve("build").resolve("dist")),
                 commands = commands,
@@ -142,6 +147,32 @@ class KotlinCompileBackend {
             }
         }
     }
+}
+
+internal fun KotlinCompileRequest.resolvePieceAction(): KotlinCompilePieceAction? {
+    pieceAction?.let { return it }
+    val requestedTarget = pieceTarget?.takeIf { it.isNotBlank() } ?: return null
+    val requestedActionName = pieceActionName.takeIf { it.isNotBlank() } ?: "compile"
+    val piecePackage = KotlinPsiDeclarationExtractor().extract(SourceFile(filePath = filePath, source = source))
+    val selectedTarget = piecePackage.targets.firstOrNull { target ->
+        target.name == requestedTarget ||
+            target.label == requestedTarget ||
+            target.id == requestedTarget
+    } ?: error("Kotlin Piece target '$requestedTarget' was not found in $filePath.")
+    val selectedAction = piecePackage.actions.firstOrNull { action ->
+        action.id == "${selectedTarget.label}%$requestedActionName" || action.id == requestedActionName
+    } ?: error("Kotlin Piece action '$requestedActionName' was not found for target ${selectedTarget.label}.")
+    require(selectedAction.kind == PieceActionKind.Compile) {
+        "Kotlin Piece action '${selectedAction.id}' is ${selectedAction.kind.name.lowercase()}, not compile."
+    }
+    val artifactId = selectedAction.outputs.firstOrNull()
+        ?: error("Kotlin Piece compile action '${selectedAction.id}' does not declare an output artifact.")
+    return KotlinCompilePieceAction(
+        targetLabel = selectedTarget.label,
+        actionId = selectedAction.id,
+        artifactId = artifactId,
+        kind = selectedAction.kind.name.lowercase(),
+    )
 }
 
 private fun sourceSetForTarget(target: String): String = when (target) {
