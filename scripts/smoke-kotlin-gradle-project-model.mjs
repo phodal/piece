@@ -3,7 +3,7 @@ import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile, readFile } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { analyzeKotlinPieceFile, analyzePieceFile, createNodeKotlinPsiDeclarationExtractor } from "../src/node.js";
+import { analyzeKotlinPieceFile, analyzePieceFile, compileKotlinPieceFile, createNodeKotlinPsiDeclarationExtractor } from "../src/node.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -178,6 +178,27 @@ try {
         edge.symbols.includes("ExternalUser")
     ),
     `Gradle-discovered classpath binding did not become an external graph edge: ${JSON.stringify(analysis.graph.edges)}`
+  );
+
+  const compileResult = await compileKotlinPieceFile({
+    filePath: renderPath,
+    source,
+    projectRoot: workspace,
+    target: "jvm",
+    pieceTarget: "render"
+  });
+  assert(compileResult.status === "success", `Gradle project compile failed: ${JSON.stringify(compileResult.diagnostics)}`);
+  assert(compileResult.projectRoot === workspace, `Gradle project compile did not report projectRoot: ${JSON.stringify(compileResult)}`);
+  assert(compileResult.sourceSet === "jvmMain", `Gradle project compile did not infer jvmMain: ${JSON.stringify(compileResult)}`);
+  assert(
+    compileResult.commands.some(
+      (command) => command.command === "gradle-tooling-api" && command.args.includes("compileKotlinJvm")
+    ),
+    `Gradle project compile did not run the jvmMain compile task through Tooling API: ${JSON.stringify(compileResult.commands)}`
+  );
+  assert(
+    compileResult.outputFiles.some((file) => file.path.endsWith("RenderKt.class")),
+    `Gradle project compile did not report compiled class output: ${JSON.stringify(compileResult.outputFiles)}`
   );
 } finally {
   await rm(workspace, { recursive: true, force: true });

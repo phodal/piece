@@ -25,6 +25,7 @@ data class KotlinCompileRequest(
     val source: String,
     val target: String = "jvm",
     val sourceSet: String? = null,
+    val projectRoot: Path? = null,
     val companionFiles: List<KotlinCompileSourceFile> = emptyList(),
     val pieceAction: KotlinCompilePieceAction? = null,
     val pieceTarget: String? = null,
@@ -82,6 +83,7 @@ data class KotlinCompileResult(
     val sourceSet: String,
     val status: String,
     val workspace: String?,
+    val projectRoot: String? = null,
     val pieceAction: KotlinCompilePieceAction? = null,
     val outputFiles: List<KotlinOutputFile>,
     val commands: List<KotlinCommandResult>,
@@ -95,6 +97,7 @@ data class KotlinCompileResult(
         field("target", target)
         field("sourceSet", sourceSet)
         workspace?.let { field("workspace", it) }
+        projectRoot?.let { field("projectRoot", it) }
         pieceAction?.let { rawField("pieceAction", it.toJson()) }
         field("status", status)
         field("outputFiles", outputFiles) { it.toJson() }
@@ -108,6 +111,8 @@ class KotlinCompileBackend {
         require(request.target in setOf("jvm", "js", "wasmJs", "all")) {
             "Unsupported Kotlin compile target: ${request.target}"
         }
+
+        request.projectRoot?.let { return compileProject(request, it) }
 
         val workspace = request.workspace ?: Files.createTempDirectory("piece-kotlin-")
         val temporaryWorkspace = request.workspace == null
@@ -156,6 +161,36 @@ class KotlinCompileBackend {
             }
         }
     }
+
+    private fun compileProject(request: KotlinCompileRequest, requestedProjectRoot: Path): KotlinCompileResult {
+        val projectRoot = requestedProjectRoot.toAbsolutePath().normalize()
+        val sourceSet = request.sourceSet?.takeIf { it.isNotBlank() }
+            ?: sourceSetForProjectFile(projectRoot, request.filePath)
+            ?: sourceSetForTarget(request.target)
+        val pieceAction = request.resolvePieceAction()
+        val tasks = request.tasks.ifEmpty { tasksForProjectSourceSet(sourceSet, request.target) }
+        val commands = listOf(runGradleBuild(request, projectRoot, tasks))
+
+        val reportDir = projectRoot.resolve("build").resolve("piece")
+        reportDir.createDirectories()
+        val status = if (commands.all { it.exitCode == 0 }) "success" else "error"
+        val result = KotlinCompileResult(
+            filePath = request.filePath,
+            target = request.target,
+            sourceSet = sourceSet,
+            status = status,
+            workspace = null,
+            projectRoot = projectRoot.toString(),
+            pieceAction = pieceAction,
+            outputFiles = collectProjectCompileOutputs(projectRoot),
+            commands = commands,
+            diagnostics = diagnosticsFromCommands(commands),
+        )
+        reportDir.resolve("compile-report.json").writeText(result.toJson() + "\n")
+        return result.copy(
+            outputFiles = (result.outputFiles + collectFiles(reportDir)).sortedBy { it.path },
+        )
+    }
 }
 
 internal fun KotlinCompileRequest.resolvePieceAction(): KotlinCompilePieceAction? {
@@ -196,6 +231,50 @@ private fun tasksForTarget(target: String): List<String> = when (target) {
     "js" -> listOf("jsNodeProductionLibraryDistribution")
     "wasmJs" -> listOf("wasmJsBrowserDistribution")
     else -> listOf("jvmJar", "jsNodeProductionLibraryDistribution", "wasmJsBrowserDistribution")
+}
+
+private fun tasksForProjectSourceSet(sourceSet: String, target: String): List<String> {
+    if (target == "all") return listOf("jvmJar", "jsNodeProductionLibraryDistribution", "wasmJsBrowserDistribution")
+    return when (sourceSet) {
+        "jvmMain" -> listOf("compileKotlinJvm")
+        "jvmTest" -> listOf("compileTestKotlinJvm")
+        "jsMain" -> listOf("compileKotlinJs")
+        "jsTest" -> listOf("compileTestKotlinJs")
+        "wasmJsMain" -> listOf("compileKotlinWasmJs")
+        "wasmJsTest" -> listOf("compileTestKotlinWasmJs")
+        "commonMain" -> when (target) {
+            "js" -> listOf("compileKotlinJs")
+            "wasmJs" -> listOf("compileKotlinWasmJs")
+            else -> listOf("compileKotlinJvm")
+        }
+        else -> tasksForTarget(target)
+    }
+}
+
+private fun sourceSetForProjectFile(projectRoot: Path, filePath: String): String? {
+    val resolvedFile = if (Paths.get(filePath).isAbsolute) {
+        Paths.get(filePath).toAbsolutePath().normalize()
+    } else {
+        projectRoot.resolve(filePath).toAbsolutePath().normalize()
+    }
+    if (!resolvedFile.startsWith(projectRoot)) return null
+    val relative = runCatching { projectRoot.relativize(resolvedFile) }.getOrNull() ?: return null
+    val parts = relative.map { it.toString() }
+    val srcIndex = parts.indexOf("src")
+    if (srcIndex < 0) return null
+    val sourceSetIndex = srcIndex + 1
+    return parts.getOrNull(sourceSetIndex)?.takeIf { sourceSet ->
+        parts.getOrNull(sourceSetIndex + 1) == "kotlin"
+    }
+}
+
+private fun collectProjectCompileOutputs(projectRoot: Path): List<KotlinOutputFile> {
+    val buildDir = projectRoot.resolve("build")
+    return (
+        collectFiles(buildDir.resolve("classes")) +
+            collectFiles(buildDir.resolve("libs")) +
+            collectFiles(buildDir.resolve("dist"))
+        ).sortedBy { it.path }
 }
 
 private fun sourceBasename(filePath: String): String {

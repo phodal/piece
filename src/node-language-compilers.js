@@ -181,8 +181,12 @@ function collectKotlinClasspath(options) {
   return uniqueResolvedPaths(Array.isArray(options.classpath) ? options.classpath : [], cwd);
 }
 
-function resolveProjectGradleCommand(command, projectRoot) {
-  if (!command) return defaultGradleCommand();
+async function resolveProjectGradleCommand(command, projectRoot) {
+  if (!command) {
+    const projectWrapper = projectRoot ? join(projectRoot, "gradlew") : undefined;
+    if (projectWrapper && (await pathExists(projectWrapper))) return projectWrapper;
+    return defaultGradleCommand();
+  }
   if (!command.includes("/") && !command.includes("\\")) return command;
   return isAbsolute(command) ? command : resolve(projectRoot ?? PACKAGE_ROOT, command);
 }
@@ -233,6 +237,7 @@ async function collectKotlinGradleProjectModel(options = {}) {
   const outputReport = join(hostWorkspace, "gradle-project-model.json");
 
   try {
+    const gradleCommand = await resolveProjectGradleCommand(options.gradleCommand, projectRoot);
     const args = [
       "-p",
       join(PACKAGE_ROOT, "piece-core"),
@@ -240,7 +245,7 @@ async function collectKotlinGradleProjectModel(options = {}) {
       "--quiet",
       `-PpieceGradleProjectModel.projectRoot=${projectRoot}`,
       `-PpieceGradleProjectModel.outputReport=${outputReport}`,
-      `-PpieceGradleProjectModel.gradleCommand=${resolveProjectGradleCommand(options.gradleCommand, projectRoot)}`,
+      `-PpieceGradleProjectModel.gradleCommand=${gradleCommand}`,
       `-PpieceGradleProjectModel.gradleVersion=${options.gradleVersion ?? ""}`
     ];
     const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
@@ -529,13 +534,18 @@ export async function compileGoPieceFile(options = {}) {
 
 export async function compileKotlinPieceFile(options = {}) {
   const filePath = options.filePath ?? "Main.kt";
-  const source = options.source ?? "";
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const sourcePath = resolveHostPath(filePath, cwd);
+  const source = options.source ?? ((await pathExists(sourcePath)) ? await readFile(sourcePath, "utf8") : "");
   const target = options.target ?? "jvm";
   const pieceAction = options.pieceAction;
+  const projectRootOption = options.gradleProjectRoot ?? options.projectRoot;
+  const projectRoot = projectRootOption ? resolveHostPath(String(projectRootOption), cwd) : undefined;
   const companionSources = await collectKotlinCompanionSources(options, filePath);
   if (!["jvm", "js", "wasmJs", "all"].includes(target)) {
     throw new TypeError(`Unsupported Kotlin compile target: ${target}`);
   }
+  const gradleCommand = projectRoot ? await resolveProjectGradleCommand(options.gradleCommand, projectRoot) : resolveGradleCommand(options.gradleCommand);
 
   const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-host-");
   const hostWorkspace = hostWorkspaceInfo.path;
@@ -570,7 +580,9 @@ export async function compileKotlinPieceFile(options = {}) {
       `-PpieceCompile.outputReport=${outputReport}`,
       `-PpieceCompile.target=${target}`,
       `-PpieceCompile.sourceSet=${options.sourceSet ?? ""}`,
-      `-PpieceCompile.gradleCommand=${resolveGradleCommand(options.gradleCommand)}`,
+      `-PpieceCompile.projectRoot=${projectRoot ?? ""}`,
+      `-PpieceCompile.gradleCommand=${gradleCommand}`,
+      `-PpieceCompile.gradleVersion=${options.gradleVersion ?? ""}`,
       `-PpieceCompile.kotlinPluginVersion=${options.kotlinPluginVersion ?? ""}`,
       `-PpieceCompile.tasks=${options.tasks?.join(",") ?? ""}`,
       `-PpieceCompile.keepWorkspace=${options.keepWorkspace ? "true" : "false"}`,
@@ -598,6 +610,7 @@ export async function compileKotlinPieceFile(options = {}) {
       filePath,
       target,
       sourceSet: options.sourceSet ?? "",
+      ...(projectRoot ? { projectRoot } : {}),
       ...(pieceAction ? { pieceAction } : {}),
       status: "error",
       outputFiles: [],

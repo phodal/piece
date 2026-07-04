@@ -54,6 +54,7 @@ export interface PieceLanguageCompileResult {
   readonly target: string;
   readonly status: "success" | "error";
   readonly workspace?: string;
+  readonly projectRoot?: string;
   readonly pieceAction?: PieceCompileActionReference;
   readonly outputFiles: readonly PieceCompilerOutputFile[];
   readonly commands: readonly PieceCompilerCommandResult[];
@@ -145,7 +146,10 @@ export interface CompileKotlinPieceFileOptions {
   readonly sourceSet?: "commonMain" | "jvmMain" | "jsMain" | "wasmJsMain" | (string & {});
   readonly workspace?: string;
   readonly keepWorkspace?: boolean;
+  readonly projectRoot?: string;
+  readonly gradleProjectRoot?: string;
   readonly gradleCommand?: string;
+  readonly gradleVersion?: string;
   readonly kotlinPluginVersion?: string;
   readonly tasks?: readonly string[];
   readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
