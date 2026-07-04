@@ -42,6 +42,10 @@ async function createExternalFormatterJar(workspace) {
     filePath: "/repo/lib/Formatters.kt",
     source: `package demo.external
 
+class ExternalUser(val name: String) {
+  val displayName: String = "[$name]"
+}
+
 fun formatName(name: String): String = "External: $name"
 fun String.decorate(): String = "[$this]"
 `,
@@ -121,9 +125,16 @@ assert(
   `Kotlin Analysis API cross-file backend was not used: ${JSON.stringify(crossFileManifest.analysisBackend)}`
 );
 assert(
-  JSON.stringify(crossFileManifest.importBindings) ===
-    JSON.stringify([{ local: "User", imported: "User", source: "/repo/src/Models.kt", kind: "named", isTypeOnly: false }]),
-  `Kotlin Analysis API companion source-set binding was not returned: ${JSON.stringify(crossFileManifest.importBindings)}`
+  crossFileManifest.importBindings.some(
+    (binding) => binding.local === "User" && binding.imported === "User" && binding.source === "/repo/src/Models.kt"
+  ),
+  `Kotlin Analysis API companion source-set class binding was not returned: ${JSON.stringify(crossFileManifest.importBindings)}`
+);
+assert(
+  crossFileManifest.importBindings.some(
+    (binding) => binding.local === "name" && binding.imported === "name" && binding.source === "/repo/src/Models.kt/User"
+  ),
+  `Kotlin Analysis API companion source-set member property binding was not returned: ${JSON.stringify(crossFileManifest.importBindings)}`
 );
 assert(
   crossFileRender.symbols.typeReferences.includes("User"),
@@ -340,6 +351,108 @@ fun render(name: String): String = name.decorate()
         edge.symbols.includes("decorate")
     ),
     `Kotlin Analysis API extension function binding did not become a jar-backed external graph edge: ${JSON.stringify(extensionFunctionAnalysis.graph.edges)}`
+  );
+
+  const constructorSource = `package demo.externaluse
+
+import demo.external.ExternalUser
+
+fun render(name: String): String = ExternalUser(name).name
+`;
+  const constructorManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/ConstructExternal.kt",
+    source: constructorSource,
+    backend: "analysis-api",
+    analysisApiEnabled: true,
+    classpath: [formatterJar]
+  });
+  assert(
+    constructorManifest.importBindings.some(
+      (binding) =>
+        binding.local === "ExternalUser" &&
+        binding.imported === "ExternalUser" &&
+        binding.source === `classpath:${formatterJar}!demo/external`
+    ),
+    `Kotlin Analysis API did not map the constructor call to its jar-backed class binding: ${JSON.stringify(constructorManifest.importBindings)}`
+  );
+  assert(
+    constructorManifest.importBindings.some(
+      (binding) =>
+        binding.local === "name" &&
+        binding.imported === "name" &&
+        binding.source === `classpath:${formatterJar}!demo/external/ExternalUser`
+    ),
+    `Kotlin Analysis API did not map the constructor result member property to its owner-qualified binding: ${JSON.stringify(constructorManifest.importBindings)}`
+  );
+
+  const constructorAnalysis = await analyzePieceFile({
+    filePath: "/repo/src/ConstructExternal.kt",
+    source: constructorSource,
+    declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
+      backend: "analysis-api",
+      analysisApiEnabled: true,
+      classpath: [formatterJar]
+    })
+  });
+  assert(
+    constructorAnalysis.graph.edges.some(
+      (edge) =>
+        edge.kind === "external" &&
+        edge.to === `classpath:${formatterJar}!demo/external#ExternalUser` &&
+        edge.symbols.includes("ExternalUser")
+    ),
+    `Kotlin Analysis API constructor call did not become a jar-backed class graph edge: ${JSON.stringify(constructorAnalysis.graph.edges)}`
+  );
+  assert(
+    constructorAnalysis.graph.edges.some(
+      (edge) =>
+        edge.kind === "external" &&
+        edge.to === `classpath:${formatterJar}!demo/external/ExternalUser#name` &&
+        edge.symbols.includes("name")
+    ),
+    `Kotlin Analysis API constructor result member property did not become an owner-qualified graph edge: ${JSON.stringify(constructorAnalysis.graph.edges)}`
+  );
+
+  const memberPropertySource = `package demo.externaluse
+
+import demo.external.ExternalUser
+
+fun render(user: ExternalUser): String = user.displayName
+`;
+  const memberPropertyManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/UseExternalMember.kt",
+    source: memberPropertySource,
+    backend: "analysis-api",
+    analysisApiEnabled: true,
+    classpath: [formatterJar]
+  });
+  assert(
+    memberPropertyManifest.importBindings.some(
+      (binding) =>
+        binding.local === "displayName" &&
+        binding.imported === "displayName" &&
+        binding.source === `classpath:${formatterJar}!demo/external/ExternalUser`
+    ),
+    `Kotlin Analysis API did not map the member property to its owner-qualified classpath binding: ${JSON.stringify(memberPropertyManifest.importBindings)}`
+  );
+
+  const memberPropertyAnalysis = await analyzePieceFile({
+    filePath: "/repo/src/UseExternalMember.kt",
+    source: memberPropertySource,
+    declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
+      backend: "analysis-api",
+      analysisApiEnabled: true,
+      classpath: [formatterJar]
+    })
+  });
+  assert(
+    memberPropertyAnalysis.graph.edges.some(
+      (edge) =>
+        edge.kind === "external" &&
+        edge.to === `classpath:${formatterJar}!demo/external/ExternalUser#displayName` &&
+        edge.symbols.includes("displayName")
+    ),
+    `Kotlin Analysis API member property binding did not become an owner-qualified external graph edge: ${JSON.stringify(memberPropertyAnalysis.graph.edges)}`
   );
 } finally {
   await rm(classpathWorkspace, { recursive: true, force: true });
