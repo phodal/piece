@@ -539,6 +539,17 @@ export interface PieceGoListMetadata {
   readonly packages: readonly PieceGoListPackageMetadata[];
 }
 
+export interface PieceGoPackageTargetPolicyMetadata {
+  readonly version: 1;
+  readonly kind: "current-file-external-bindings" | (string & {});
+  readonly targetScope: "current-file" | "package" | (string & {});
+  readonly companionTargetMode: "external-binding" | "none" | "package-target" | (string & {});
+  readonly companionTargets: boolean;
+  readonly fastPath: boolean;
+  readonly companionFileCount: number;
+  readonly reason: string;
+}
+
 export interface PieceGoPackageScopeMetadata {
   readonly version: 1;
   readonly status: "selected" | "file" | (string & {});
@@ -548,6 +559,7 @@ export interface PieceGoPackageScopeMetadata {
   }[];
   readonly hash: string;
   readonly input?: string;
+  readonly targetPolicy?: PieceGoPackageTargetPolicyMetadata;
 }
 
 export interface PieceToolchainMetadata {

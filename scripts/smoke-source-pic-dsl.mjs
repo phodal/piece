@@ -156,6 +156,14 @@ assert(
   `Expected Go package scope to include companion source file: ${JSON.stringify(goAnalysis.manifest.toolchain?.packageScope)}`
 );
 assert(
+  goAnalysis.manifest.toolchain?.packageScope?.targetPolicy?.kind === "current-file-external-bindings" &&
+    goAnalysis.manifest.toolchain?.packageScope?.targetPolicy?.targetScope === "current-file" &&
+    goAnalysis.manifest.toolchain?.packageScope?.targetPolicy?.companionTargetMode === "external-binding" &&
+    goAnalysis.manifest.toolchain?.packageScope?.targetPolicy?.companionTargets === false &&
+    goAnalysis.manifest.toolchain?.packageScope?.targetPolicy?.fastPath === true,
+  `Expected Go package scope to declare current-file external binding target policy: ${JSON.stringify(goAnalysis.manifest.toolchain?.packageScope)}`
+);
+assert(
   goAnalysis.manifest.importBindings.some((binding) => binding.local === "Discount" && binding.source === "/repo/src/Discount.go"),
   `Expected Go companion declaration binding: ${JSON.stringify(goAnalysis.manifest.importBindings)}`
 );
@@ -164,6 +172,21 @@ assert(
     (edge) => edge.kind === "external" && edge.to === "/repo/src/Discount.go#Discount" && edge.symbols.includes("Discount")
   ),
   `Expected Go companion declaration to become package-scoped graph edge: ${JSON.stringify(goAnalysis.graph.edges)}`
+);
+assert(
+  goAnalysis.feedbackScope.level === "piece" &&
+    goAnalysis.feedbackScope.reasons.some(
+      (reason) =>
+        reason.code === "go-package-scope-fast-path" &&
+        reason.packageScopeHash === goAnalysis.manifest.toolchain.packageScope.hash &&
+        reason.targetScope === "current-file" &&
+        reason.companionTargetMode === "external-binding"
+    ),
+  `Expected Go feedback scope to preserve current-file fast path with package-scope reason: ${JSON.stringify(goAnalysis.feedbackScope)}`
+);
+assert(
+  !goAnalysis.piecePackage.targets.some((target) => target.label.includes("Discount.go")),
+  `Expected Go companion declarations to stay external instead of becoming current-file package targets: ${JSON.stringify(goAnalysis.piecePackage.targets)}`
 );
 assert(
   goAnalysis.actionCache.toolchainInputs.includes(`go-list:${goAnalysis.manifest.toolchain.goList.packageHash}`),

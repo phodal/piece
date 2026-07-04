@@ -48,6 +48,52 @@ function projectDependencyInputs(projectModel) {
   ];
 }
 
+function manifestToolchains(manifest) {
+  const toolchains = [
+    ...(manifest?.toolchain ? [manifest.toolchain] : []),
+    ...(Array.isArray(manifest?.toolchains) ? manifest.toolchains : [])
+  ];
+  const seen = new Set();
+  return toolchains.filter((toolchain) => {
+    const key = [
+      toolchain?.kind,
+      toolchain?.status,
+      toolchain?.hash,
+      toolchain?.packageScope?.status,
+      toolchain?.packageScope?.hash,
+      toolchain?.packageScope?.targetPolicy?.kind,
+      toolchain?.packageScope?.targetPolicy?.targetScope,
+      toolchain?.packageScope?.targetPolicy?.companionTargetMode
+    ].join(":");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function toolchainScopeInputs(manifest) {
+  return manifestToolchains(manifest)
+    .map((toolchain) => {
+      const scope = toolchain?.packageScope;
+      if (!scope?.hash) return undefined;
+      const policy = scope.targetPolicy;
+      return [
+        toolchain.kind,
+        scope.status,
+        scope.input,
+        scope.hash,
+        policy?.kind,
+        policy?.targetScope,
+        policy?.companionTargetMode,
+        policy?.companionTargets === undefined ? undefined : `companion-targets:${policy.companionTargets}`,
+        policy?.fastPath === undefined ? undefined : `fast-path:${policy.fastPath}`
+      ]
+        .filter(Boolean)
+        .join(":");
+    })
+    .filter(Boolean);
+}
+
 function compareStableText(left, right) {
   return JSON.stringify(left).localeCompare(JSON.stringify(right));
 }
@@ -137,6 +183,36 @@ function projectModelReasons(projectModel) {
   return reasons;
 }
 
+function toolchainScopeReasons(manifest) {
+  const reasons = [];
+  for (const toolchain of manifestToolchains(manifest)) {
+    const packageScope = toolchain?.packageScope;
+    const policy = packageScope?.targetPolicy;
+    if (toolchain?.kind === "go-list" && packageScope?.status === "selected" && policy?.fastPath) {
+      reasons.push(
+        createReason(
+          "go-package-scope-fast-path",
+          "info",
+          "Go package scope contributes toolchain and source identity, while current-file targets remain the default fast path.",
+          {
+            toolchain: toolchain.kind,
+            packageScopeStatus: packageScope.status,
+            packageScopeHash: packageScope.hash,
+            packageScopeInput: packageScope.input,
+            fileCount: packageScope.files?.length ?? 0,
+            targetPolicy: policy.kind,
+            targetScope: policy.targetScope,
+            companionTargetMode: policy.companionTargetMode,
+            companionTargets: policy.companionTargets,
+            fastPath: policy.fastPath
+          }
+        )
+      );
+    }
+  }
+  return reasons;
+}
+
 function safetyReasons(manifest, graph) {
   const reasons = [];
   const unknownEdges = graph.edges.filter((edge) => edge.kind === "unknown");
@@ -198,12 +274,13 @@ function feedbackLevel({ safety, project }) {
 export function explainPieceFeedbackScope({ manifest, graph }) {
   const safety = safetyReasons(manifest, graph);
   const project = projectModelReasons(manifest.projectModel);
+  const toolchain = toolchainScopeReasons(manifest);
   const sourceSet = selectedSourceSetScope(manifest.projectModel);
   const level = feedbackLevel({ safety, project });
   const fallbackRequired = level === "file" || level === "project";
   const reasons =
-    safety.length > 0 || project.length > 0
-      ? [...safety, ...project]
+    safety.length > 0 || project.length > 0 || toolchain.length > 0
+      ? [...safety, ...project, ...toolchain]
       : [
           createReason(
             "piece-scope-clean",
@@ -214,7 +291,8 @@ export function explainPieceFeedbackScope({ manifest, graph }) {
   const sourceHash = stableTextHash(manifest.source);
   const dependencyHash = hashParts([
     ...graph.edges.map(edgeIdentity).sort(),
-    ...projectDependencyInputs(manifest.projectModel).sort()
+    ...projectDependencyInputs(manifest.projectModel).sort(),
+    ...toolchainScopeInputs(manifest).sort()
   ]);
   const modelHash = projectModelHash(manifest.projectModel);
   const fallbackScopeHash = hashParts([
@@ -229,6 +307,13 @@ export function explainPieceFeedbackScope({ manifest, graph }) {
         reason.severity,
         reason.projectPath,
         reason.sourceSet,
+        reason.packageScopeHash,
+        reason.packageScopeInput,
+        reason.targetPolicy,
+        reason.targetScope,
+        reason.companionTargetMode,
+        reason.companionTargets === undefined ? undefined : `companion-targets:${reason.companionTargets}`,
+        reason.fastPath === undefined ? undefined : `fast-path:${reason.fastPath}`,
         ...(reason.symbols ?? []),
         ...(reason.sliceIds ?? []),
         ...(reason.requiredSourceSets ?? []),

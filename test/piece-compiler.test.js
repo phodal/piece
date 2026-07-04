@@ -6,6 +6,7 @@ import {
   createKotlinCoreBridge,
   createPieceCompiler,
   createPieceSnapshot,
+  explainPieceFeedbackScope,
   reconcilePieceSnapshot
 } from "piece-compiler";
 
@@ -284,6 +285,84 @@ export function Other() {
     expect(safeAnalysis.feedbackScope.level).toBe("piece");
     expect(unsafeAnalysis.snapshot.feedbackScope.hashes.fallbackScopeHash).not.toBe(safeAnalysis.snapshot.feedbackScope.hashes.fallbackScopeHash);
     expect(unsafeAnalysis.snapshot.artifacts[brokenId].cacheKey).not.toBe(safeAnalysis.snapshot.artifacts[brokenId].cacheKey);
+  });
+
+  it("keeps selected Go package scope as a current-file fast path until package targets exist", () => {
+    const targetPolicy = {
+      version: 1,
+      kind: "current-file-external-bindings",
+      targetScope: "current-file",
+      companionTargetMode: "external-binding",
+      companionTargets: false,
+      fastPath: true,
+      companionFileCount: 1,
+      reason: "Go companion declarations stay as package-local external bindings until Piece has a multi-file package target model."
+    };
+    const manifest = {
+      version: 1,
+      filePath: "/repo/src/Pricing.go",
+      source: goSource(),
+      parser: "go-ast-declaration-extractor",
+      slices: [],
+      headers: [],
+      effects: [],
+      importBindings: [],
+      hasTopLevelEffect: false,
+      toolchain: {
+        version: 1,
+        kind: "go-list",
+        status: "success",
+        hash: "go-list-hash",
+        inputs: ["go-list:go-list-hash", "go-package-scope:package-scope-hash"],
+        packageScope: {
+          version: 1,
+          status: "selected",
+          files: [
+            { filePath: "/repo/src/Pricing.go", hash: "pricing-hash" },
+            { filePath: "/repo/src/Discount.go", hash: "discount-hash" }
+          ],
+          hash: "package-scope-hash",
+          input: "go-package-scope:package-scope-hash",
+          targetPolicy
+        },
+        goList: {
+          version: 1,
+          status: "success",
+          packageHash: "go-list-hash",
+          packages: []
+        }
+      },
+      diagnostics: []
+    };
+    const graph = {
+      version: 1,
+      filePath: manifest.filePath,
+      slices: [],
+      edges: [],
+      symbolTable: { local: {}, imports: {}, importsByLocal: {}, exports: {} },
+      diagnostics: []
+    };
+    const scope = explainPieceFeedbackScope({ manifest, graph });
+    const changedManifest = JSON.parse(JSON.stringify(manifest));
+    changedManifest.toolchain.packageScope.hash = "package-scope-hash-2";
+    changedManifest.toolchain.packageScope.input = "go-package-scope:package-scope-hash-2";
+    changedManifest.toolchain.inputs = ["go-list:go-list-hash", "go-package-scope:package-scope-hash-2"];
+    const changedScope = explainPieceFeedbackScope({ manifest: changedManifest, graph });
+
+    expect(scope.level).toBe("piece");
+    expect(scope.fallbackRequired).toBe(false);
+    expect(scope.reasons).toContainEqual(
+      expect.objectContaining({
+        code: "go-package-scope-fast-path",
+        packageScopeHash: "package-scope-hash",
+        targetScope: "current-file",
+        companionTargetMode: "external-binding",
+        companionTargets: false,
+        fastPath: true
+      })
+    );
+    expect(scope.hashes.dependencyHash).not.toBe(changedScope.hashes.dependencyHash);
+    expect(scope.hashes.fallbackScopeHash).not.toBe(changedScope.hashes.fallbackScopeHash);
   });
 
   it("compiles virtual closure modules with node esbuild", async () => {

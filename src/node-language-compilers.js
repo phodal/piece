@@ -175,7 +175,20 @@ function createGoPackageScope({ filePath, source, companions = [] }) {
     status: companions.length > 0 ? "selected" : "file",
     files,
     hash,
-    input: hash ? `go-package-scope:${hash}` : undefined
+    input: hash ? `go-package-scope:${hash}` : undefined,
+    targetPolicy: {
+      version: 1,
+      kind: "current-file-external-bindings",
+      targetScope: "current-file",
+      companionTargetMode: companions.length > 0 ? "external-binding" : "none",
+      companionTargets: false,
+      fastPath: true,
+      companionFileCount: companions.length,
+      reason:
+        companions.length > 0
+          ? "Go companion declarations stay as package-local external bindings until Piece has a multi-file package target model."
+          : "No Go companion files are selected, so current-file targets remain the fast path."
+    }
   };
 }
 
