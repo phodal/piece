@@ -92,6 +92,7 @@ tasks.register<JavaExec>("runKotlinPsiAnalysisBackend") {
                 "--semanticDiagnostics=${providers.gradleProperty("pieceAnalysis.semanticDiagnostics").orNull ?: "false"}",
                 "--semanticSymbols=${providers.gradleProperty("pieceAnalysis.semanticSymbols").orNull ?: "false"}",
                 "--companionSources=${providers.gradleProperty("pieceAnalysis.companionSources").orNull ?: ""}",
+                "--classpathFile=${providers.gradleProperty("pieceAnalysis.classpathFile").orNull ?: ""}",
             ),
         )
     }

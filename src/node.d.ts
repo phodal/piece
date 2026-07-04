@@ -88,6 +88,7 @@ export interface AnalyzeKotlinPieceFileOptions {
   readonly source?: string;
   readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
   readonly sourceRoots?: readonly string[];
+  readonly classpath?: readonly string[];
   readonly cwd?: string;
   readonly parserName?: string;
   readonly semanticDiagnostics?: boolean;
@@ -104,6 +105,7 @@ export interface NodeKotlinPsiDeclarationExtractorOptions {
   readonly name?: string;
   readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
   readonly sourceRoots?: readonly string[];
+  readonly classpath?: readonly string[];
   readonly cwd?: string;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;

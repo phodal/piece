@@ -65,9 +65,12 @@ export interface CompilePieceAppOptions {
   readonly source?: string;
   readonly sourceRoots?: readonly string[];
   readonly sourceFiles?: readonly string[];
+  readonly classpath?: readonly string[];
   readonly fileSystem?: VirtualFileSystem;
   readonly previousTree?: unknown;
   readonly declarationExtractor?: PieceDeclarationExtractor;
+  readonly semanticDiagnostics?: boolean;
+  readonly semanticSymbols?: boolean;
   readonly globals?: readonly string[];
   readonly buildEngine?: PieceBuildEngine;
   readonly compileStrategy?: "build" | "transform";
@@ -512,6 +515,12 @@ export interface AnalyzePieceFileOptions {
   readonly source: string;
   readonly previousTree?: unknown;
   readonly declarationExtractor?: PieceDeclarationExtractor;
+  readonly sourceFiles?: readonly (string | { readonly filePath: string; readonly source: string })[];
+  readonly sourceRoots?: readonly string[];
+  readonly classpath?: readonly string[];
+  readonly cwd?: string;
+  readonly semanticDiagnostics?: boolean;
+  readonly semanticSymbols?: boolean;
   readonly globals?: readonly string[];
 }
 

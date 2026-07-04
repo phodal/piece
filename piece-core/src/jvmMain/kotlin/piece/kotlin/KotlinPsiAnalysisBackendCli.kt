@@ -21,6 +21,12 @@ fun main(args: Array<String>) {
         ?.takeIf { it.isNotBlank() }
         ?.let(::readCompanionSources)
         .orEmpty()
+    val classpath = (
+        defaultKotlinSemanticClasspath() + options["classpathFile"]
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::readClasspathEntries)
+            .orEmpty()
+    ).distinct()
     val request = KotlinPsiAnalysisRequest(
         filePath = options["filePath"]?.takeIf { it.isNotBlank() } ?: "Main.kt",
         source = source,
@@ -28,6 +34,7 @@ fun main(args: Array<String>) {
         semanticDiagnostics = options["semanticDiagnostics"] == "true",
         semanticSymbols = options["semanticSymbols"] == "true",
         companionFiles = companionFiles,
+        classpath = classpath,
     )
 
     val result = try {
@@ -60,6 +67,14 @@ private fun readCompanionSources(path: String): List<KotlinPsiAnalysisSourceFile
                 source = Path.of(sourceFile).readText(),
             )
         }
+        .toList()
+}
+
+private fun readClasspathEntries(path: String): List<String> {
+    return Path.of(path).readText()
+        .lineSequence()
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
         .toList()
 }
 

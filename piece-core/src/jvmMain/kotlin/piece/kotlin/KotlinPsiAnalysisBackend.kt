@@ -16,6 +16,7 @@ data class KotlinPsiAnalysisRequest(
     val semanticDiagnostics: Boolean = false,
     val semanticSymbols: Boolean = false,
     val companionFiles: List<KotlinPsiAnalysisSourceFile> = emptyList(),
+    val classpath: List<String> = defaultKotlinSemanticClasspath(),
 )
 
 data class KotlinPsiAnalysisSourceFile(
@@ -147,6 +148,7 @@ class KotlinPsiAnalysisBackend {
                                 source = companion.source,
                             )
                         },
+                        classpath = request.classpath,
                     ),
                 )
             } else {
@@ -174,6 +176,7 @@ class KotlinPsiAnalysisBackend {
                                 source = companion.source,
                             )
                         },
+                        classpath = request.classpath,
                     ),
                 )
             } else {

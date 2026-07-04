@@ -165,6 +165,17 @@ async function collectKotlinCompanionSources(options, primaryFilePath) {
   return companions;
 }
 
+function collectKotlinClasspath(options) {
+  const cwd = resolve(options.cwd ?? process.cwd());
+  return [
+    ...new Set(
+      (Array.isArray(options.classpath) ? options.classpath : [])
+        .filter(Boolean)
+        .map((entry) => resolveHostPath(String(entry), cwd))
+    )
+  ];
+}
+
 function diagnosticsFromCommands(commands) {
   return commands
     .filter((command) => command.exitCode !== 0)
@@ -354,6 +365,7 @@ export async function analyzeKotlinPieceFile(options = {}) {
   const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
   const companionDir = join(hostWorkspace, "companions");
   const companionSourcesFile = join(hostWorkspace, "companion-sources.tsv");
+  const classpathFile = join(hostWorkspace, "analysis-classpath.txt");
   const outputReport = join(hostWorkspace, "analysis-report.json");
 
   try {
@@ -372,6 +384,10 @@ export async function analyzeKotlinPieceFile(options = {}) {
         await writeFile(companionSourcesFile, `${companionLines.join("\n")}\n`, "utf8");
       }
     }
+    const classpath = collectKotlinClasspath(options);
+    if (classpath.length > 0) {
+      await writeFile(classpathFile, `${classpath.join("\n")}\n`, "utf8");
+    }
     const args = [
       "-p",
       join(PACKAGE_ROOT, "piece-core"),
@@ -383,7 +399,8 @@ export async function analyzeKotlinPieceFile(options = {}) {
       `-PpieceAnalysis.parserName=${parserName}`,
       `-PpieceAnalysis.semanticDiagnostics=${semanticDiagnostics ? "true" : "false"}`,
       `-PpieceAnalysis.semanticSymbols=${semanticSymbols ? "true" : "false"}`,
-      `-PpieceAnalysis.companionSources=${companionLines.length > 0 ? companionSourcesFile : ""}`
+      `-PpieceAnalysis.companionSources=${companionLines.length > 0 ? companionSourcesFile : ""}`,
+      `-PpieceAnalysis.classpathFile=${classpath.length > 0 ? classpathFile : ""}`
     ];
 
     const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
@@ -409,6 +426,7 @@ export function createNodeKotlinPsiDeclarationExtractor(options = {}) {
         semanticSymbols: options.semanticSymbols === true,
         sourceFiles: options.sourceFiles,
         sourceRoots: options.sourceRoots,
+        classpath: options.classpath,
         cwd: options.cwd,
         env: options.env
       });

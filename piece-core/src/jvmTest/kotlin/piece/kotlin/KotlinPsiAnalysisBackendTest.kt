@@ -1,5 +1,12 @@
 package piece.kotlin
 
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.jar.JarEntry
+import java.util.jar.JarOutputStream
+import javax.tools.ToolProvider
+import kotlin.io.path.createDirectories
+import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -221,4 +228,78 @@ class KotlinPsiAnalysisBackendTest {
         assertTrue(error != null, "Expected compiler diagnostics from the companion source file.")
         assertEquals("/repo/src/Models.kt", error.path)
     }
+
+    @Test
+    fun usesHostProvidedClasspathForSemanticDiagnostics() {
+        val workspace = Files.createTempDirectory("piece-kotlin-external-classpath-")
+        try {
+            val externalJar = createExternalUserJar(workspace)
+            val source = """
+                package demo.externaluse
+
+                import demo.external.ExternalUser
+
+                fun render(user: ExternalUser): String = user.name
+            """.trimIndent()
+
+            val withoutClasspath = KotlinPsiAnalysisBackend().analyze(
+                KotlinPsiAnalysisRequest(
+                    filePath = "/repo/src/Render.kt",
+                    source = source,
+                    semanticDiagnostics = true,
+                ),
+            )
+            val withClasspath = KotlinPsiAnalysisBackend().analyze(
+                KotlinPsiAnalysisRequest(
+                    filePath = "/repo/src/Render.kt",
+                    source = source,
+                    semanticDiagnostics = true,
+                    classpath = defaultKotlinSemanticClasspath() + externalJar.toString(),
+                ),
+            )
+
+            assertTrue(
+                withoutClasspath.diagnostics.any { it.severity == "error" },
+                "Expected unresolved external class without host classpath.",
+            )
+            assertFalse(
+                withClasspath.diagnostics.any { it.severity == "error" },
+                "Host classpath should make external Java classes visible to Kotlin diagnostics: ${withClasspath.diagnostics}",
+            )
+        } finally {
+            workspace.toFile().deleteRecursively()
+        }
+    }
+}
+
+private fun createExternalUserJar(workspace: Path): Path {
+    val sourceDir = workspace.resolve("src/demo/external")
+    val classesDir = workspace.resolve("classes")
+    sourceDir.createDirectories()
+    classesDir.createDirectories()
+    val sourceFile = sourceDir.resolve("ExternalUser.java")
+    sourceFile.writeText(
+        """
+            package demo.external;
+
+            public class ExternalUser {
+                public String getName() {
+                    return "Ada";
+                }
+            }
+        """.trimIndent(),
+    )
+
+    val compiler = ToolProvider.getSystemJavaCompiler()
+        ?: error("A JDK compiler is required for the Kotlin classpath fixture.")
+    val exitCode = compiler.run(null, null, null, "-d", classesDir.toString(), sourceFile.toString())
+    check(exitCode == 0) { "Failed to compile external Java fixture." }
+
+    val jarPath = workspace.resolve("external-user.jar")
+    JarOutputStream(Files.newOutputStream(jarPath)).use { jar ->
+        jar.putNextEntry(JarEntry("demo/external/ExternalUser.class"))
+        Files.copy(classesDir.resolve("demo/external/ExternalUser.class"), jar)
+        jar.closeEntry()
+    }
+    return jarPath
 }

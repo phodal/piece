@@ -1,7 +1,11 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { analyzeKotlinPieceFile, analyzePieceFile, createNodeKotlinPsiDeclarationExtractor } from "../src/node.js";
+
+const execFileAsync = promisify(execFile);
 
 const filePath = "/repo/src/Pricing.kt";
 const source = `package demo.pricing
@@ -26,6 +30,30 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+async function createExternalUserJar(workspace) {
+  const sourceDir = join(workspace, "src", "demo", "external");
+  const classesDir = join(workspace, "classes");
+  await mkdir(sourceDir, { recursive: true });
+  await mkdir(classesDir, { recursive: true });
+  const sourceFile = join(sourceDir, "ExternalUser.java");
+  await writeFile(
+    sourceFile,
+    `package demo.external;
+
+public class ExternalUser {
+  public String getName() {
+    return "Ada";
+  }
+}
+`,
+    "utf8"
+  );
+  await execFileAsync("javac", ["-d", classesDir, sourceFile]);
+  const jarPath = join(workspace, "external-user.jar");
+  await execFileAsync("jar", ["cf", jarPath, "-C", classesDir, "."]);
+  return jarPath;
 }
 
 const manifest = await analyzeKotlinPieceFile({ filePath, source });
@@ -163,6 +191,50 @@ assert(
   ),
   `Kotlin companion source-set files were not visible to semantic diagnostics: ${JSON.stringify(crossFileDiagnosticsManifest.diagnostics)}`
 );
+
+const classpathWorkspace = await mkdtemp(join(tmpdir(), "piece-kotlin-classpath-"));
+try {
+  const externalJar = await createExternalUserJar(classpathWorkspace);
+  const externalClasspathSource = `package demo.externaluse
+
+import demo.external.ExternalUser
+
+fun render(user: ExternalUser): String = user.name
+`;
+  const unresolvedExternalManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/ExternalRender.kt",
+    source: externalClasspathSource,
+    semanticDiagnostics: true
+  });
+  assert(
+    unresolvedExternalManifest.diagnostics.some((diagnostic) => diagnostic.severity === "error"),
+    `Expected Kotlin diagnostics to fail without external classpath: ${JSON.stringify(unresolvedExternalManifest.diagnostics)}`
+  );
+
+  const classpathManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/ExternalRender.kt",
+    source: externalClasspathSource,
+    semanticDiagnostics: true,
+    classpath: [externalJar]
+  });
+  assert(
+    !classpathManifest.diagnostics.some((diagnostic) => diagnostic.severity === "error"),
+    `Kotlin external classpath was not visible to semantic diagnostics: ${JSON.stringify(classpathManifest.diagnostics)}`
+  );
+
+  const classpathAnalysis = await analyzePieceFile({
+    filePath: "/repo/src/ExternalRender.kt",
+    source: externalClasspathSource,
+    semanticDiagnostics: true,
+    classpath: [externalJar]
+  });
+  assert(
+    !classpathAnalysis.manifest.diagnostics.some((diagnostic) => diagnostic.severity === "error"),
+    `Default Node Kotlin analysis did not pass classpath to JVM backend: ${JSON.stringify(classpathAnalysis.manifest.diagnostics)}`
+  );
+} finally {
+  await rm(classpathWorkspace, { recursive: true, force: true });
+}
 
 const sourceRoot = await mkdtemp(join(tmpdir(), "piece-kotlin-source-root-"));
 try {

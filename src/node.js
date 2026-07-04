@@ -25,6 +25,7 @@ function withNodeDeclarationExtractor(options = {}) {
       declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
         sourceFiles: options.sourceFiles,
         sourceRoots: options.sourceRoots,
+        classpath: options.classpath,
         cwd: options.cwd ?? options.fileSystem?.cwd,
         semanticDiagnostics: options.semanticDiagnostics === true,
         semanticSymbols: options.semanticSymbols === true,
