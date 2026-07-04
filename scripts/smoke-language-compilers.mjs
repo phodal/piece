@@ -223,6 +223,14 @@ const goPackageScopeStatus = await compilePieceApp({
 if (!goPackageScopeStatus.compileAction) {
   throw new Error(`compilePieceApp did not attach a Go package-scope compile action report: ${JSON.stringify(goPackageScopeStatus)}`);
 }
+assertSuccess(goPackageScopeStatus.compileAction, "Go package-scope companion compile action");
+if (
+  !goPackageScopeStatus.compileAction.goList.packages.some(
+    (pkg) => pkg.goFiles.includes("Pricing.go") && pkg.goFiles.includes("Discount.go")
+  )
+) {
+  throw new Error(`Go package-scope compile did not write companion source files: ${JSON.stringify(goPackageScopeStatus.compileAction.goList)}`);
+}
 if (
   goPackageScopeStatus.compileActionSelection?.packageScope?.status !== "candidate" ||
   goPackageScopeStatus.compileActionSelection.packageScope.appliedToPackageView !== false ||

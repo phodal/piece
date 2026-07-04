@@ -63,7 +63,7 @@ The core vocabulary is intentionally small:
 
 - JavaScript, TypeScript, JSX, and TSX piece extraction.
 - React preview feedback with virtual modules and incremental rebuild metrics.
-- Go extraction through a Node-hosted Go AST analyzer, package-local companion graph edges, explicit current-file target policy for companion declarations, candidate package-scope target models with a safe opt-in selection gate, selected package-view `.pic` output, package-scoped `go list -json` action identity, and single-file `go build` / `go test` feedback.
+- Go extraction through a Node-hosted Go AST analyzer, package-local companion graph edges, explicit current-file target policy for companion declarations, candidate package-scope target models with a safe opt-in selection gate, selected package-view `.pic` output, package-scoped `go list -json` action identity, and same-package `go build` / `go test` feedback for supplied companion sources.
 - Kotlin PSI analysis through the JVM backend, with optional compiler diagnostics and project-model scoped fallback.
 - Kotlin compile feedback through Gradle-backed JVM tooling.
 - Generated `.pic` metadata, Node-side analysis-level override merging, explicit action/snapshot override mode, package-view-aware override bases, helper-level action package propagation, language compile action selection and dispatch, app-level opt-in compile actions with structured diagnostics and selection metadata, and an ANTLR-backed JVM parser for the same package, target, action, artifact, and per-target source model.

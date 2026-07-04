@@ -15,7 +15,7 @@ The repository already has:
 
 - A language-neutral manifest, graph, closure, package, and reconcile pipeline in `src/core/`.
 - TypeScript-family extraction and React preview as one feedback adapter, not the core abstraction.
-- A Go single-file adapter plus a Node-hosted Go AST analyzer, package-local companion graph edges, explicit current-file companion target policy, candidate package-scope target models with a safe opt-in selection gate, package-scoped Go action metadata, and `compileGoPieceFile()` using `go list -json`, `go build`, and `go test`.
+- A Go single-file adapter plus a Node-hosted Go AST analyzer, package-local companion graph edges, explicit current-file companion target policy, candidate package-scope target models with a safe opt-in selection gate, package-scoped Go action metadata, and `compileGoPieceFile()` using `go list -json`, `go build`, and `go test` with supplied same-package companion sources.
 - `piece-core` as a Kotlin Multiplatform core with model, builder DSL, graph, and reconcile contracts in `commonMain`.
 - Kotlin/JVM PSI extraction, compiler diagnostics, BindingContext-backed symbol refinement, source-set companion files, host-provided classpath entries, Gradle/KMP `projectRoot` analysis input discovery, dependency coordinates, project dependencies, target variants, source-set-scoped project model inputs, stable project model hashes in action/cache identities, and a Gradle/KMP compile backend.
 - An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain`, target-level source preservation, and a Node smoke entrypoint.
@@ -343,8 +343,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Let Go compile action dispatch write safe same-package companion sources into the temporary module before widening beyond current-file status metadata.
+1. Let app-level Go compile action dispatch opt into the selected package-view action package when `packageScopeSelection: "safe"` proves it.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 5/6 Go Companion Compile Slice
+
+The Go companion compile slice is now implemented:
+
+1. `compileGoPieceFile()` collects supplied Go `sourceFiles` and `sourceRoots`.
+2. It writes only same-package companion sources into the temporary Go module with the primary source file.
+3. `go list -json ./...`, `go build`, and optional `go test` now see those safe companions.
+4. App-level Go compile action dispatch can compile a current-file target whose type graph references a same-package companion declaration while still reporting package-scope selection metadata.
+5. `npm run language:compile:smoke` verifies the companion source is included in Go list metadata and the package compile succeeds.
 
 ## Completed Phase 5/6 App-Level Selection Metadata Slice
 

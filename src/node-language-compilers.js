@@ -1379,18 +1379,22 @@ export async function compileGoPieceFile(options = {}) {
   const filePath = options.filePath ?? "Main.go";
   const source = options.source ?? "";
   const pieceAction = resolveCompilePieceAction(options);
+  const cwd = resolve(options.cwd ?? process.cwd());
   const workspaceInfo = await prepareWorkspace("piece-go-", options.workspace);
   const workspace = workspaceInfo.path;
   const outputDir = resolve(options.outDir ?? join(workspace, "piece-out"));
   const sourceName = sourceBasename(filePath, "Main.go");
   const packageName = packageNameFromGo(source);
+  const companionSources = (await collectGoCompanionSources(options, filePath)).filter(
+    (companion) => packageNameFromGo(companion.source ?? "") === packageName
+  );
   const goCommand = options.goCommand ?? "go";
   const modulePath = options.modulePath ?? `piece.local/${sanitizeProjectName(sourceName.replace(/\.go$/, ""))}`;
   const commands = [];
 
   try {
     await mkdir(outputDir, { recursive: true });
-    await writeFile(join(workspace, sourceName), source, "utf8");
+    await writeGoWorkspaceSources({ workspace, filePath, source, companions: companionSources, cwd });
     await writeFile(join(workspace, "go.mod"), `module ${modulePath}\n\ngo 1.22\n`, "utf8");
 
     const goListCommand = await runCommand(goCommand, ["list", "-json", "./..."], { cwd: workspace, env: options.env });
