@@ -71,6 +71,10 @@ export interface CompilePieceAppOptions {
   readonly gradleProjectRoot?: string;
   readonly gradleCommand?: string;
   readonly gradleVersion?: string;
+  readonly goCommand?: string;
+  readonly goModulePath?: string;
+  readonly goList?: boolean;
+  readonly env?: Record<string, string | undefined>;
   readonly fileSystem?: VirtualFileSystem;
   readonly previousTree?: unknown;
   readonly declarationExtractor?: PieceDeclarationExtractor;
@@ -91,6 +95,7 @@ export interface CompilePieceAppOptions {
   readonly plugins?: readonly unknown[];
   readonly piece?: PieceCompileOptions;
   readonly preview?: PiecePreviewOptions;
+  readonly toolchainInputs?: readonly string[];
 }
 
 export type PieceCompilerOptions = Partial<CompilePieceAppOptions>;
@@ -451,6 +456,8 @@ export interface PieceFileManifest {
   readonly hasTopLevelEffect: boolean;
   readonly analysisBackend?: PieceAnalysisBackendMetadata;
   readonly projectModel?: PieceProjectModelMetadata;
+  readonly toolchain?: PieceToolchainMetadata;
+  readonly toolchains?: readonly PieceToolchainMetadata[];
   readonly diagnostics: readonly PieceDiagnostic[];
 }
 
@@ -507,11 +514,46 @@ export interface PieceDependencyArtifactInput {
   readonly cacheKey?: string;
 }
 
+export interface PieceGoListPackageMetadata {
+  readonly importPath: string;
+  readonly name: string;
+  readonly dir: string;
+  readonly module?: {
+    readonly path: string;
+    readonly version: string;
+    readonly main: boolean;
+  };
+  readonly goFiles: readonly string[];
+  readonly imports: readonly string[];
+  readonly deps: readonly string[];
+  readonly testGoFiles: readonly string[];
+  readonly testImports: readonly string[];
+}
+
+export interface PieceGoListMetadata {
+  readonly version: 1;
+  readonly status: "success" | "error";
+  readonly packageHash: string;
+  readonly packages: readonly PieceGoListPackageMetadata[];
+}
+
+export interface PieceToolchainMetadata {
+  readonly version: 1;
+  readonly kind: "go-list" | (string & {});
+  readonly status: "success" | "fallback" | "error" | (string & {});
+  readonly hash: string;
+  readonly inputs: readonly string[];
+  readonly goList?: PieceGoListMetadata;
+  readonly [key: string]: unknown;
+}
+
 export interface PieceActionCacheMetadata {
   readonly version: 1;
   readonly compilerOptionsHash: string;
   readonly dependencyArtifactsHash: string;
+  readonly toolchainInputsHash: string;
   readonly dependencyArtifacts: readonly PieceDependencyArtifactInput[];
+  readonly toolchainInputs: readonly string[];
   readonly inputs: readonly string[];
 }
 
@@ -725,6 +767,10 @@ export interface AnalyzePieceFileOptions {
   readonly gradleProjectRoot?: string;
   readonly gradleCommand?: string;
   readonly gradleVersion?: string;
+  readonly goCommand?: string;
+  readonly goModulePath?: string;
+  readonly goList?: boolean;
+  readonly env?: Record<string, string | undefined>;
   readonly cwd?: string;
   readonly semanticDiagnostics?: boolean;
   readonly semanticSymbols?: boolean;
@@ -734,6 +780,7 @@ export interface AnalyzePieceFileOptions {
     | ReadonlyMap<string, PieceDependencyArtifactInput | string>
     | Record<string, PieceDependencyArtifactInput | string>
     | readonly (PieceDependencyArtifactInput | string)[];
+  readonly toolchainInputs?: readonly string[];
   readonly globals?: readonly string[];
 }
 
@@ -882,8 +929,10 @@ export function createPieceActionCacheMetadata(options?: {
     | ReadonlyMap<string, PieceDependencyArtifactInput | string>
     | Record<string, PieceDependencyArtifactInput | string>
     | readonly (PieceDependencyArtifactInput | string)[];
+  readonly toolchainInputs?: readonly string[];
 }): PieceActionCacheMetadata;
 export function pieceActionCacheInputs(actionCache: PieceActionCacheMetadata | undefined): readonly string[];
+export function pieceToolchainInputsFromManifest(manifest: PieceFileManifest | undefined): readonly string[];
 export function explainPieceFeedbackScope(options: { readonly manifest: PieceFileManifest; readonly graph: PieceSliceGraph }): PieceFeedbackScope;
 export function pieceFeedbackScopeInput(feedbackScope: PieceFeedbackScope | undefined): string | undefined;
 export function pieceFeedbackSourceSetInput(feedbackScope: PieceFeedbackScope | undefined): string | undefined;

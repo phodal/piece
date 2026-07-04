@@ -13,12 +13,23 @@ import {
   rebuildAffectedPiecePreviews as rebuildCoreAffectedPiecePreviews,
   selectPiecePreviewTarget
 } from "./index.js";
-import { createNodeKotlinPsiDeclarationExtractor } from "./node-language-compilers.js";
+import { createNodeGoDeclarationExtractor, createNodeKotlinPsiDeclarationExtractor } from "./node-language-compilers.js";
 
 const SOURCE_FILE_PATTERN = /\.(tsx?|jsx?|kts?|go)$/;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "coverage"]);
 
 function withNodeDeclarationExtractor(options = {}) {
+  if (!options.declarationExtractor && /\.go$/.test(options.filePath ?? "")) {
+    return {
+      ...options,
+      declarationExtractor: createNodeGoDeclarationExtractor({
+        goCommand: options.goCommand,
+        modulePath: options.goModulePath ?? options.modulePath,
+        goList: options.goList,
+        env: options.env
+      })
+    };
+  }
   if (!options.declarationExtractor && /\.(?:kt|kts)$/.test(options.filePath ?? "")) {
     return {
       ...options,

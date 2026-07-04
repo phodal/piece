@@ -5,6 +5,7 @@ import type {
   PieceBuildEngine,
   PieceDeclarationExtractor,
   PieceFileManifest,
+  PieceGoListMetadata,
   SingleFilePiecePackage,
   VirtualFileSystem
 } from "./index.js";
@@ -208,6 +209,16 @@ export interface NodeKotlinPsiDeclarationExtractorOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
+export interface NodeGoDeclarationExtractorOptions {
+  readonly name?: string;
+  readonly goCommand?: string;
+  readonly modulePath?: string;
+  readonly goModulePath?: string;
+  readonly goList?: boolean;
+  readonly env?: Record<string, string | undefined>;
+  readonly declarationExtractor?: PieceDeclarationExtractor;
+}
+
 export interface KotlinPieceCompileResult extends PieceLanguageCompileResult {
   readonly language: "kotlin";
   readonly backend: "kotlin-jvm";
@@ -218,26 +229,7 @@ export interface KotlinPieceCompileResult extends PieceLanguageCompileResult {
 export interface GoPieceCompileResult extends PieceLanguageCompileResult {
   readonly language: "go";
   readonly target: "binary" | "package";
-  readonly goList: {
-    readonly version: 1;
-    readonly status: "success" | "error";
-    readonly packageHash: string;
-    readonly packages: readonly Array<{
-      readonly importPath: string;
-      readonly name: string;
-      readonly dir: string;
-      readonly module?: {
-        readonly path: string;
-        readonly version: string;
-        readonly main: boolean;
-      };
-      readonly goFiles: readonly string[];
-      readonly imports: readonly string[];
-      readonly deps: readonly string[];
-      readonly testGoFiles: readonly string[];
-      readonly testImports: readonly string[];
-    }>;
-  };
+  readonly goList: PieceGoListMetadata;
 }
 
 export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise<GoPieceCompileResult>;
@@ -246,4 +238,5 @@ export function analyzeKotlinPieceFile(options?: AnalyzeKotlinPieceFileOptions):
 export function parsePieceDslFile(options?: ParsePieceDslFileOptions): Promise<PieceDslParseResult>;
 export function mergePieceDslFiles(options?: MergePieceDslFilesOptions): Promise<PieceDslMergeResult>;
 export function generateKotlinPieceDslFile(options?: GenerateKotlinPieceDslFileOptions): Promise<KotlinPieceDslGenerationResult>;
+export function createNodeGoDeclarationExtractor(options?: NodeGoDeclarationExtractorOptions): PieceDeclarationExtractor;
 export function createNodeKotlinPsiDeclarationExtractor(options?: NodeKotlinPsiDeclarationExtractorOptions): PieceDeclarationExtractor;

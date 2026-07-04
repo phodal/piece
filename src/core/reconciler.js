@@ -174,6 +174,7 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
   const cacheKeySalt = [
     resolvedActionCache.compilerOptionsHash,
     resolvedActionCache.dependencyArtifactsHash,
+    resolvedActionCache.toolchainInputsHash,
     projectModelHash,
     feedbackScope.hashes.fallbackScopeHash
   ];

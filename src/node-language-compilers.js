@@ -7,6 +7,7 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { hashParts } from "./core/hash.js";
 import { mergePiecePackages, piecePackageToPicDsl } from "./core/pic-dsl.js";
+import { createGoDeclarationExtractor } from "./languages/go/declaration-extractor.js";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -125,13 +126,67 @@ function createGoListReport(commandResult, workspace) {
       packages: []
     };
   }
-  const packages = parseConcatenatedJsonObjects(commandResult.stdout).map((pkg) => normalizeGoListPackage(pkg, workspace));
+  let packages;
+  try {
+    packages = parseConcatenatedJsonObjects(commandResult.stdout).map((pkg) => normalizeGoListPackage(pkg, workspace));
+  } catch {
+    return {
+      version: 1,
+      status: "error",
+      packageHash: "",
+      packages: []
+    };
+  }
   return {
     version: 1,
     status: "success",
     packageHash: goListHash(packages),
     packages
   };
+}
+
+function goListManifestDiagnostics(commandResult, goList) {
+  if (goList.status === "success") return [];
+  return [
+    {
+      code: commandResult.errorCode === "ENOENT" ? "go-list-tool-not-found" : "go-list-fallback",
+      severity: "warning",
+      message: commandResult.stderr.trim() || commandResult.stdout.trim() || `${commandResult.command} list metadata was unavailable`,
+      command: [commandResult.command, ...commandResult.args].join(" ")
+    }
+  ];
+}
+
+function createGoListToolchainMetadata(goList) {
+  const inputs = goList.status === "success" && goList.packageHash ? [`go-list:${goList.packageHash}`] : [];
+  return {
+    version: 1,
+    kind: "go-list",
+    status: goList.status === "success" ? "success" : "fallback",
+    hash: goList.packageHash,
+    inputs,
+    goList
+  };
+}
+
+async function collectGoListForSource({ filePath, source, goCommand = "go", modulePath, env }) {
+  const workspaceInfo = await prepareWorkspace("piece-go-analysis-");
+  const workspace = workspaceInfo.path;
+  const sourceName = sourceBasename(filePath, "Main.go");
+  const resolvedModulePath = modulePath ?? `piece.local/${sanitizeProjectName(sourceName.replace(/\.go$/, ""))}`;
+  try {
+    await writeFile(join(workspace, sourceName), source, "utf8");
+    await writeFile(join(workspace, "go.mod"), `module ${resolvedModulePath}\n\ngo 1.22\n`, "utf8");
+    const command = await runCommand(goCommand, ["list", "-json", "./..."], { cwd: workspace, env });
+    return {
+      command,
+      goList: createGoListReport(command, workspace)
+    };
+  } finally {
+    if (workspaceInfo.temporary) {
+      await cleanupWorkspace(workspace, false);
+    }
+  }
 }
 
 function isKotlinSourcePath(path) {
@@ -1004,6 +1059,33 @@ export async function compileGoPieceFile(options = {}) {
       await cleanupWorkspace(workspace, options.keepWorkspace);
     }
   }
+}
+
+export function createNodeGoDeclarationExtractor(options = {}) {
+  const baseExtractor = options.declarationExtractor ?? createGoDeclarationExtractor(options);
+  return {
+    name: options.name ?? baseExtractor.name,
+    async extract({ filePath, source, previousTree }) {
+      const manifest = await baseExtractor.extract({ filePath, source, previousTree });
+      if (options.goList === false) {
+        return manifest;
+      }
+      const result = await collectGoListForSource({
+        filePath,
+        source,
+        goCommand: options.goCommand ?? "go",
+        modulePath: options.modulePath ?? options.goModulePath,
+        env: options.env
+      });
+      const toolchain = createGoListToolchainMetadata(result.goList);
+      return {
+        ...manifest,
+        toolchain,
+        toolchains: [toolchain],
+        diagnostics: [...(manifest.diagnostics ?? []), ...goListManifestDiagnostics(result.command, result.goList)]
+      };
+    }
+  };
 }
 
 export async function compileKotlinPieceFile(options = {}) {

@@ -49,22 +49,39 @@ function dependencyArtifactIdentity(artifact) {
   return [artifact.id, artifact.path, artifact.kind, artifact.hash, artifact.cacheKey].filter(Boolean).join(":");
 }
 
+function normalizeToolchainInputs(value) {
+  return [...new Set(Array.isArray(value) ? value.map((input) => String(input ?? "")).filter(Boolean) : [])].sort();
+}
+
+export function pieceToolchainInputsFromManifest(manifest) {
+  const toolchains = [
+    ...(manifest?.toolchain ? [manifest.toolchain] : []),
+    ...(Array.isArray(manifest?.toolchains) ? manifest.toolchains : [])
+  ];
+  return normalizeToolchainInputs(toolchains.flatMap((toolchain) => toolchain?.inputs ?? []));
+}
+
 export function createPieceActionCacheMetadata(options = {}) {
   const compilerOptionsHash =
     options.compilerOptionsHash ??
     (options.compilerOptions === undefined ? "" : stableTextHash(stableStringify(options.compilerOptions)));
   const dependencyArtifacts = normalizeDependencyArtifacts(options.dependencyArtifacts);
   const dependencyArtifactsHash = dependencyArtifacts.length > 0 ? hashParts(dependencyArtifacts.map(dependencyArtifactIdentity)) : "";
+  const toolchainInputs = normalizeToolchainInputs(options.toolchainInputs);
+  const toolchainInputsHash = toolchainInputs.length > 0 ? hashParts(toolchainInputs) : "";
   const inputs = [
     compilerOptionsHash ? `compiler-options:${compilerOptionsHash}` : undefined,
-    dependencyArtifactsHash ? `dependency-artifacts:${dependencyArtifactsHash}` : undefined
+    dependencyArtifactsHash ? `dependency-artifacts:${dependencyArtifactsHash}` : undefined,
+    ...toolchainInputs
   ].filter(Boolean);
 
   return {
     version: 1,
     compilerOptionsHash,
     dependencyArtifactsHash,
+    toolchainInputsHash,
     dependencyArtifacts,
+    toolchainInputs,
     inputs
   };
 }

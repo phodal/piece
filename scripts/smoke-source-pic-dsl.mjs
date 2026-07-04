@@ -71,6 +71,7 @@ async function assertRoundTrip({ filePath, source, language, expectedSnippets, a
     JSON.stringify(parsed.piecePackage) === JSON.stringify(analysis.piecePackage),
     `Generated .pic did not round-trip for ${filePath}:\nsource=${JSON.stringify(analysis.piecePackage)}\nparsed=${JSON.stringify(parsed.piecePackage)}\npic=${analysis.pieceDsl}`
   );
+  return analysis;
 }
 
 await assertRoundTrip({
@@ -111,17 +112,30 @@ await assertRoundTrip({
   ]
 });
 
-await assertRoundTrip({
+const goAnalysis = await assertRoundTrip({
   filePath: "/repo/src/Pricing.go",
   source: goSource,
   language: "go",
   expectedSnippets: [
     "language go",
+    "go-list:",
     'runtimeDeps "//repo/src:Pricing.go__value_prefix"',
     'typeDeps "//repo/src:Pricing.go__type_Greeting", "//repo/src:Pricing.go__type_User"',
     'externalDeps "fmt#fmt"',
     'action compile {'
   ]
 });
+assert(goAnalysis.manifest.toolchain?.kind === "go-list", `Expected Go analysis to include go-list metadata: ${JSON.stringify(goAnalysis.manifest.toolchain)}`);
+assert(goAnalysis.manifest.toolchain?.goList?.packageHash, `Expected Go list package hash: ${JSON.stringify(goAnalysis.manifest.toolchain)}`);
+assert(
+  goAnalysis.actionCache.toolchainInputs.includes(`go-list:${goAnalysis.manifest.toolchain.goList.packageHash}`),
+  `Expected action cache to include Go list input: ${JSON.stringify(goAnalysis.actionCache)}`
+);
+const goCompileAction = goAnalysis.piecePackage.actions.find((action) => action.id === "//repo/src:Pricing.go__function_RenderGreeting%compile");
+assert(goCompileAction?.inputs.includes(`go-list:${goAnalysis.manifest.toolchain.goList.packageHash}`), `Expected Go compile action inputs to include go-list hash: ${JSON.stringify(goCompileAction)}`);
+assert(
+  goAnalysis.snapshot.actionCache.toolchainInputsHash === goAnalysis.actionCache.toolchainInputsHash,
+  `Expected snapshot action cache to carry Go toolchain input hash: ${JSON.stringify(goAnalysis.snapshot.actionCache)}`
+);
 
 console.log("Source .pic generation smoke passed");
