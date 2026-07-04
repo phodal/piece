@@ -346,7 +346,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Let explicit source-set package view overrides feed action/snapshot package views through `pieceDslOverrideMode: "action-snapshot"` while preserving metadata-only defaults.
+1. Verify app-level compile action dispatch can use source-set action-snapshot override packages without changing preview target selection.
+
+## Completed Phase 5/6 Source-Set Override Action Snapshot Slice
+
+The source-set override action snapshot slice is now implemented:
+
+1. Explicit source-set package view override merges can feed action/snapshot package views through `pieceDslOverrideMode: "action-snapshot"`.
+2. The action-snapshot path preserves the merged source-set override package as `analysis.actionPackage`.
+3. `createPieceSnapshot()` retains the same merged source-set override package as `snapshot.actionPackage`.
+4. Metadata-only defaults remain unchanged unless callers explicitly request action-snapshot mode.
+5. `npm run language:project-model:smoke` verifies the promoted `User.kt#User` source-set override package is retained in both action and snapshot package views.
 
 ## Completed Phase 5/6 Source-Set Override Merge Base Slice
 

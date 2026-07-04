@@ -516,6 +516,34 @@ fun detached(): String = "detached"
       snapshotActionPackage: sourceSetOverrideAnalysis.snapshot.actionPackage
     })}`
   );
+  const sourceSetActionSnapshotOverrideAnalysis = await analyzePieceFile({
+    filePath: renderPath,
+    source,
+    declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
+      projectRoot: workspace,
+      backend: "analysis-api",
+      analysisApiEnabled: true
+    }),
+    sourceSetScopeSelection: "safe",
+    overrideFilePath: join(workspace, "Render.source-set.override.pic"),
+    overrideSource: sourceSetOverride,
+    pieceDslOverrideBase: "source-set-package-view",
+    pieceDslOverrideMode: "action-snapshot"
+  });
+  assert(
+    sourceSetActionSnapshotOverrideAnalysis.actionPackage?.targets.some(
+      (target) => target.label === promotedUserTarget.label && target.visibility.includes("//visibility:public")
+    ),
+    `Source-set action-snapshot override did not expose the merged action package: ${JSON.stringify(sourceSetActionSnapshotOverrideAnalysis.actionPackage)}`
+  );
+  assert(
+    JSON.stringify(sourceSetActionSnapshotOverrideAnalysis.snapshot.actionPackage) ===
+      JSON.stringify(sourceSetActionSnapshotOverrideAnalysis.actionPackage),
+    `Source-set action-snapshot override did not retain the merged snapshot action package: ${JSON.stringify({
+      actionPackage: sourceSetActionSnapshotOverrideAnalysis.actionPackage,
+      snapshotActionPackage: sourceSetActionSnapshotOverrideAnalysis.snapshot.actionPackage
+    })}`
+  );
   assert(
     analysis.piecePackage.actions.every((action) => action.inputs.includes(`project-model:${analysis.manifest.projectModel.analysisScope.hashes.scopeHash}`)),
     `Piece actions did not include the Gradle project model hash input: ${JSON.stringify(analysis.piecePackage.actions)}`
