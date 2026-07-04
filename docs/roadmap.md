@@ -346,7 +346,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Expose promoted source-set package-view artifact cache metadata through app-level action snapshots and status diagnostics.
+1. Preserve promoted source-set artifact cache keys through `.pic` override/action-snapshot round trips.
+
+## Completed Phase 5/6 App-Level Source-Set Artifact Cache Diagnostics Slice
+
+The app-level source-set artifact cache diagnostics slice is now implemented:
+
+1. `compileActionSelection.sourceSetScope.packageViewArtifactCache` now summarizes promoted source-set package-view artifacts.
+2. The metadata reports promoted artifact count, cached artifact count, and compact `id` / `target` / `kind` / `cacheKey` entries.
+3. App-level compile action snapshots retain selected source-set package-view artifact cache keys when dispatching through `selected-source-set-view`.
+4. Fast Node unit coverage verifies the app-level status contract for selected source-set package views.
+5. `npm run language:project-model:smoke` verifies the real Gradle/KMP app status and action snapshot carry promoted `User` artifact cache keys.
 
 ## Completed Phase 5/6 Source-Set Package View Artifact Cache Slice
 

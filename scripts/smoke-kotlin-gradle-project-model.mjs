@@ -666,12 +666,28 @@ fun detached(): String = "detached"
     `App-level compile action selection did not expose source-set proof metadata: ${JSON.stringify(appStatus.compileActionSelection)}`
   );
   assert(
+    appStatus.compileActionSelection?.sourceSetScope?.packageViewArtifactCache?.artifacts.some(
+      (artifact) => artifact.target === promotedUserTarget.label && artifact.kind === "piece-compile" && artifact.cacheKey
+    ),
+    `App-level compile action selection did not expose promoted source-set artifact cache metadata: ${JSON.stringify(
+      appStatus.compileActionSelection?.sourceSetScope
+    )}`
+  );
+  assert(
     !appStatus.analysis?.actionPackage &&
       appStatus.analysis?.snapshot?.actionPackage?.targets.some((target) => target.label === promotedUserTarget.label),
     `App-level compile status did not retain the selected source-set package view snapshot: ${JSON.stringify({
       actionPackage: appStatus.analysis?.actionPackage,
       snapshotActionPackage: appStatus.analysis?.snapshot?.actionPackage
     })}`
+  );
+  assert(
+    appStatus.analysis?.snapshot?.actionPackage?.artifacts.some(
+      (artifact) => artifact.target === promotedUserTarget.label && artifact.kind === "piece-compile" && artifact.cacheKey
+    ),
+    `App-level compile status did not retain source-set artifact cache keys in the action snapshot: ${JSON.stringify(
+      appStatus.analysis?.snapshot?.actionPackage?.artifacts
+    )}`
   );
   assert(
     Object.values(analysis.snapshot.artifacts).every((artifact) => artifact.cacheKey),

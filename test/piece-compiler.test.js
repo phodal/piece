@@ -1062,6 +1062,196 @@ export function Other() {
     });
   });
 
+  it("exposes source-set package view artifact cache metadata on node app compile action selection", async () => {
+    const filePath = "/repo/app/src/jvmMain/kotlin/demo/app/Render.kt";
+    const source = "package demo.app\nfun render(user: User): String = user.name\n";
+    const renderTargetLabel = "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt__function_render";
+    const promotedUserLabel = "//repo/domain/src/commonMain/kotlin/demo/model:User.kt__type_User";
+    const packageView = {
+      version: 1,
+      kind: "single-file-package",
+      language: "kotlin",
+      packageName: "repo/app/src/jvmMain/kotlin/demo/app",
+      label: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+      filePath,
+      sourceFile: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+      rules: [],
+      targets: [
+        {
+          id: `${filePath}#function:render`,
+          label: renderTargetLabel,
+          name: "render",
+          kind: "function",
+          rule: "kotlin_piece_function",
+          source: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+          deps: [promotedUserLabel],
+          runtimeDeps: [],
+          typeDeps: [promotedUserLabel],
+          externalDeps: [],
+          actions: [`${renderTargetLabel}%compile`],
+          artifacts: [],
+          visibility: ["//visibility:private"]
+        },
+        {
+          id: "/repo/domain/src/commonMain/kotlin/demo/model/User.kt#type:User",
+          label: promotedUserLabel,
+          name: "User",
+          kind: "type",
+          rule: "kotlin_piece_type",
+          sourceFile: "/repo/domain/src/commonMain/kotlin/demo/model/User.kt",
+          source: "//repo/domain/src/commonMain/kotlin/demo/model:User.kt",
+          externalIdentity: "/repo/domain/src/commonMain/kotlin/demo/model/User.kt#User",
+          deps: [],
+          runtimeDeps: [],
+          typeDeps: [],
+          externalDeps: [],
+          actions: [`${promotedUserLabel}%feedback`, `${promotedUserLabel}%compile`],
+          artifacts: [`${promotedUserLabel}.piece.json`, `${promotedUserLabel}.compile.json`],
+          visibility: ["//visibility:private"]
+        }
+      ],
+      actions: [
+        {
+          id: `${promotedUserLabel}%compile`,
+          target: promotedUserLabel,
+          kind: "compile",
+          mnemonic: "PieceCompile",
+          inputs: ["//repo/domain/src/commonMain/kotlin/demo/model:User.kt", "source-set:source-set-scope-hash"],
+          outputs: [`${promotedUserLabel}.compile.json`]
+        }
+      ],
+      artifacts: [
+        {
+          id: `${promotedUserLabel}.piece.json`,
+          target: promotedUserLabel,
+          kind: "piece-feedback",
+          path: "user.piece.json",
+          cacheKey: "user-feedback-cache-key"
+        },
+        {
+          id: `${promotedUserLabel}.compile.json`,
+          target: promotedUserLabel,
+          kind: "piece-compile",
+          path: "user.compile.json",
+          cacheKey: "user-compile-cache-key"
+        }
+      ]
+    };
+    const analysis = {
+      version: 1,
+      filePath,
+      manifest: {
+        version: 1,
+        filePath,
+        source,
+        parser: "kotlin-psi-declaration-extractor",
+        slices: [],
+        headers: [],
+        effects: [],
+        importBindings: [],
+        hasTopLevelEffect: false,
+        diagnostics: []
+      },
+      graph: {
+        version: 1,
+        filePath,
+        slices: [],
+        edges: [],
+        symbolTable: { local: {}, imports: {}, importsByLocal: {}, exports: {} },
+        diagnostics: []
+      },
+      feedbackScope: {
+        version: 1,
+        level: "source-set",
+        fallbackRequired: false,
+        reasons: [],
+        hashes: {
+          sourceHash: "source-hash",
+          dependencyHash: "dependency-hash",
+          projectModelHash: "project-model-hash",
+          fallbackScopeHash: "fallback-scope-hash"
+        }
+      },
+      piecePackage: {
+        ...packageView,
+        targets: [packageView.targets[0]],
+        actions: [],
+        artifacts: []
+      },
+      sourceSetScope: {
+        version: 1,
+        kind: "source-set-scope-target-model",
+        status: "selected",
+        language: "kotlin",
+        packageName: "repo/app/src/jvmMain/kotlin/demo/app",
+        label: "//repo/app/src/jvmMain/kotlin/demo/app:__source_set_scope",
+        filePath,
+        sourceFile: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+        sourceSetScopeHash: "source-set-scope-hash",
+        sourceSetScopeInput: "source-set:source-set-scope-hash",
+        projectModelInput: "project-model:source-set-scope-hash",
+        projectPath: ":app",
+        projectPaths: [":app", ":domain"],
+        sourceSet: "jvmMain",
+        requiredSourceSets: ["commonMain", "jvmMain"],
+        promotion: {
+          status: "selected",
+          requested: "safe",
+          appliedToDefaultPackage: false,
+          appliedToPackageView: true,
+          reason: "Source-set companion targets passed the safe selection gate and are available in packageView.",
+          blockedReasons: []
+        },
+        sourceFiles: [],
+        currentTargets: [],
+        promotedTargets: [packageView.targets[1]],
+        promotedEdges: [],
+        scopeInputs: ["project-model:source-set-scope-hash", "source-set:source-set-scope-hash"],
+        packageView
+      },
+      pieceDsl: "",
+      pieceDslSource: "current-file",
+      previewTargets: [],
+      metrics: {
+        totalMs: 0,
+        phases: { extractMs: 0, graphMs: 0 },
+        sourceBytes: source.length,
+        sliceCount: 0,
+        edgeCount: 0,
+        previewTargetCount: 0
+      }
+    };
+
+    const status = await compileNodePieceApp({
+      filePath,
+      source,
+      analysis,
+      target: "__no_preview__",
+      compileAction: true,
+      pieceTarget: "__missing_piece_target__"
+    });
+
+    expect(status.compileActionSelection?.actionPackageSource).toBe("selected-source-set-view");
+    expect(status.compileActionSelection?.sourceSetScope?.packageViewArtifactCache).toMatchObject({
+      artifactCount: 2,
+      cachedArtifactCount: 2,
+      artifacts: [
+        expect.objectContaining({
+          id: `${promotedUserLabel}.piece.json`,
+          target: promotedUserLabel,
+          kind: "piece-feedback",
+          cacheKey: "user-feedback-cache-key"
+        }),
+        expect.objectContaining({
+          id: `${promotedUserLabel}.compile.json`,
+          target: promotedUserLabel,
+          kind: "piece-compile",
+          cacheKey: "user-compile-cache-key"
+        })
+      ]
+    });
+  });
+
   it("compiles virtual closure modules with node esbuild", async () => {
     const source = `import * as React from "react";
 

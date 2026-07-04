@@ -173,6 +173,19 @@ export interface NodeCompileActionSelectionReason {
   readonly [key: string]: unknown;
 }
 
+export interface NodeCompileActionArtifactCacheEntry {
+  readonly id: string;
+  readonly target: string;
+  readonly kind: string;
+  readonly cacheKey?: string;
+}
+
+export interface NodeCompileActionArtifactCacheMetadata {
+  readonly artifactCount: number;
+  readonly cachedArtifactCount: number;
+  readonly artifacts: readonly NodeCompileActionArtifactCacheEntry[];
+}
+
 export interface NodeCompileActionSelection {
   readonly actionPackageSource:
     | "explicit"
@@ -202,6 +215,7 @@ export interface NodeCompileActionSelection {
     readonly appliedToPackageView: boolean;
     readonly reason?: string;
     readonly blockers: readonly NodeCompileActionSelectionReason[];
+    readonly packageViewArtifactCache?: NodeCompileActionArtifactCacheMetadata;
   };
   readonly sourceSet?: {
     readonly status?: string;

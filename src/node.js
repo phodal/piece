@@ -139,6 +139,30 @@ function compileActionSourceSetSelection(analysis) {
   };
 }
 
+function promotedPackageViewArtifactCacheMetadata(scope) {
+  const packageView = scope?.packageView;
+  const promotedTargets = new Set((scope?.promotedTargets ?? []).map((target) => target.label).filter(Boolean));
+  if (!packageView || promotedTargets.size === 0) {
+    return undefined;
+  }
+  const artifacts = (packageView.artifacts ?? [])
+    .filter((artifact) => promotedTargets.has(artifact.target))
+    .map((artifact) => ({
+      id: artifact.id,
+      target: artifact.target,
+      kind: artifact.kind,
+      ...(artifact.cacheKey ? { cacheKey: artifact.cacheKey } : {})
+    }));
+  if (artifacts.length === 0) {
+    return undefined;
+  }
+  return {
+    artifactCount: artifacts.length,
+    cachedArtifactCount: artifacts.filter((artifact) => artifact.cacheKey).length,
+    artifacts
+  };
+}
+
 function compileActionSelectionForStatus(options = {}, status = {}) {
   const analysis = status.analysis;
   const packageScope = analysis?.packageScope;
@@ -146,6 +170,7 @@ function compileActionSelectionForStatus(options = {}, status = {}) {
   const sourceSetScope = analysis?.sourceSetScope;
   const sourceSetPromotion = sourceSetScope?.promotion;
   const sourceSet = compileActionSourceSetSelection(analysis);
+  const sourceSetPackageViewArtifactCache = promotedPackageViewArtifactCacheMetadata(sourceSetScope);
   return {
     actionPackageSource: actionPackageSource(options, analysis),
     ...(analysis?.actionPackageOrigin ? { actionPackageOrigin: analysis.actionPackageOrigin } : {}),
@@ -172,7 +197,8 @@ function compileActionSelectionForStatus(options = {}, status = {}) {
             requested: sourceSetPromotion?.requested,
             appliedToPackageView: sourceSetPromotion?.appliedToPackageView === true,
             reason: sourceSetPromotion?.reason,
-            blockers: nonInfoReasons(sourceSetPromotion?.blockedReasons ?? [])
+            blockers: nonInfoReasons(sourceSetPromotion?.blockedReasons ?? []),
+            ...(sourceSetPackageViewArtifactCache ? { packageViewArtifactCache: sourceSetPackageViewArtifactCache } : {})
           }
         }
       : {}),
