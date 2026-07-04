@@ -28,6 +28,7 @@ The repository already has:
 - Node compile/build helpers retain explicit `actionPackage` metadata when override or action-snapshot options require Node analysis.
 - Go and Kotlin language compile helpers can resolve `pieceAction` from an explicit `actionPackage` target/action selection.
 - `compilePieceAction()` can dispatch an analyzed package compile action to the matching Go or Kotlin language helper.
+- `compilePieceApp({ compileAction: true })` can attach an opt-in language compile report to app status.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -340,8 +341,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Add an opt-in app-level compile result to `compilePieceApp()` that invokes `compilePieceAction()` from the selected analysis package.
+1. Convert app-level compile-action dispatch failures into structured diagnostics so unsupported language or invalid action selections do not discard the app status.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 5/6 App-Level Compile Action Slice
+
+The app-level compile action slice is now implemented:
+
+1. `piece-compiler/node` `compilePieceApp()` accepts `compileAction: true`.
+2. The option keeps the normal app status and preview behavior, then invokes `compilePieceAction()` from the selected analysis package.
+3. Preview `target` can select the same package target for compile action dispatch, while `pieceTarget` can override it explicitly.
+4. Kotlin platform dispatch can be provided through `languageTarget` or `kotlinTarget` without reusing preview `target`.
+5. `npm run language:compile:smoke` verifies app-level Go compile action output retains the selected package action identity.
 
 ## Completed Phase 5/6 Compile Action Runner Slice
 

@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { analyzePieceFile, compileGoPieceFile, compilePieceAction } from "../src/node.js";
+import { analyzePieceFile, compileGoPieceFile, compilePieceAction, compilePieceApp } from "../src/node.js";
 
 const goSource = `package main
 
@@ -139,6 +139,17 @@ if (JSON.stringify(goResult.pieceAction) !== JSON.stringify({
   kind: "compile"
 })) {
   throw new Error(`Go compile did not resolve Piece action identity from actionPackage: ${JSON.stringify(goResult.pieceAction)}`);
+}
+const goAppStatus = await compilePieceApp({
+  filePath: "/repo/src/Pricing.go",
+  source: goSource,
+  target: "RenderGreeting",
+  compileAction: true,
+  actionPackage: goActionPackage
+});
+assertSuccess(goAppStatus.compileAction, "Go app-level Piece action");
+if (JSON.stringify(goAppStatus.compileAction?.pieceAction) !== JSON.stringify(goResult.pieceAction)) {
+  throw new Error(`compilePieceApp did not retain app-level Piece action identity: ${JSON.stringify(goAppStatus.compileAction?.pieceAction)}`);
 }
 if (!goResult.commands.some((command) => command.command === "go" && command.args.join(" ") === "list -json ./...")) {
   throw new Error(`Go compile did not run go list before build/test: ${JSON.stringify(goResult.commands)}`);

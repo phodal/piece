@@ -127,6 +127,12 @@ export interface NodeCompilePieceAppOptions extends CompilePieceAppOptions {
   readonly overrideFilePath?: string;
   readonly overrideSource?: string;
   readonly pieceDslOverrideMode?: PieceDslOverrideMode;
+  readonly compileAction?: boolean;
+  readonly pieceTarget?: string;
+  readonly pieceActionName?: string;
+  readonly languageTarget?: "jvm" | "js" | "wasmJs" | "all" | (string & {});
+  readonly kotlinTarget?: "jvm" | "js" | "wasmJs" | "all" | (string & {});
+  readonly actionPackage?: SingleFilePiecePackage;
 }
 
 export interface NodeBuildPiecePreviewOptions extends BuildPiecePreviewOptions {
@@ -138,6 +144,10 @@ export interface NodeBuildPiecePreviewOptions extends BuildPiecePreviewOptions {
 
 export interface NodePieceFileAnalysis extends PieceFileAnalysis {
   readonly pieceDslMerge?: PieceDslMergeResult;
+}
+
+export interface NodeCompilePieceAppStatus extends CompilePieceAppStatus {
+  readonly compileAction?: GoPieceCompileResult | KotlinPieceCompileResult;
 }
 
 export interface KotlinPieceDslGenerationResult {
@@ -289,7 +299,7 @@ export function compilePieceAction(options?: CompilePieceActionOptions): Promise
 export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise<GoPieceCompileResult>;
 export function compileKotlinPieceFile(options?: CompileKotlinPieceFileOptions): Promise<KotlinPieceCompileResult>;
 export function analyzePieceFile(options?: NodeAnalyzePieceFileOptions): Promise<NodePieceFileAnalysis>;
-export function compilePieceApp(options?: NodeCompilePieceAppOptions): Promise<CompilePieceAppStatus>;
+export function compilePieceApp(options?: NodeCompilePieceAppOptions): Promise<NodeCompilePieceAppStatus>;
 export function buildPiecePreview(options?: NodeBuildPiecePreviewOptions): Promise<PiecePreviewBuild>;
 export function analyzeKotlinPieceFile(options?: AnalyzeKotlinPieceFileOptions): Promise<PieceFileManifest>;
 export function parsePieceDslFile(options?: ParsePieceDslFileOptions): Promise<PieceDslParseResult>;

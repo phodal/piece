@@ -14,7 +14,12 @@ import {
   rebuildAffectedPiecePreviews as rebuildCoreAffectedPiecePreviews,
   selectPiecePreviewTarget
 } from "./index.js";
-import { createNodeGoDeclarationExtractor, createNodeKotlinPsiDeclarationExtractor, mergePieceDslFiles } from "./node-language-compilers.js";
+import {
+  compilePieceAction,
+  createNodeGoDeclarationExtractor,
+  createNodeKotlinPsiDeclarationExtractor,
+  mergePieceDslFiles
+} from "./node-language-compilers.js";
 
 const SOURCE_FILE_PATTERN = /\.(tsx?|jsx?|kts?|go)$/;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "coverage"]);
@@ -66,6 +71,22 @@ function hasPieceDslOverride(options = {}) {
 
 function needsNodeAnalysisForActionPackage(options = {}) {
   return !options.analysis && (hasPieceDslOverride(options) || options.pieceDslOverrideMode !== undefined);
+}
+
+function compileActionOptionsForStatus(options = {}, status) {
+  const compileOptions = {
+    ...options,
+    filePath: status.filePath,
+    analysis: status.analysis,
+    pieceTarget: options.pieceTarget ?? options.target ?? status.piece?.target?.name ?? status.piece?.target?.id,
+    pieceActionName: options.pieceActionName
+  };
+  delete compileOptions.compileAction;
+  delete compileOptions.target;
+  if (options.languageTarget ?? options.kotlinTarget) {
+    compileOptions.target = options.languageTarget ?? options.kotlinTarget;
+  }
+  return compileOptions;
 }
 
 function primaryGeneratedPackageForAnalysis(analysis) {
@@ -126,11 +147,20 @@ export async function analyzePieceFile(options = {}) {
 }
 
 export async function compilePieceApp(options = {}) {
-  if (!needsNodeAnalysisForActionPackage(options)) {
+  if (!options.compileAction && !needsNodeAnalysisForActionPackage(options)) {
     return compileCorePieceApp(withNodeDeclarationExtractor(options));
   }
-  const analysis = await analyzePieceFile(options);
-  return compileCorePieceApp(withNodeDeclarationExtractor({ ...options, analysis }));
+  const analysis = needsNodeAnalysisForActionPackage(options) ? await analyzePieceFile(options) : options.analysis;
+  const compileOptions = analysis ? { ...options, analysis } : options;
+  const status = await compileCorePieceApp(withNodeDeclarationExtractor(compileOptions));
+  if (!options.compileAction) {
+    return status;
+  }
+  const compileAction = await compilePieceAction(compileActionOptionsForStatus(options, status));
+  return {
+    ...status,
+    compileAction
+  };
 }
 
 export async function buildPiecePreview(options = {}) {
