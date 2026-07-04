@@ -6,6 +6,8 @@ import type {
   CompilePieceAppStatus,
   KotlinAnalysisBackendKind,
   PieceAnalysisBackendMetadata,
+  PieceCompileActionCacheRecord,
+  PieceCompileActionCacheStatus,
   PieceBuildEngine,
   PieceDeclarationExtractor,
   PieceFileAnalysis,
@@ -66,6 +68,7 @@ export interface PieceLanguageCompileResult {
   readonly outputFiles: readonly PieceCompilerOutputFile[];
   readonly commands: readonly PieceCompilerCommandResult[];
   readonly diagnostics: readonly PieceLanguageCompileDiagnostic[];
+  readonly actionCache?: PieceCompileActionCacheStatus;
 }
 
 export interface PieceDslParseDiagnostic {
@@ -136,6 +139,12 @@ export interface NodeCompilePieceAppOptions extends CompilePieceAppOptions {
   readonly languageTarget?: "jvm" | "js" | "wasmJs" | "all" | (string & {});
   readonly kotlinTarget?: "jvm" | "js" | "wasmJs" | "all" | (string & {});
   readonly actionPackage?: SingleFilePiecePackage;
+  readonly actionCacheRecords?:
+    | false
+    | ReadonlyMap<string, PieceCompileActionCacheRecord>
+    | Record<string, PieceCompileActionCacheRecord>
+    | readonly PieceCompileActionCacheRecord[];
+  readonly actionCacheMode?: "status-only" | "bypass" | (string & {});
 }
 
 export interface NodeBuildPiecePreviewOptions extends BuildPiecePreviewOptions {
@@ -197,6 +206,7 @@ export interface NodeCompileActionSelection {
     | "missing"
     | (string & {});
   readonly actionPackageOrigin?: NodeActionPackageOrigin;
+  readonly actionCache?: PieceCompileActionCacheStatus;
   readonly feedbackScope: {
     readonly level: string;
     readonly fallbackRequired: boolean;
@@ -307,6 +317,12 @@ export interface CompilePieceActionOptions extends CompileKotlinPieceFileOptions
   readonly goCommand?: string;
   readonly modulePath?: string;
   readonly runTests?: boolean;
+  readonly actionCacheRecords?:
+    | false
+    | ReadonlyMap<string, PieceCompileActionCacheRecord>
+    | Record<string, PieceCompileActionCacheRecord>
+    | readonly PieceCompileActionCacheRecord[];
+  readonly actionCacheMode?: "status-only" | "bypass" | (string & {});
 }
 
 export interface AnalyzeKotlinPieceFileOptions {

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import { createPieceActionCacheRecord, explainPieceActionCacheStatus } from "./core/action-cache.js";
 import { hashParts, stableTextHash } from "./core/hash.js";
 import { mergePiecePackages, piecePackageToPicDsl } from "./core/pic-dsl.js";
 import { createGoDeclarationExtractor } from "./languages/go/declaration-extractor.js";
@@ -102,6 +103,46 @@ function compileArtifactIdForAction(piecePackage, target, action) {
     candidate.target === target.label && String(candidate.kind ?? "").toLowerCase() === "piece-compile"
   );
   return artifact?.id ?? `${target.label}.compile.json`;
+}
+
+function compileArtifactForAction(piecePackage, target, action) {
+  const artifactId = compileArtifactIdForAction(piecePackage, target, action);
+  const exactArtifact = (piecePackage?.artifacts ?? []).find((artifact) => artifact.id === artifactId);
+  if (exactArtifact) {
+    return exactArtifact;
+  }
+  const targetArtifact = (piecePackage?.artifacts ?? []).find(
+    (artifact) => artifact.target === target.label && String(artifact.kind ?? "").toLowerCase() === "piece-compile"
+  );
+  return {
+    ...(targetArtifact ?? {}),
+    id: artifactId,
+    target: target.label,
+    kind: targetArtifact?.kind ?? "piece-compile",
+    path: targetArtifact?.path ?? artifactId
+  };
+}
+
+function selectCompileActionDetails(piecePackage, options = {}) {
+  const target = selectActionPackageTarget(piecePackage, options.pieceAction?.targetLabel ?? options.pieceTarget);
+  const action = options.pieceAction?.actionId
+    ? (piecePackage?.actions ?? []).find((candidate) => candidate.id === options.pieceAction.actionId) ??
+      selectActionPackageCompileAction(piecePackage, target, options.pieceActionName)
+    : selectActionPackageCompileAction(piecePackage, target, options.pieceActionName);
+  const artifact = options.pieceAction?.artifactId
+    ? (piecePackage?.artifacts ?? []).find((candidate) => candidate.id === options.pieceAction.artifactId) ?? compileArtifactForAction(piecePackage, target, action)
+    : compileArtifactForAction(piecePackage, target, action);
+  return {
+    target,
+    action,
+    artifact,
+    pieceAction: {
+      targetLabel: target.label,
+      actionId: action.id,
+      artifactId: artifact.id,
+      kind: "compile"
+    }
+  };
 }
 
 function resolveCompilePieceAction(options = {}) {
@@ -1621,13 +1662,39 @@ export async function compilePieceAction(options = {}) {
   }
 
   const language = languageForCompileAction(options, actionPackage, filePath);
+  const actionDetails = selectCompileActionDetails(actionPackage, options);
+  compileOptions.pieceAction = actionDetails.pieceAction;
+  const actionCacheRecord = createPieceActionCacheRecord({
+    actionPackage,
+    target: actionDetails.target,
+    action: actionDetails.action,
+    artifact: actionDetails.artifact,
+    analysis: options.analysis,
+    actionCache: options.analysis?.actionCache,
+    language,
+    filePath,
+    source
+  });
+  const actionCache = explainPieceActionCacheStatus({
+    record: actionCacheRecord,
+    records: options.actionCacheRecords,
+    mode: options.actionCacheMode,
+    analysis: options.analysis,
+    actionPackage,
+    artifact: actionDetails.artifact
+  });
+  let result;
   if (language === "go") {
-    return compileGoPieceFile(compileOptions);
+    result = await compileGoPieceFile(compileOptions);
+  } else if (language === "kotlin") {
+    result = await compileKotlinPieceFile(compileOptions);
+  } else {
+    throw new Error(`Unsupported Piece compile action language: ${language}.`);
   }
-  if (language === "kotlin") {
-    return compileKotlinPieceFile(compileOptions);
-  }
-  throw new Error(`Unsupported Piece compile action language: ${language}.`);
+  return {
+    ...result,
+    actionCache
+  };
 }
 
 export async function analyzeKotlinPieceFile(options = {}) {

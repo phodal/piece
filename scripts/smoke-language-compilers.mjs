@@ -119,7 +119,8 @@ function compileActionPackage({ language, filePath, targetName, targetLabel, out
         id: output,
         target: targetLabel,
         kind: "piece-compile",
-        path: output
+        path: output,
+        cacheKey: `${output}:cache-key`
       }
     ]
   };
@@ -162,6 +163,17 @@ const goAppStatus = await compilePieceApp({
   actionPackage: goActionPackage
 });
 assertSuccess(goAppStatus.compileAction, "Go app-level Piece action");
+if (
+  goAppStatus.compileAction.actionCache?.status !== "miss" ||
+  !goAppStatus.compileAction.actionCache.record?.key ||
+  goAppStatus.compileAction.actionCache.execution?.skipped !== false ||
+  goAppStatus.compileActionSelection?.actionCache?.record?.key !== goAppStatus.compileAction.actionCache.record.key
+) {
+  throw new Error(`compilePieceApp did not expose status-only action cache metadata: ${JSON.stringify({
+    compileActionCache: goAppStatus.compileAction.actionCache,
+    selectionActionCache: goAppStatus.compileActionSelection?.actionCache
+  })}`);
+}
 if (JSON.stringify(goAppStatus.compileAction?.pieceAction) !== JSON.stringify(goResult.pieceAction)) {
   throw new Error(`compilePieceApp did not retain app-level Piece action identity: ${JSON.stringify(goAppStatus.compileAction?.pieceAction)}`);
 }
@@ -190,6 +202,22 @@ if (badGoAppStatus.compileActionSelection?.actionPackageSource !== "explicit") {
 }
 if ((badGoAppStatus.diagnostics?.issueCount ?? 0) <= (goAppStatus.diagnostics?.issueCount ?? 0)) {
   throw new Error(`compilePieceApp did not count the compile-action diagnostic: ${JSON.stringify(badGoAppStatus.diagnostics)}`);
+}
+const goActionCacheHit = await compilePieceAction({
+  filePath: "/repo/src/Pricing.go",
+  source: goSource,
+  analysis: goAppStatus.analysis,
+  actionPackage: goActionPackage,
+  actionCacheRecords: [goAppStatus.compileAction.actionCache.record]
+});
+assertSuccess(goActionCacheHit, "Go status-only action-cache hit");
+if (
+  goActionCacheHit.actionCache?.status !== "hit" ||
+  goActionCacheHit.actionCache.matchedRecordKey !== goAppStatus.compileAction.actionCache.record.key ||
+  goActionCacheHit.actionCache.execution?.skipped !== false ||
+  goActionCacheHit.commands.length === 0
+) {
+  throw new Error(`compilePieceAction did not report a non-skipping local cache hit: ${JSON.stringify(goActionCacheHit.actionCache)}`);
 }
 if (!goResult.commands.some((command) => command.command === "go" && command.args.join(" ") === "list -json ./...")) {
   throw new Error(`Go compile did not run go list before build/test: ${JSON.stringify(goResult.commands)}`);

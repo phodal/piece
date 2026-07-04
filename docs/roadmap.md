@@ -345,7 +345,7 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should move beyond the shipped Phase 1-6 feedback loop:
 
-1. Add a local action-cache record schema and status-only hit/miss explanation for `compilePieceAction()` without skipping execution yet.
+1. Persist local action-cache records after successful `compilePieceAction()` runs, while still keeping cache hits status-only and non-skipping.
 
 ### Phase 7: Distributed Action Cache and Runtime
 
@@ -362,6 +362,17 @@ Phase 7 turns the Phase 1-6 action identity into a reusable execution/cache laye
 - Extend `.pic` only for stable package/action/artifact metadata. Do not put machine-local cache paths or remote credentials into generated `.pic`.
 
 Definition of done: Piece can produce a durable local action-cache record for Go, Kotlin, and JS/TS package actions; explain hit/miss/unsafe decisions in app status; reuse a cached artifact only when action identity, fallback scope, toolchain/project scope, compiler options, dependency artifacts, and `.pic` artifact cache keys all match; and keep language execution behind the existing official backend boundaries.
+
+## Completed Phase 7 Local Action Cache Status Slice
+
+The local action-cache status slice is now implemented:
+
+1. `createPieceActionCacheRecord()` builds a deterministic `piece-action-cache-record` from package/action/artifact identity, action inputs/outputs, source hash, feedback-scope hash, project-model hash, toolchain inputs, compiler options, dependency artifacts, and artifact `cacheKey`.
+2. `explainPieceActionCacheStatus()` reports `hit`, `miss`, `bypass`, or `unsafe` with structured reason codes.
+3. `compilePieceAction()` attaches `actionCache` status to Go/Kotlin compile reports but still executes the language backend even when a local record matches.
+4. `compilePieceApp({ compileAction: true })` exposes the same status through `compileActionSelection.actionCache`.
+5. Unsafe feedback/project/scope states force `unsafe`; missing local records and missing artifact cache keys force explainable misses.
+6. `npm test` covers the pure record/status contract, and `npm run language:compile:smoke` verifies real non-skipping miss/hit behavior.
 
 ## Completed Roadmap Completion Audit Slice
 

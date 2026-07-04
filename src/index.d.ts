@@ -690,6 +690,68 @@ export interface PieceActionCacheMetadata {
   readonly inputs: readonly string[];
 }
 
+export interface PieceActionCacheReason {
+  readonly code: string;
+  readonly severity: "info" | "warning" | "error" | (string & {});
+  readonly message: string;
+  readonly [key: string]: unknown;
+}
+
+export interface PieceCompileActionCacheRecord {
+  readonly version: 1;
+  readonly kind: "piece-action-cache-record";
+  readonly key: string;
+  readonly action: {
+    readonly packageLabel: string;
+    readonly targetLabel: string;
+    readonly actionId: string;
+    readonly kind: string;
+  };
+  readonly artifact: {
+    readonly id: string;
+    readonly kind: string;
+    readonly path: string;
+    readonly cacheKey: string;
+  };
+  readonly identity: {
+    readonly language: string;
+    readonly filePath: string;
+    readonly packageLabel: string;
+    readonly packageFilePath: string;
+    readonly targetLabel: string;
+    readonly targetSource: string;
+    readonly actionId: string;
+    readonly actionKind: string;
+    readonly actionInputsHash: string;
+    readonly outputsHash: string;
+    readonly artifactId: string;
+    readonly artifactKind: string;
+    readonly artifactPath: string;
+    readonly artifactCacheKey: string;
+    readonly sourceHash: string;
+    readonly projectModelHash: string;
+    readonly feedbackScopeHash: string;
+    readonly compilerOptionsHash: string;
+    readonly dependencyArtifactsHash: string;
+    readonly toolchainInputsHash: string;
+  };
+  readonly inputs: readonly string[];
+  readonly outputs: readonly string[];
+}
+
+export interface PieceCompileActionCacheStatus {
+  readonly version: 1;
+  readonly mode: "status-only" | "bypass" | (string & {});
+  readonly status: "hit" | "miss" | "bypass" | "unsafe" | (string & {});
+  readonly record?: PieceCompileActionCacheRecord;
+  readonly matchedRecordKey?: string;
+  readonly reasons: readonly PieceActionCacheReason[];
+  readonly execution: {
+    readonly skipped: boolean;
+    readonly reason: string;
+  };
+}
+
 export interface PieceSliceGraph {
   readonly version: 1;
   readonly filePath: string;
@@ -1091,6 +1153,29 @@ export function createPieceActionCacheMetadata(options?: {
 }): PieceActionCacheMetadata;
 export function pieceActionCacheInputs(actionCache: PieceActionCacheMetadata | undefined): readonly string[];
 export function pieceToolchainInputsFromManifest(manifest: PieceFileManifest | undefined): readonly string[];
+export function createPieceActionCacheRecord(options: {
+  readonly actionPackage?: SingleFilePiecePackage;
+  readonly target?: PiecePackageTarget;
+  readonly action?: PieceAction;
+  readonly artifact?: PieceArtifact;
+  readonly analysis?: PieceFileAnalysis;
+  readonly actionCache?: PieceActionCacheMetadata;
+  readonly language?: string;
+  readonly filePath?: string;
+  readonly source?: string;
+}): PieceCompileActionCacheRecord;
+export function explainPieceActionCacheStatus(options?: {
+  readonly record?: PieceCompileActionCacheRecord;
+  readonly records?:
+    | false
+    | ReadonlyMap<string, PieceCompileActionCacheRecord>
+    | Record<string, PieceCompileActionCacheRecord>
+    | readonly PieceCompileActionCacheRecord[];
+  readonly mode?: "status-only" | "bypass" | (string & {});
+  readonly analysis?: PieceFileAnalysis;
+  readonly actionPackage?: SingleFilePiecePackage;
+  readonly artifact?: PieceArtifact;
+}): PieceCompileActionCacheStatus;
 export function explainPieceFeedbackScope(options: { readonly manifest: PieceFileManifest; readonly graph: PieceSliceGraph }): PieceFeedbackScope;
 export function pieceFeedbackScopeInput(feedbackScope: PieceFeedbackScope | undefined): string | undefined;
 export function pieceFeedbackSourceSetInput(feedbackScope: PieceFeedbackScope | undefined): string | undefined;

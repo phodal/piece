@@ -6,8 +6,10 @@ import {
   createKotlinCoreBridge,
   createPackageScopeTargetModel,
   createPieceCompiler,
+  createPieceActionCacheRecord,
   createPieceSnapshot,
   createSourceSetScopeTargetModel,
+  explainPieceActionCacheStatus,
   explainPieceFeedbackScope,
   mergePiecePackages,
   piecePackageToPicDsl,
@@ -209,6 +211,146 @@ describe("piece compiler", () => {
     expect(userCardAction.inputs).toContain(`dependency-artifacts:${analysis.actionCache.dependencyArtifactsHash}`);
     expect(analysis.snapshot.actionCache.compilerOptionsHash).toBe(analysis.actionCache.compilerOptionsHash);
     expect(analysis.snapshot.artifacts[userCardId].cacheKey).not.toBe(changedOptionsAnalysis.snapshot.artifacts[userCardId].cacheKey);
+  });
+
+  it("builds local compile action cache records and explains status without skipping execution", () => {
+    const target = {
+      id: "/repo/src/User.kt#type:User",
+      label: "//repo/src:User.kt__type_User",
+      name: "User",
+      kind: "type",
+      rule: "kotlin_piece_type",
+      source: "//repo/src:User.kt",
+      deps: [],
+      runtimeDeps: [],
+      typeDeps: [],
+      externalDeps: [],
+      actions: ["//repo/src:User.kt__type_User%compile"],
+      artifacts: ["//repo/src:User.kt__type_User.compile.json"],
+      visibility: ["//visibility:private"]
+    };
+    const action = {
+      id: "//repo/src:User.kt__type_User%compile",
+      target: target.label,
+      kind: "compile",
+      mnemonic: "PieceCompile",
+      inputs: ["//repo/src:User.kt", "source-set:scope-hash", "project-model:scope-hash"],
+      outputs: ["//repo/src:User.kt__type_User.compile.json"]
+    };
+    const artifact = {
+      id: "//repo/src:User.kt__type_User.compile.json",
+      target: target.label,
+      kind: "piece-compile",
+      path: "user.compile.json",
+      cacheKey: "user-compile-cache-key"
+    };
+    const actionPackage = {
+      version: 1,
+      kind: "single-file-package",
+      language: "kotlin",
+      packageName: "repo/src",
+      label: "//repo/src:User.kt",
+      filePath: "/repo/src/User.kt",
+      sourceFile: "//repo/src:User.kt",
+      rules: [],
+      targets: [target],
+      actions: [action],
+      artifacts: [artifact]
+    };
+    const analysis = {
+      actionCache: {
+        version: 1,
+        compilerOptionsHash: "compiler-options-hash",
+        dependencyArtifactsHash: "dependency-artifacts-hash",
+        toolchainInputsHash: "toolchain-inputs-hash",
+        dependencyArtifacts: [],
+        toolchainInputs: ["kotlin-toolchain:hash"],
+        inputs: ["compiler-options:compiler-options-hash", "dependency-artifacts:dependency-artifacts-hash", "kotlin-toolchain:hash"]
+      },
+      feedbackScope: {
+        level: "source-set",
+        fallbackRequired: false,
+        reasons: [],
+        hashes: {
+          fallbackScopeHash: "feedback-scope-hash"
+        }
+      },
+      manifest: {
+        projectModel: {
+          analysisScope: {
+            hashes: {
+              scopeHash: "source-set-scope-hash"
+            }
+          }
+        }
+      },
+      snapshot: {
+        sourceHash: "snapshot-source-hash",
+        projectModelHash: "source-set-scope-hash",
+        feedbackScope: {
+          hashes: {
+            fallbackScopeHash: "feedback-scope-hash"
+          }
+        }
+      }
+    };
+    const record = createPieceActionCacheRecord({
+      actionPackage,
+      target,
+      action,
+      artifact,
+      analysis,
+      language: "kotlin",
+      filePath: "/repo/src/User.kt",
+      source: "data class User(val name: String)"
+    });
+    expect(record).toMatchObject({
+      kind: "piece-action-cache-record",
+      action: {
+        targetLabel: target.label,
+        actionId: action.id,
+        kind: "compile"
+      },
+      artifact: {
+        id: artifact.id,
+        cacheKey: "user-compile-cache-key"
+      },
+      identity: {
+        compilerOptionsHash: "compiler-options-hash",
+        dependencyArtifactsHash: "dependency-artifacts-hash",
+        toolchainInputsHash: "toolchain-inputs-hash",
+        projectModelHash: "source-set-scope-hash",
+        feedbackScopeHash: "feedback-scope-hash"
+      }
+    });
+
+    expect(explainPieceActionCacheStatus({ record }).status).toBe("miss");
+    const hit = explainPieceActionCacheStatus({ record, records: [record] });
+    expect(hit).toMatchObject({
+      status: "hit",
+      matchedRecordKey: record.key,
+      execution: {
+        skipped: false,
+        reason: "status-only"
+      }
+    });
+    expect(explainPieceActionCacheStatus({ record, records: false }).status).toBe("bypass");
+    expect(
+      explainPieceActionCacheStatus({
+        record,
+        records: [record],
+        analysis: {
+          feedbackScope: {
+            level: "file",
+            fallbackRequired: true,
+            reasons: [{ code: "unknown-edge-fallback" }]
+          }
+        }
+      })
+    ).toMatchObject({
+      status: "unsafe",
+      reasons: [expect.objectContaining({ code: "feedback-scope-fallback" })]
+    });
   });
 
   it("creates a minimal closure module for a preview target", async () => {

@@ -358,7 +358,10 @@ export async function compilePieceApp(options = {}) {
     const compileAction = await compilePieceAction(compileActionOptionsForStatus(options, statusForCompileAction));
     return {
       ...statusForCompileAction,
-      compileActionSelection,
+      compileActionSelection: {
+        ...compileActionSelection,
+        ...(compileAction.actionCache ? { actionCache: compileAction.actionCache } : {})
+      },
       compileAction
     };
   } catch (error) {
