@@ -182,6 +182,7 @@ export interface PieceArtifact {
   readonly target: string;
   readonly kind: string;
   readonly path: string;
+  readonly cacheKey?: string;
 }
 
 export interface PiecePackageTarget {
@@ -367,6 +368,12 @@ export interface PieceProjectModelClasspath {
   readonly files: readonly string[];
 }
 
+export interface PieceProjectModelHashes {
+  readonly sourceRootsHash: string;
+  readonly classpathHash: string;
+  readonly modelHash: string;
+}
+
 export interface PieceProjectModelMetadata {
   readonly kind: "gradle-kmp" | (string & {});
   readonly projectRoot: string;
@@ -375,6 +382,7 @@ export interface PieceProjectModelMetadata {
   readonly classpath: readonly string[];
   readonly sourceSets: readonly PieceProjectModelSourceSet[];
   readonly classpaths: readonly PieceProjectModelClasspath[];
+  readonly hashes: PieceProjectModelHashes;
 }
 
 export interface PieceFileManifest {
@@ -532,6 +540,7 @@ export interface PieceSnapshot {
   readonly sourceHash: string;
   readonly headerHash: string;
   readonly effectHash: string;
+  readonly projectModelHash: string;
   readonly declarations: Record<string, PieceDeclarationRecord>;
   readonly graph: PieceSliceGraph;
   readonly previewTargets: readonly string[];

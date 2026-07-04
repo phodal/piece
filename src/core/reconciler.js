@@ -165,9 +165,11 @@ function previewTargetsAffectedByDirtyPieces(graph, previewTargets, dirtyPieces)
 }
 
 export function createPieceSnapshot({ analysis, artifacts, version = 1, compilerOptionsHash = "" }) {
+  const projectModelHash = analysis.manifest.projectModel?.hashes?.modelHash ?? "";
+  const cacheKeySalt = projectModelHash ? [compilerOptionsHash, projectModelHash] : [compilerOptionsHash];
   const declarations = withDependencyHashes(analysis.manifest.slices.map((slice) => createDeclarationRecord(slice, analysis.graph))).map((declaration) => ({
     ...declaration,
-    artifactCacheKey: hashParts([declaration.artifactCacheKey, compilerOptionsHash])
+    artifactCacheKey: hashParts([declaration.artifactCacheKey, ...cacheKeySalt])
   }));
   const declarationRecord = objectFromEntries(declarations.map((declaration) => [declaration.id, declaration]));
   return {
@@ -177,6 +179,7 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
     sourceHash: stableTextHash(analysis.manifest.source),
     headerHash: changedHeaderHash(analysis.manifest),
     effectHash: changedEffectHash(analysis.manifest),
+    projectModelHash,
     declarations: declarationRecord,
     graph: analysis.graph,
     previewTargets: [...analysis.previewTargets],

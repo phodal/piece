@@ -81,6 +81,11 @@ function outgoingEdges(graph) {
   return bySource;
 }
 
+function projectModelActionInput(manifest) {
+  const modelHash = manifest?.projectModel?.hashes?.modelHash;
+  return modelHash ? `project-model:${modelHash}` : undefined;
+}
+
 export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
   const packageName = bazelPackageName(filePath);
   const packageLabel = sourceLabel(filePath);
@@ -89,6 +94,7 @@ export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
     manifest.slices.map((slice) => [slice.id, `//${packageName}:${targetNameForSlice(filePath, slice)}`])
   );
   const edges = outgoingEdges(graph);
+  const projectModelInput = projectModelActionInput(manifest);
   const targets = manifest.slices.map((slice) => {
     const sliceEdges = edges.get(slice.id) ?? [];
     const directDeps = sliceEdges.filter((edge) => targetLabels.has(edge.to)).map((edge) => targetLabels.get(edge.to));
@@ -128,7 +134,7 @@ export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
       target: target.label,
       kind: "feedback",
       mnemonic: "PieceFeedback",
-      inputs: [target.source, ...target.deps, ...target.externalDeps],
+      inputs: [target.source, ...target.deps, ...target.externalDeps, projectModelInput].filter(Boolean),
       outputs: [`${target.label}.piece.json`]
     },
     ...(supportsCompileAction(language)
@@ -138,7 +144,7 @@ export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
             target: target.label,
             kind: "compile",
             mnemonic: "PieceCompile",
-            inputs: [target.source, ...target.deps, ...target.externalDeps],
+            inputs: [target.source, ...target.deps, ...target.externalDeps, projectModelInput].filter(Boolean),
             outputs: [`${target.label}.compile.json`]
           }
         ]

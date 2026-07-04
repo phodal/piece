@@ -144,6 +144,12 @@ try {
     `Gradle project model did not discover the jvmMain jar dependency: ${JSON.stringify(manifest.projectModel.classpath)}`
   );
   assert(
+    manifest.projectModel.hashes?.modelHash &&
+      manifest.projectModel.hashes?.sourceRootsHash &&
+      manifest.projectModel.hashes?.classpathHash,
+    `Gradle project model did not include stable hashes: ${JSON.stringify(manifest.projectModel)}`
+  );
+  assert(
     manifest.importBindings.some((binding) => binding.local === "User" && binding.imported === "User" && binding.source === modelPath),
     `Gradle-discovered source root did not bind the commonMain companion source: ${JSON.stringify(manifest.importBindings)}`
   );
@@ -178,6 +184,18 @@ try {
         edge.symbols.includes("ExternalUser")
     ),
     `Gradle-discovered classpath binding did not become an external graph edge: ${JSON.stringify(analysis.graph.edges)}`
+  );
+  assert(
+    analysis.snapshot.projectModelHash === analysis.manifest.projectModel.hashes.modelHash,
+    `Snapshot did not include the Gradle project model hash: ${JSON.stringify(analysis.snapshot)}`
+  );
+  assert(
+    analysis.piecePackage.actions.every((action) => action.inputs.includes(`project-model:${analysis.manifest.projectModel.hashes.modelHash}`)),
+    `Piece actions did not include the Gradle project model hash input: ${JSON.stringify(analysis.piecePackage.actions)}`
+  );
+  assert(
+    Object.values(analysis.snapshot.artifacts).every((artifact) => artifact.cacheKey),
+    `Snapshot artifacts did not include cache keys: ${JSON.stringify(analysis.snapshot.artifacts)}`
   );
 
   const compileResult = await compileKotlinPieceFile({

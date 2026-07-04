@@ -41,6 +41,12 @@ data class KotlinGradleProjectModelDiagnostic(
     val command: String? = null,
 )
 
+data class KotlinGradleProjectModelHashes(
+    val sourceRootsHash: String,
+    val classpathHash: String,
+    val modelHash: String,
+)
+
 data class KotlinGradleProjectModelResult(
     val version: Int = 1,
     val projectRoot: String,
@@ -49,6 +55,7 @@ data class KotlinGradleProjectModelResult(
     val classpaths: List<KotlinGradleProjectModelClasspath>,
     val sourceRoots: List<String>,
     val classpath: List<String>,
+    val hashes: KotlinGradleProjectModelHashes,
     val commands: List<KotlinCommandResult>,
     val diagnostics: List<KotlinGradleProjectModelDiagnostic>,
 ) {
@@ -60,6 +67,7 @@ data class KotlinGradleProjectModelResult(
         field("classpaths", classpaths) { it.toJson() }
         field("sourceRoots", sourceRoots)
         field("classpath", classpath)
+        rawField("hashes", hashes.toJson())
         field("commands", commands) { it.toJson() }
         field("diagnostics", diagnostics) { it.toJson() }
     }
@@ -116,13 +124,25 @@ class KotlinGradleProjectModelBackend {
                 emptyList()
             }
 
+            val sortedSourceSets = sourceSets.sortedWith(compareBy({ it.projectPath }, { it.name }))
+            val sortedClasspaths = classpaths.sortedWith(compareBy({ it.projectPath }, { it.name }))
+            val hashes = projectModelHashes(
+                projectRoot = projectRoot.toString(),
+                status = status,
+                sourceSets = sortedSourceSets,
+                classpaths = sortedClasspaths,
+                sourceRoots = sourceRoots,
+                classpath = classpath,
+            )
+
             return KotlinGradleProjectModelResult(
                 projectRoot = projectRoot.toString(),
                 status = status,
-                sourceSets = sourceSets.sortedWith(compareBy({ it.projectPath }, { it.name })),
-                classpaths = classpaths.sortedWith(compareBy({ it.projectPath }, { it.name })),
+                sourceSets = sortedSourceSets,
+                classpaths = sortedClasspaths,
                 sourceRoots = sourceRoots,
                 classpath = classpath,
+                hashes = hashes,
                 commands = commands,
                 diagnostics = parsedDiagnostics + commandDiagnostics + emptyDiagnostics,
             )
@@ -184,6 +204,57 @@ private fun splitPathList(value: String): List<String> {
         .split(File.pathSeparator)
         .map { it.trim() }
         .filter { it.isNotBlank() }
+}
+
+private fun projectModelHashes(
+    projectRoot: String,
+    status: String,
+    sourceSets: List<KotlinGradleProjectModelSourceSet>,
+    classpaths: List<KotlinGradleProjectModelClasspath>,
+    sourceRoots: List<String>,
+    classpath: List<String>,
+): KotlinGradleProjectModelHashes {
+    val sourceRootsHash = hashGradleModelParts(sourceRoots)
+    val classpathHash = hashGradleModelParts(classpath)
+    val sourceSetParts = sourceSets.flatMap { sourceSet ->
+        listOf(
+            "sourceSet",
+            sourceSet.projectPath,
+            sourceSet.projectDir,
+            sourceSet.name,
+            sourceSet.sourceRoots.joinToString("\u001e"),
+            sourceSet.targetNames.joinToString("\u001e"),
+        )
+    }
+    val classpathParts = classpaths.flatMap { classpathEntry ->
+        listOf(
+            "classpath",
+            classpathEntry.projectPath,
+            classpathEntry.name,
+            classpathEntry.files.joinToString("\u001e"),
+        )
+    }
+    val modelHash = hashGradleModelParts(
+        listOf("v1", projectRoot, status, sourceRootsHash, classpathHash) + sourceSetParts + classpathParts
+    )
+    return KotlinGradleProjectModelHashes(
+        sourceRootsHash = sourceRootsHash,
+        classpathHash = classpathHash,
+        modelHash = modelHash,
+    )
+}
+
+private fun hashGradleModelParts(parts: List<String>): String {
+    return stableGradleModelTextHash(parts.joinToString("\u001f"))
+}
+
+private fun stableGradleModelTextHash(value: String): String {
+    var hash = 0x811c9dc5L
+    for (char in value) {
+        hash = (hash xor char.code.toLong()) and 0xffffffffL
+        hash = (hash * 0x01000193L) and 0xffffffffL
+    }
+    return java.lang.Long.toString(hash, 36)
 }
 
 private fun diagnosticsFromProjectModelCommands(commands: List<KotlinCommandResult>): List<KotlinGradleProjectModelDiagnostic> {
@@ -439,6 +510,10 @@ private class GradleModelJsonObjectBuilder {
         fields += "${name.gradleModelJsonString()}:${values.joinToString(prefix = "[", postfix = "]") { encode(it) }}"
     }
 
+    fun rawField(name: String, value: String) {
+        fields += "${name.gradleModelJsonString()}:$value"
+    }
+
     fun field(name: String, values: List<String>) {
         fields += "${name.gradleModelJsonString()}:${values.joinToString(prefix = "[", postfix = "]") { it.gradleModelJsonString() }}"
     }
@@ -462,6 +537,12 @@ private fun KotlinGradleProjectModelClasspath.toJson(): String = buildGradleMode
     field("projectPath", projectPath)
     field("name", name)
     field("files", files)
+}
+
+private fun KotlinGradleProjectModelHashes.toJson(): String = buildGradleModelJsonObject {
+    field("sourceRootsHash", sourceRootsHash)
+    field("classpathHash", classpathHash)
+    field("modelHash", modelHash)
 }
 
 private fun KotlinCommandResult.toJson(): String = buildGradleModelJsonObject {

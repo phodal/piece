@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import { hashParts } from "./core/hash.js";
 import { mergePiecePackages, piecePackageToPicDsl } from "./core/pic-dsl.js";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -252,7 +253,7 @@ async function collectKotlinGradleProjectModel(options = {}) {
     if (await pathExists(outputReport)) {
       return readJsonFile(outputReport);
     }
-    return {
+    return withKotlinProjectModelHashes({
       version: 1,
       projectRoot,
       status: "fallback",
@@ -272,10 +273,67 @@ async function collectKotlinGradleProjectModel(options = {}) {
           command: [backendCommand.command, ...backendCommand.args].join(" ")
         }
       ]
-    };
+    });
   } finally {
     await cleanupWorkspace(hostWorkspace, false);
   }
+}
+
+function kotlinProjectModelHashes(projectModel) {
+  const sourceRoots = [...new Set(projectModel?.sourceRoots ?? [])].sort();
+  const classpath = [...new Set(projectModel?.classpath ?? [])].sort();
+  const sourceSets = [...(projectModel?.sourceSets ?? [])]
+    .map((sourceSet) => ({
+      projectPath: sourceSet.projectPath ?? "",
+      projectDir: sourceSet.projectDir ?? "",
+      name: sourceSet.name ?? "",
+      sourceRoots: [...(sourceSet.sourceRoots ?? [])].sort(),
+      targetNames: [...(sourceSet.targetNames ?? [])].sort()
+    }))
+    .sort((left, right) => `${left.projectPath}:${left.name}`.localeCompare(`${right.projectPath}:${right.name}`));
+  const classpaths = [...(projectModel?.classpaths ?? [])]
+    .map((classpathEntry) => ({
+      projectPath: classpathEntry.projectPath ?? "",
+      name: classpathEntry.name ?? "",
+      files: [...(classpathEntry.files ?? [])].sort()
+    }))
+    .sort((left, right) => `${left.projectPath}:${left.name}`.localeCompare(`${right.projectPath}:${right.name}`));
+  const sourceRootsHash = hashParts(sourceRoots);
+  const classpathHash = hashParts(classpath);
+  const modelHash = hashParts([
+    "v1",
+    projectModel?.projectRoot ?? "",
+    projectModel?.status ?? "",
+    sourceRootsHash,
+    classpathHash,
+    ...sourceSets.flatMap((sourceSet) => [
+      "sourceSet",
+      sourceSet.projectPath,
+      sourceSet.projectDir,
+      sourceSet.name,
+      sourceSet.sourceRoots.join("\u001e"),
+      sourceSet.targetNames.join("\u001e")
+    ]),
+    ...classpaths.flatMap((classpathEntry) => [
+      "classpath",
+      classpathEntry.projectPath,
+      classpathEntry.name,
+      classpathEntry.files.join("\u001e")
+    ])
+  ]);
+  return {
+    sourceRootsHash,
+    classpathHash,
+    modelHash
+  };
+}
+
+function withKotlinProjectModelHashes(projectModel) {
+  if (!projectModel) return projectModel;
+  return {
+    ...projectModel,
+    hashes: projectModel.hashes ?? kotlinProjectModelHashes(projectModel)
+  };
 }
 
 function mergeKotlinProjectModelOptions(options, projectModel) {
@@ -291,18 +349,20 @@ function mergeKotlinProjectModelOptions(options, projectModel) {
 
 function attachKotlinProjectModel(manifest, projectModel) {
   if (!projectModel) return manifest;
+  const modelWithHashes = withKotlinProjectModelHashes(projectModel);
   return {
     ...manifest,
     projectModel: {
       kind: "gradle-kmp",
-      projectRoot: projectModel.projectRoot,
-      status: projectModel.status,
-      sourceRoots: projectModel.sourceRoots ?? [],
-      classpath: projectModel.classpath ?? [],
-      sourceSets: projectModel.sourceSets ?? [],
-      classpaths: projectModel.classpaths ?? []
+      projectRoot: modelWithHashes.projectRoot,
+      status: modelWithHashes.status,
+      sourceRoots: modelWithHashes.sourceRoots ?? [],
+      classpath: modelWithHashes.classpath ?? [],
+      sourceSets: modelWithHashes.sourceSets ?? [],
+      classpaths: modelWithHashes.classpaths ?? [],
+      hashes: modelWithHashes.hashes
     },
-    diagnostics: [...(manifest.diagnostics ?? []), ...(projectModel.diagnostics ?? [])]
+    diagnostics: [...(manifest.diagnostics ?? []), ...(modelWithHashes.diagnostics ?? [])]
   };
 }
 
