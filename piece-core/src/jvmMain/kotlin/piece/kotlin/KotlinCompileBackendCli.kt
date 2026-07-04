@@ -26,6 +26,7 @@ fun main(args: Array<String>) {
         workspace = options["workspace"]?.takeIf { it.isNotBlank() }?.let { Path.of(it) },
         keepWorkspace = options["keepWorkspace"] == "true",
         gradleCommand = gradleCommand,
+        gradleVersion = options["gradleVersion"]?.takeIf { it.isNotBlank() } ?: "9.6.1",
         kotlinPluginVersion = options["kotlinPluginVersion"]?.takeIf { it.isNotBlank() } ?: "2.2.21",
         tasks = options["tasks"]?.takeIf { it.isNotBlank() }?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty(),
     )

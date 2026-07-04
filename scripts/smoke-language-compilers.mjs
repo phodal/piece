@@ -52,6 +52,9 @@ assertSuccess(kotlinResult, "Kotlin");
 if (kotlinResult.backend !== "kotlin-jvm") {
   throw new Error(`Expected Kotlin compile backend to be kotlin-jvm, got ${kotlinResult.backend}.`);
 }
+if (!kotlinResult.commands.some((command) => command.command === "gradle-tooling-api")) {
+  throw new Error(`Kotlin compile did not use Gradle Tooling API: ${kotlinResult.commands.map((command) => command.command).join(", ")}`);
+}
 if (!kotlinResult.outputFiles.some((file) => file.path.endsWith(".jar"))) {
   throw new Error("Kotlin JVM compile did not produce a jar artifact.");
 }

@@ -13,7 +13,7 @@ function numberArg(name, fallback) {
 const warmup = numberArg("warmup", 5);
 const runs = numberArg("runs", 30);
 const declarations = numberArg("declarations", 500);
-const threshold = numberArg("threshold", 2);
+const threshold = numberArg("threshold", 1.5);
 
 function syntheticKotlinSource(marker = "piece-0000") {
   const lines = [

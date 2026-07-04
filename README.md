@@ -63,7 +63,7 @@ The Bazel-like part is the package, target, action, dependency graph, and cachea
 - A Go adapter that emits the same piece package shape and can compile a real single-file Go module with `go build` and `go test`.
 - A Kotlin adapter for single-file experiments, plus a Kotlin Multiplatform core under `piece-core/`.
 - A Kotlin/JVM PSI analysis backend. The `piece-compiler/node` entrypoint uses it by default for `.kt` and `.kts` files; the root and browser-safe paths keep the lightweight npm extractor.
-- A Kotlin/JVM compile backend that generates a temporary Kotlin Multiplatform Gradle project and can build JVM, Kotlin/JS, Kotlin/Wasm, or all targets.
+- A Kotlin/JVM compile backend that generates a temporary Kotlin Multiplatform Gradle project and drives it through Gradle Tooling API, with wrapper fallback when the Tooling API distribution cannot be located.
 - A Kotlin piece benchmark that verifies piece-level analysis is faster than whole-file analysis on a generated single-file fixture.
 
 React is only one feedback adapter. JS/TS, Go, and Kotlin use the same manifest, graph, reconciliation, target, action, and artifact vocabulary.

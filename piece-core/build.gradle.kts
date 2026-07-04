@@ -51,6 +51,7 @@ tasks.register<JavaExec>("runKotlinCompileBackend") {
             "--target=${providers.gradleProperty("pieceCompile.target").orNull ?: "jvm"}",
             "--sourceSet=${providers.gradleProperty("pieceCompile.sourceSet").orNull ?: ""}",
             "--gradleCommand=${providers.gradleProperty("pieceCompile.gradleCommand").orNull ?: rootProject.file("gradlew").absolutePath}",
+            "--gradleVersion=${providers.gradleProperty("pieceCompile.gradleVersion").orNull ?: gradle.gradleVersion}",
             "--kotlinPluginVersion=${providers.gradleProperty("pieceCompile.kotlinPluginVersion").orNull ?: ""}",
             "--tasks=${providers.gradleProperty("pieceCompile.tasks").orNull ?: ""}",
             "--outputReport=$outputReport",

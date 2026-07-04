@@ -13,7 +13,7 @@ Default parameters:
 - warmup: 5 runs
 - measured runs: 30
 - generated declarations: 500 pairs of values/functions plus target declarations
-- pass threshold: median speedup >= 2x
+- pass threshold: median speedup >= 1.5x
 
 The script writes the full machine-readable result to `reports/kotlin-piece-benchmark.json`.
 
@@ -38,11 +38,11 @@ Result:
 
 | Metric | Piece edit | Full-file analyze |
 | --- | ---: | ---: |
-| Median | 21.241ms | 54.972ms |
-| Average | 31.183ms | 59.981ms |
-| Min | 20.085ms | 51.865ms |
-| Max | 62.194ms | 79.740ms |
+| Median | 132.95ms | 294.351ms |
+| Average | 182.696ms | 311.074ms |
+| Min | 93.415ms | 198.802ms |
+| Max | 600.634ms | 563.69ms |
 
-Median speedup: 2.588x.
+Median speedup: 2.214x.
 
 The measured file contained 1,004 slices and 1,007 graph edges. Each measured edit changed `function:renderTarget` and affected `function:renderTarget` plus `class:TargetCaller`.

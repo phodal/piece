@@ -1,7 +1,14 @@
 package piece.kotlin
 
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.OutputStream
+import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.Method
+import java.net.URLClassLoader
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -9,6 +16,7 @@ import kotlin.io.path.writeText
 import kotlin.system.measureTimeMillis
 
 private const val DEFAULT_KOTLIN_PLUGIN_VERSION = "2.2.21"
+private const val DEFAULT_GRADLE_VERSION = "9.6.1"
 
 data class KotlinCompileRequest(
     val filePath: String,
@@ -18,6 +26,7 @@ data class KotlinCompileRequest(
     val workspace: Path? = null,
     val keepWorkspace: Boolean = false,
     val gradleCommand: String,
+    val gradleVersion: String = DEFAULT_GRADLE_VERSION,
     val kotlinPluginVersion: String = DEFAULT_KOTLIN_PLUGIN_VERSION,
     val tasks: List<String> = emptyList(),
 )
@@ -96,11 +105,7 @@ class KotlinCompileBackend {
             sourceDir.resolve(sourceName).writeText(request.source)
 
             val tasks = request.tasks.ifEmpty { tasksForTarget(request.target) }
-            commands += runCommand(
-                command = request.gradleCommand,
-                args = listOf("-p", workspace.toString()) + tasks,
-                cwd = workspace,
-            )
+            commands += runGradleBuild(request, workspace, tasks)
 
             val reportDir = workspace.resolve("build").resolve("piece")
             reportDir.createDirectories()
@@ -189,6 +194,141 @@ ${if (includeJvm) "    jvm()\n" else ""}${if (includeJs) """    js(IR) {
     }
 """ else ""}}
 """.trimStart()
+}
+
+private fun runGradleBuild(request: KotlinCompileRequest, workspace: Path, tasks: List<String>): KotlinCommandResult {
+    val toolingResult = runGradleToolingApi(workspace, tasks, request.gradleVersion)
+    if (toolingResult.errorCode != "tooling-api-unavailable") {
+        return toolingResult
+    }
+    return runCommand(
+        command = request.gradleCommand,
+        args = listOf("-p", workspace.toString()) + tasks,
+        cwd = workspace,
+    )
+}
+
+private fun runGradleToolingApi(workspace: Path, tasks: List<String>, gradleVersion: String): KotlinCommandResult {
+    val stdout = ByteArrayOutputStream()
+    val stderr = ByteArrayOutputStream()
+    var exitCode: Int? = 0
+    var errorCode: String? = null
+    val elapsed = measureTimeMillis {
+        val previousClassLoader = Thread.currentThread().contextClassLoader
+        var classLoader: URLClassLoader? = null
+        try {
+            val gradleHome = findGradleHome(gradleVersion)
+                ?: error("Gradle $gradleVersion distribution is not available under GRADLE_USER_HOME.")
+            val classpath = collectGradleDistributionJars(gradleHome)
+            if (classpath.none { it.fileName.toString().startsWith("gradle-tooling-api-") }) {
+                error("Gradle Tooling API jar was not found in $gradleHome.")
+            }
+
+            classLoader = URLClassLoader(
+                classpath.map { it.toUri().toURL() }.toTypedArray(),
+                ClassLoader.getPlatformClassLoader(),
+            )
+            Thread.currentThread().contextClassLoader = classLoader
+            runGradleToolingBuild(classLoader, workspace, tasks, gradleVersion, stdout, stderr)
+        } catch (error: IllegalStateException) {
+            exitCode = null
+            errorCode = "tooling-api-unavailable"
+            stderr.writeText(error.message ?: error::class.java.simpleName)
+        } catch (error: ClassNotFoundException) {
+            exitCode = null
+            errorCode = "tooling-api-unavailable"
+            stderr.writeText(error.message ?: error::class.java.simpleName)
+        } catch (error: NoClassDefFoundError) {
+            exitCode = null
+            errorCode = "tooling-api-unavailable"
+            stderr.writeText(error.message ?: error::class.java.simpleName)
+        } catch (error: InvocationTargetException) {
+            exitCode = 1
+            stderr.writeText(error.targetException?.message ?: error.message ?: error::class.java.simpleName)
+        } catch (error: Throwable) {
+            exitCode = 1
+            stderr.writeText(error.message ?: error::class.java.simpleName)
+        } finally {
+            Thread.currentThread().contextClassLoader = previousClassLoader
+            classLoader?.close()
+        }
+    }
+    return KotlinCommandResult(
+        command = "gradle-tooling-api",
+        args = listOf("-p", workspace.toString()) + tasks,
+        cwd = workspace.toString(),
+        exitCode = exitCode,
+        stdout = stdout.toString(Charsets.UTF_8),
+        stderr = stderr.toString(Charsets.UTF_8),
+        errorCode = errorCode,
+        durationMs = elapsed.toDouble(),
+    )
+}
+
+private fun runGradleToolingBuild(
+    classLoader: ClassLoader,
+    workspace: Path,
+    tasks: List<String>,
+    gradleVersion: String,
+    stdout: OutputStream,
+    stderr: OutputStream,
+) {
+    val connectorClass = classLoader.loadClass("org.gradle.tooling.GradleConnector")
+    val connector = connectorClass.getMethod("newConnector").invoke(null)
+    connectorClass.getMethod("forProjectDirectory", File::class.java).invoke(connector, workspace.toFile())
+    connectorClass.getMethod("useGradleVersion", String::class.java).invoke(connector, gradleVersion)
+    val connection = connectorClass.getMethod("connect").invoke(connector)
+    try {
+        val projectConnectionClass = classLoader.loadClass("org.gradle.tooling.ProjectConnection")
+        val buildLauncherClass = classLoader.loadClass("org.gradle.tooling.BuildLauncher")
+        val longRunningOperationClass = classLoader.loadClass("org.gradle.tooling.LongRunningOperation")
+        val build = projectConnectionClass.getMethod("newBuild").invoke(connection)
+        buildLauncherClass.stringVarargMethod("forTasks").invoke(build, tasks.toTypedArray() as Any)
+        longRunningOperationClass.getMethod("setStandardOutput", OutputStream::class.java).invoke(build, stdout)
+        longRunningOperationClass.getMethod("setStandardError", OutputStream::class.java).invoke(build, stderr)
+        buildLauncherClass.getMethod("run").invoke(build)
+    } finally {
+        (connection as AutoCloseable).close()
+    }
+}
+
+private fun Class<*>.stringVarargMethod(name: String): Method {
+    return methods.firstOrNull { method ->
+        method.name == name &&
+            method.parameterTypes.size == 1 &&
+            method.parameterTypes[0].isArray &&
+            method.parameterTypes[0].componentType == String::class.java
+    } ?: error("Unable to find $name(vararg) on ${this.name}.")
+}
+
+private fun findGradleHome(version: String): Path? {
+    val gradleUserHome = System.getenv("GRADLE_USER_HOME")?.takeIf { it.isNotBlank() }?.let(Paths::get)
+        ?: Paths.get(System.getProperty("user.home"), ".gradle")
+    val distributions = gradleUserHome.resolve("wrapper").resolve("dists")
+    if (!distributions.exists()) return null
+    Files.walk(distributions).use { stream ->
+        return stream
+            .filter { Files.isDirectory(it) }
+            .filter { it.fileName.toString() == "gradle-$version" }
+            .filter { it.resolve("lib").exists() }
+            .findFirst()
+            .orElse(null)
+    }
+}
+
+private fun collectGradleDistributionJars(gradleHome: Path): List<Path> {
+    val lib = gradleHome.resolve("lib")
+    if (!lib.exists()) return emptyList()
+    return Files.walk(lib).use { stream ->
+        stream
+            .filter { Files.isRegularFile(it) && it.fileName.toString().endsWith(".jar") }
+            .toList()
+            .sortedBy { it.toString() }
+    }
+}
+
+private fun ByteArrayOutputStream.writeText(value: String) {
+    write(value.toByteArray(Charsets.UTF_8))
 }
 
 private fun runCommand(command: String, args: List<String>, cwd: Path): KotlinCommandResult {
