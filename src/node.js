@@ -9,6 +9,7 @@ import {
   applyPieceEdit as applyCorePieceEdit,
   buildPiecePreview as buildCorePiecePreview,
   compilePieceApp as compileCorePieceApp,
+  createPieceSnapshot as createCorePieceSnapshot,
   normalizePieceAppInput,
   rebuildAffectedPiecePreviews as rebuildCoreAffectedPiecePreviews,
   selectPiecePreviewTarget
@@ -74,6 +75,10 @@ function overridePieceDslSource(source) {
   return source === "selected-package-view" ? "selected-package-view-override" : "current-file-override";
 }
 
+function pieceDslOverrideMode(options = {}) {
+  return options.pieceDslOverrideMode ?? "metadata-only";
+}
+
 async function applyPieceDslOverride(analysis, options = {}) {
   if (!hasPieceDslOverride(options)) {
     return analysis;
@@ -92,11 +97,22 @@ async function applyPieceDslOverride(analysis, options = {}) {
       pieceDslMerge: merged
     };
   }
-  return {
+  const nextAnalysis = {
     ...analysis,
     pieceDsl: merged.pieceDsl,
     pieceDslSource: overridePieceDslSource(analysis.pieceDslSource),
     pieceDslMerge: merged
+  };
+  if (pieceDslOverrideMode(options) !== "action-snapshot") {
+    return nextAnalysis;
+  }
+  const actionAnalysis = {
+    ...nextAnalysis,
+    actionPackage: merged.piecePackage
+  };
+  return {
+    ...actionAnalysis,
+    snapshot: createCorePieceSnapshot({ analysis: actionAnalysis })
   };
 }
 

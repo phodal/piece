@@ -196,6 +196,7 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
     declarations: declarationRecord,
     graph: analysis.graph,
     previewTargets: [...analysis.previewTargets],
+    ...(analysis.actionPackage ? { actionPackage: analysis.actionPackage } : {}),
     artifacts: {
       ...createDefaultArtifacts(declarations),
       ...normalizeArtifacts(artifacts)

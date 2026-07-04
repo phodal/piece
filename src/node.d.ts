@@ -109,10 +109,13 @@ export interface MergePieceDslFilesOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
+export type PieceDslOverrideMode = "metadata-only" | "action-snapshot" | (string & {});
+
 export interface NodeAnalyzePieceFileOptions extends AnalyzePieceFileOptions {
   readonly generatedFilePath?: string;
   readonly overrideFilePath?: string;
   readonly overrideSource?: string;
+  readonly pieceDslOverrideMode?: PieceDslOverrideMode;
 }
 
 export interface NodePieceFileAnalysis extends PieceFileAnalysis {

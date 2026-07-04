@@ -746,6 +746,7 @@ export interface PieceFileAnalysis {
   readonly feedbackScope: PieceFeedbackScope;
   readonly actionCache: PieceActionCacheMetadata;
   readonly piecePackage: SingleFilePiecePackage;
+  readonly actionPackage?: SingleFilePiecePackage;
   readonly packageScope?: PiecePackageScopeTargetModel;
   readonly pieceDsl: string;
   readonly pieceDslSource: PieceDslSource;
@@ -793,6 +794,7 @@ export interface PieceSnapshot {
   readonly declarations: Record<string, PieceDeclarationRecord>;
   readonly graph: PieceSliceGraph;
   readonly previewTargets: readonly string[];
+  readonly actionPackage?: SingleFilePiecePackage;
   readonly artifacts: Record<string, PieceSnapshotArtifact>;
 }
 

@@ -24,6 +24,7 @@ The repository already has:
 - Safe selected Go package-scope package views can become the primary generated `.pic` output while default analysis keeps the current-file `.pic` output.
 - User override `.pic` merging can use a selected package-scope package view as its generated merge base.
 - `piece-compiler/node` analysis can accept override `.pic` input and return merged primary `.pic` output plus merge diagnostics.
+- Merged override packages are metadata-only by default and can feed action/snapshot package views through explicit `pieceDslOverrideMode: "action-snapshot"`.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -336,8 +337,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Decide whether merged override packages should remain metadata-only or feed selected action/snapshot package views through an explicit mode.
+1. Thread explicit `actionPackage` views into compile/build helpers that need selected action metadata, without changing default preview graph behavior.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 2/6 Explicit Override Action Package Slice
+
+The explicit override action package slice is now implemented:
+
+1. Override merges remain metadata-only by default.
+2. `piece-compiler/node` accepts `pieceDslOverrideMode: "action-snapshot"` for callers that want merged override packages to feed action/snapshot package views.
+3. In that explicit mode, successful override merges expose `analysis.actionPackage`.
+4. `createPieceSnapshot()` preserves an explicit `analysis.actionPackage` as `snapshot.actionPackage`, while default snapshots remain unchanged.
+5. `npm run pic:override:smoke` verifies metadata-only defaults and action/snapshot mode for current-file and selected package-view overrides.
 
 ## Completed Phase 2/6 Analysis-Level Override Slice
 

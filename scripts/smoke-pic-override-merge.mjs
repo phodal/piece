@@ -120,6 +120,29 @@ assert(
   analysisWithOverride.pieceDsl.includes('"fixtures/user-card.json"'),
   `Expected analysis-level .pic to include fixture input:\n${analysisWithOverride.pieceDsl}`
 );
+assert(
+  analysisWithOverride.actionPackage === undefined && analysisWithOverride.snapshot.actionPackage === undefined,
+  `Expected default analysis-level override to stay metadata-only: ${JSON.stringify({
+    actionPackage: analysisWithOverride.actionPackage,
+    snapshotActionPackage: analysisWithOverride.snapshot.actionPackage
+  })}`
+);
+
+const analysisWithActionSnapshotOverride = await analyzePieceFile({
+  filePath: "/repo/src/DashboardPage.tsx",
+  source,
+  overrideFilePath: "/repo/src/DashboardPage.override.pic",
+  overrideSource: override,
+  pieceDslOverrideMode: "action-snapshot"
+});
+assert(
+  analysisWithActionSnapshotOverride.actionPackage?.targets.some((target) => target.label === "//repo/src:dashboard_user_card"),
+  `Expected action-snapshot mode to expose merged action package: ${JSON.stringify(analysisWithActionSnapshotOverride.actionPackage)}`
+);
+assert(
+  JSON.stringify(analysisWithActionSnapshotOverride.snapshot.actionPackage) === JSON.stringify(analysisWithActionSnapshotOverride.actionPackage),
+  `Expected snapshot to retain the merged action package: ${JSON.stringify(analysisWithActionSnapshotOverride.snapshot.actionPackage)}`
+);
 
 const analysisWithBrokenOverride = await analyzePieceFile({
   filePath: "/repo/src/DashboardPage.tsx",
@@ -232,6 +255,39 @@ assert(
   selectedGoAnalysisWithOverride.pieceDsl.includes('source "//repo/src:Discount.go"') &&
     selectedGoAnalysisWithOverride.pieceDsl.includes('"fixtures/discount.json"'),
   `Expected analysis-level selected package-view .pic to preserve source and include fixture input:\n${selectedGoAnalysisWithOverride.pieceDsl}`
+);
+assert(
+  selectedGoAnalysisWithOverride.actionPackage === undefined && selectedGoAnalysisWithOverride.snapshot.actionPackage === undefined,
+  `Expected selected package-view override to stay metadata-only by default: ${JSON.stringify({
+    actionPackage: selectedGoAnalysisWithOverride.actionPackage,
+    snapshotActionPackage: selectedGoAnalysisWithOverride.snapshot.actionPackage
+  })}`
+);
+
+const selectedGoAnalysisWithActionSnapshotOverride = await analyzePieceFile({
+  filePath: "/repo/src/Pricing.go",
+  source: goSource,
+  sourceFiles: [
+    {
+      filePath: "/repo/src/Discount.go",
+      source: goCompanionSource
+    }
+  ],
+  packageScopeSelection: "safe",
+  overrideFilePath: "/repo/src/Pricing.package.override.pic",
+  overrideSource: packageViewOverride,
+  pieceDslOverrideMode: "action-snapshot"
+});
+assert(
+  selectedGoAnalysisWithActionSnapshotOverride.actionPackage?.targets.some(
+    (target) => target.label === "//repo/src:Discount.go__type_Discount" && target.visibility.includes("//visibility:public")
+  ),
+  `Expected action-snapshot mode to expose selected package-view override package: ${JSON.stringify(selectedGoAnalysisWithActionSnapshotOverride.actionPackage)}`
+);
+assert(
+  JSON.stringify(selectedGoAnalysisWithActionSnapshotOverride.snapshot.actionPackage) ===
+    JSON.stringify(selectedGoAnalysisWithActionSnapshotOverride.actionPackage),
+  `Expected selected package-view snapshot to retain action package: ${JSON.stringify(selectedGoAnalysisWithActionSnapshotOverride.snapshot.actionPackage)}`
 );
 
 const mergedPackageView = await mergePieceDslFiles({
