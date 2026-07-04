@@ -702,6 +702,164 @@ export function Other() {
     ).toContain("source-set:source-set-scope-hash");
   });
 
+  it("keeps source-set package views behind fallback gates", () => {
+    const renderPath = "/repo/app/src/jvmMain/kotlin/demo/app/Render.kt";
+    const userPath = "/repo/domain/src/commonMain/kotlin/demo/model/User.kt";
+    const selectedAnalysisScope = {
+      status: "selected",
+      projectPath: ":app",
+      projectPaths: [":app", ":domain"],
+      sourceSet: "jvmMain",
+      requiredSourceSets: ["commonMain", "jvmMain"],
+      sourceRoots: ["/repo/app/src/jvmMain/kotlin", "/repo/domain/src/commonMain/kotlin"],
+      classpath: [],
+      classpathConfigurations: [],
+      dependencyCoordinates: [],
+      projectDependencies: [],
+      targetVariants: [],
+      diagnostics: [],
+      hashes: {
+        sourceRootsHash: "scope-roots-hash",
+        classpathHash: "scope-classpath-hash",
+        scopeHash: "source-set-scope-hash"
+      }
+    };
+    const manifest = {
+      version: 1,
+      filePath: renderPath,
+      source: "package demo.app\nfun render(user: User): String = user.name\n",
+      parser: "kotlin-psi-declaration-extractor",
+      slices: [],
+      headers: [],
+      effects: [],
+      importBindings: [],
+      hasTopLevelEffect: false,
+      projectModel: {
+        kind: "gradle-kmp",
+        projectRoot: "/repo",
+        status: "success",
+        sourceRoots: selectedAnalysisScope.sourceRoots,
+        classpath: [],
+        sourceSets: [],
+        classpaths: [],
+        dependencies: [],
+        projectDependencies: [],
+        targetVariants: [],
+        hashes: {
+          sourceRootsHash: "roots-hash",
+          classpathHash: "classpath-hash",
+          modelHash: "model-hash"
+        },
+        analysisScope: selectedAnalysisScope
+      },
+      diagnostics: []
+    };
+    const graph = {
+      version: 1,
+      filePath: renderPath,
+      slices: [],
+      edges: [
+        {
+          from: `${renderPath}#function:render`,
+          to: `${userPath}#User`,
+          kind: "external",
+          symbols: ["User"],
+          import: {
+            local: "User",
+            imported: "User",
+            source: userPath,
+            kind: "named",
+            isTypeOnly: true
+          }
+        }
+      ],
+      symbolTable: { local: {}, imports: {}, importsByLocal: {}, exports: {} },
+      diagnostics: []
+    };
+    const piecePackage = {
+      version: 1,
+      kind: "single-file-package",
+      language: "kotlin",
+      packageName: "repo/app/src/jvmMain/kotlin/demo/app",
+      label: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+      filePath: renderPath,
+      sourceFile: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+      rules: [],
+      targets: [
+        {
+          id: `${renderPath}#function:render`,
+          label: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt__function_render",
+          name: "render",
+          kind: "function",
+          rule: "kotlin_piece_function",
+          source: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+          deps: [],
+          runtimeDeps: [],
+          typeDeps: [],
+          externalDeps: [`${userPath}#User`],
+          actions: [],
+          artifacts: [],
+          visibility: ["//visibility:private"]
+        }
+      ],
+      actions: [],
+      artifacts: []
+    };
+
+    const fallbackScope = createSourceSetScopeTargetModel({
+      filePath: renderPath,
+      manifest,
+      graph,
+      piecePackage,
+      feedbackScope: {
+        level: "file",
+        fallbackRequired: true,
+        reasons: [
+          {
+            code: "unknown-edge-fallback",
+            severity: "warning",
+            message: "Unresolved reference keeps feedback at the file boundary."
+          }
+        ]
+      },
+      selection: "safe"
+    });
+    expect(fallbackScope).toMatchObject({
+      status: "candidate",
+      promotion: {
+        appliedToPackageView: false
+      }
+    });
+    expect(fallbackScope.packageView).toBeUndefined();
+    expect(fallbackScope.promotion.blockedReasons).toContainEqual(
+      expect.objectContaining({
+        code: "source-set-scope-feedback-fallback",
+        fallbackLevel: "file",
+        fallbackReasonCodes: ["unknown-edge-fallback"]
+      })
+    );
+
+    const projectModelFallback = createSourceSetScopeTargetModel({
+      filePath: renderPath,
+      manifest: {
+        ...manifest,
+        projectModel: {
+          ...manifest.projectModel,
+          analysisScope: {
+            ...selectedAnalysisScope,
+            status: "fallback",
+            fallbackReason: "No matching source set."
+          }
+        }
+      },
+      graph,
+      piecePackage,
+      feedbackScope: { level: "project", fallbackRequired: true },
+      selection: "safe"
+    });
+    expect(projectModelFallback).toBeUndefined();
+  });
+
   it("compiles virtual closure modules with node esbuild", async () => {
     const source = `import * as React from "react";
 

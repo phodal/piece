@@ -346,7 +346,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Add source-set package view fallback coverage for unresolved edges and fallback project-model scopes.
+1. Add app-level source-set fallback diagnostics so hosts can see why selected source-set package views were not applied.
+
+## Completed Phase 5/6 Source-Set Package View Fallback Coverage Slice
+
+The source-set package view fallback coverage slice is now implemented:
+
+1. Fast unit coverage verifies source-set package views stay candidate-only when feedback already requires fallback.
+2. The fallback blocker carries the fallback level and non-info fallback reason codes such as `unknown-edge-fallback`.
+3. The candidate model keeps promoted target diagnostics but does not produce `packageView` when the safe gate fails.
+4. Gradle/KMP project-model fallback scopes do not produce a source-set scope target model.
+5. `npm test` now verifies both unresolved-edge fallback and fallback project-model scope behavior without running Gradle.
 
 ## Completed Phase 5/6 Source-Set Package View Unit Coverage Slice
 
