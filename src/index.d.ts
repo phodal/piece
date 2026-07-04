@@ -697,6 +697,25 @@ export interface PieceActionCacheReason {
   readonly [key: string]: unknown;
 }
 
+export interface PieceCompileActionCacheOutputFile {
+  readonly path: string;
+  readonly sizeBytes: number;
+}
+
+export interface PieceCompileActionCacheRecordResult {
+  readonly status: "success" | "error" | (string & {});
+  readonly language?: string;
+  readonly backend?: string;
+  readonly filePath?: string;
+  readonly target?: string;
+  readonly sourceSet?: string;
+  readonly projectRoot?: string;
+  readonly workspace?: string;
+  readonly outputFiles?: readonly PieceCompileActionCacheOutputFile[];
+  readonly commandCount?: number;
+  readonly updatedAt?: string;
+}
+
 export interface PieceCompileActionCacheRecord {
   readonly version: 1;
   readonly kind: "piece-action-cache-record";
@@ -737,6 +756,7 @@ export interface PieceCompileActionCacheRecord {
   };
   readonly inputs: readonly string[];
   readonly outputs: readonly string[];
+  readonly result?: PieceCompileActionCacheRecordResult;
 }
 
 export interface PieceCompileActionCachePersistence {
@@ -747,14 +767,22 @@ export interface PieceCompileActionCachePersistence {
   readonly message?: string;
 }
 
+export interface PieceCompileActionCacheReuse {
+  readonly status: "reused" | "skipped" | (string & {});
+  readonly recordKey?: string;
+  readonly reason?: string;
+  readonly outputFiles?: readonly PieceCompileActionCacheOutputFile[];
+}
+
 export interface PieceCompileActionCacheStatus {
   readonly version: 1;
-  readonly mode: "status-only" | "bypass" | (string & {});
+  readonly mode: "status-only" | "bypass" | "reuse-local" | (string & {});
   readonly status: "hit" | "miss" | "bypass" | "unsafe" | (string & {});
   readonly record?: PieceCompileActionCacheRecord;
   readonly matchedRecordKey?: string;
   readonly reasons: readonly PieceActionCacheReason[];
   readonly persistence?: PieceCompileActionCachePersistence;
+  readonly reuse?: PieceCompileActionCacheReuse;
   readonly execution: {
     readonly skipped: boolean;
     readonly reason: string;
@@ -1180,7 +1208,7 @@ export function explainPieceActionCacheStatus(options?: {
     | ReadonlyMap<string, PieceCompileActionCacheRecord>
     | Record<string, PieceCompileActionCacheRecord>
     | readonly PieceCompileActionCacheRecord[];
-  readonly mode?: "status-only" | "bypass" | (string & {});
+  readonly mode?: "status-only" | "bypass" | "reuse-local" | (string & {});
   readonly analysis?: PieceFileAnalysis;
   readonly actionPackage?: SingleFilePiecePackage;
   readonly artifact?: PieceArtifact;

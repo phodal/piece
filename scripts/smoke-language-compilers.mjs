@@ -157,6 +157,7 @@ if (JSON.stringify(goResult.pieceAction) !== JSON.stringify({
 }
 const goActionCacheRoot = await mkdtemp(join(tmpdir(), "piece-go-action-cache-"));
 const goActionCacheStorePath = join(goActionCacheRoot, "action-cache.json");
+const goActionCacheWorkspace = join(goActionCacheRoot, "workspace");
 try {
   const goAppStatus = await compilePieceApp({
     filePath: "/repo/src/Pricing.go",
@@ -164,7 +165,8 @@ try {
     target: "RenderGreeting",
     compileAction: true,
     actionPackage: goActionPackage,
-    actionCacheStorePath: goActionCacheStorePath
+    actionCacheStorePath: goActionCacheStorePath,
+    workspace: goActionCacheWorkspace
   });
   assertSuccess(goAppStatus.compileAction, "Go app-level Piece action");
   if (
@@ -219,7 +221,8 @@ try {
     source: goSource,
     analysis: goAppStatus.analysis,
     actionPackage: goActionPackage,
-    actionCacheStorePath: goActionCacheStorePath
+    actionCacheStorePath: goActionCacheStorePath,
+    workspace: goActionCacheWorkspace
   });
   assertSuccess(goActionCacheHit, "Go status-only action-cache hit");
   if (
@@ -230,6 +233,30 @@ try {
     goActionCacheHit.commands.length === 0
   ) {
     throw new Error(`compilePieceAction did not report a non-skipping persisted local cache hit: ${JSON.stringify(goActionCacheHit.actionCache)}`);
+  }
+  const goActionCacheReuse = await compilePieceAction({
+    filePath: "/repo/src/Pricing.go",
+    source: goSource,
+    analysis: goAppStatus.analysis,
+    actionPackage: goActionPackage,
+    actionCacheStorePath: goActionCacheStorePath,
+    actionCacheMode: "reuse-local",
+    workspace: goActionCacheWorkspace
+  });
+  assertSuccess(goActionCacheReuse, "Go reused local action-cache hit");
+  if (
+    goActionCacheReuse.actionCache?.status !== "hit" ||
+    goActionCacheReuse.actionCache.execution?.skipped !== true ||
+    goActionCacheReuse.actionCache.execution.reason !== "cached-artifact-reuse" ||
+    goActionCacheReuse.actionCache.reuse?.status !== "reused" ||
+    goActionCacheReuse.commands.length !== 0 ||
+    goActionCacheReuse.outputFiles.length === 0
+  ) {
+    throw new Error(`compilePieceAction did not reuse a trusted local cache hit: ${JSON.stringify({
+      actionCache: goActionCacheReuse.actionCache,
+      commands: goActionCacheReuse.commands,
+      outputFiles: goActionCacheReuse.outputFiles
+    })}`);
   }
 } finally {
   await rm(goActionCacheRoot, { recursive: true, force: true });

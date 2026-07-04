@@ -345,7 +345,7 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should move beyond the shipped Phase 1-6 feedback loop:
 
-1. Add explicit opt-in cached artifact reuse for trusted local action-cache hits, guarded by artifact file validation and the existing unsafe/miss gates. The default must remain status-only and non-skipping.
+1. Promote successful output artifacts into a content-addressed local artifact store so `reuse-local` does not depend on caller-managed workspaces or temporary output paths.
 
 ### Phase 7: Distributed Action Cache and Runtime
 
@@ -384,6 +384,17 @@ The local action-cache persistence slice is now implemented:
 4. Store hits remain status-only: the language backend still executes and `actionCache.execution.skipped` remains `false`.
 5. Store paths stay outside generated `.pic` metadata, keeping browser/Wasm hosts protocol-only and machine-local paths out of the DSL.
 6. `npm run language:compile:smoke` verifies a persisted Go action-cache miss followed by a non-skipping persisted hit.
+
+## Completed Phase 7 Opt-In Artifact Reuse Slice
+
+The first opt-in artifact reuse slice is now implemented:
+
+1. Node hosts can pass `actionCacheMode: "reuse-local"` to `compilePieceAction()` or `compilePieceApp({ compileAction: true })`.
+2. `reuse-local` only skips backend execution when the action-cache status is `hit` and the matched record contains a successful result with existing output files.
+3. Cached output files are validated with filesystem metadata before reuse; missing files, non-file paths, missing paths, empty outputs, failed cached results, or size mismatches force a `miss` and fall back to normal language execution.
+4. Reused compile reports keep the normal compile-result shape, return validated `outputFiles`, leave `commands` empty, and report `actionCache.execution.skipped: true` with `actionCache.reuse.status: "reused"`.
+5. The default remains `status-only`: persisted hits still execute the Go/Kotlin backend unless `reuse-local` is explicitly requested.
+6. `npm run language:compile:smoke` verifies a persisted Go miss, a default non-skipping hit, and an explicit `reuse-local` hit from a persistent local workspace.
 
 ## Completed Roadmap Completion Audit Slice
 

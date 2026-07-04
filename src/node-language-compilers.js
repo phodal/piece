@@ -886,9 +886,142 @@ function actionCacheStoreRecordForResult(record, result) {
       backend: result.backend,
       filePath: result.filePath,
       target: result.target,
+      sourceSet: result.sourceSet,
+      projectRoot: result.projectRoot,
+      workspace: result.workspace,
       outputFiles: result.outputFiles ?? [],
       commandCount: result.commands?.length ?? 0,
       updatedAt: new Date().toISOString()
+    }
+  };
+}
+
+function actionCacheReuseRequested(options = {}) {
+  return options.actionCacheMode === "reuse-local";
+}
+
+function matchedActionCacheRecord(records, key) {
+  if (!key || records === false) {
+    return undefined;
+  }
+  return normalizeNodeActionCacheRecords(records).find((record) => record.key === key);
+}
+
+function cachedArtifactReason(code, message, extra = {}) {
+  return actionCacheStoreReason(code, "warning", message, extra);
+}
+
+async function validateCachedActionArtifacts(record) {
+  if (record?.result?.status !== "success") {
+    return {
+      status: "miss",
+      reason: cachedArtifactReason("cached-result-not-success", "The cached action record does not contain a successful compile result.")
+    };
+  }
+
+  const outputFiles = record.result.outputFiles ?? [];
+  if (outputFiles.length === 0) {
+    return {
+      status: "miss",
+      reason: cachedArtifactReason("cached-artifacts-missing", "The cached action record does not contain output artifact metadata.")
+    };
+  }
+
+  const validatedOutputFiles = [];
+  for (const outputFile of outputFiles) {
+    const outputPath = outputFile?.path;
+    if (!outputPath) {
+      return {
+        status: "miss",
+        reason: cachedArtifactReason("cached-artifact-path-missing", "A cached output artifact is missing its file path.")
+      };
+    }
+    let info;
+    try {
+      info = await stat(outputPath);
+    } catch {
+      return {
+        status: "miss",
+        reason: cachedArtifactReason("cached-artifact-not-found", "A cached output artifact file no longer exists.", {
+          path: outputPath
+        })
+      };
+    }
+    if (!info.isFile()) {
+      return {
+        status: "miss",
+        reason: cachedArtifactReason("cached-artifact-not-file", "A cached output artifact path is not a regular file.", {
+          path: outputPath
+        })
+      };
+    }
+    if (Number.isFinite(outputFile.sizeBytes) && info.size !== outputFile.sizeBytes) {
+      return {
+        status: "miss",
+        reason: cachedArtifactReason("cached-artifact-size-mismatch", "A cached output artifact file size changed after it was recorded.", {
+          path: outputPath,
+          expectedSizeBytes: outputFile.sizeBytes,
+          actualSizeBytes: info.size
+        })
+      };
+    }
+    validatedOutputFiles.push({
+      path: outputPath,
+      sizeBytes: info.size
+    });
+  }
+
+  return {
+    status: "ready",
+    outputFiles: validatedOutputFiles
+  };
+}
+
+function actionCacheWithReuseMiss(actionCache, validation, record) {
+  const { matchedRecordKey, ...rest } = actionCache;
+  return {
+    ...rest,
+    status: "miss",
+    reasons: [...(actionCache.reasons ?? []).filter((reason) => reason?.code !== "local-record-match"), validation.reason],
+    execution: {
+      skipped: false,
+      reason: "cached-artifact-miss"
+    },
+    reuse: {
+      status: "skipped",
+      recordKey: record?.key,
+      reason: validation.reason?.code
+    }
+  };
+}
+
+function cachedActionCompileResult({ record, actionCache, validation, language, filePath, pieceAction }) {
+  const result = record.result ?? {};
+  return {
+    version: 1,
+    language,
+    ...(result.backend ? { backend: result.backend } : {}),
+    filePath: result.filePath ?? filePath,
+    target: result.target ?? "",
+    ...(result.sourceSet ? { sourceSet: result.sourceSet } : {}),
+    ...(result.projectRoot ? { projectRoot: result.projectRoot } : {}),
+    ...(result.workspace ? { workspace: result.workspace } : {}),
+    ...(pieceAction ? { pieceAction } : {}),
+    status: "success",
+    outputFiles: validation.outputFiles,
+    commands: [],
+    diagnostics: [],
+    actionCache: {
+      ...actionCache,
+      execution: {
+        skipped: true,
+        reason: "cached-artifact-reuse"
+      },
+      reuse: {
+        status: "reused",
+        recordKey: record.key,
+        outputFiles: validation.outputFiles
+      }
     }
   };
 }
@@ -1874,10 +2007,11 @@ export async function compilePieceAction(options = {}) {
     storePath && options.actionCacheMode !== "bypass" && options.actionCacheRecords !== false
       ? await readLocalActionCacheStoreRecords(storePath)
       : { records: [] };
+  const lookupRecords = actionCacheLookupRecords(options, storeLookup.records);
   let actionCache = appendActionCacheReasons(
     explainPieceActionCacheStatus({
       record: actionCacheRecord,
-      records: actionCacheLookupRecords(options, storeLookup.records),
+      records: lookupRecords,
       mode: options.actionCacheMode,
       analysis: options.analysis,
       actionPackage,
@@ -1885,6 +2019,21 @@ export async function compilePieceAction(options = {}) {
     }),
     storeLookup.reason ? [storeLookup.reason] : []
   );
+  if (actionCacheReuseRequested(options) && actionCache.status === "hit") {
+    const matchedRecord = matchedActionCacheRecord(lookupRecords, actionCache.matchedRecordKey);
+    const validation = await validateCachedActionArtifacts(matchedRecord);
+    if (validation.status === "ready") {
+      return cachedActionCompileResult({
+        record: matchedRecord,
+        actionCache,
+        validation,
+        language,
+        filePath,
+        pieceAction: actionDetails.pieceAction
+      });
+    }
+    actionCache = actionCacheWithReuseMiss(actionCache, validation, matchedRecord);
+  }
   let result;
   if (language === "go") {
     result = await compileGoPieceFile(compileOptions);

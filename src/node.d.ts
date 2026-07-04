@@ -138,13 +138,18 @@ export interface NodeCompilePieceAppOptions extends CompilePieceAppOptions {
   readonly pieceActionName?: string;
   readonly languageTarget?: "jvm" | "js" | "wasmJs" | "all" | (string & {});
   readonly kotlinTarget?: "jvm" | "js" | "wasmJs" | "all" | (string & {});
+  readonly workspace?: string;
+  readonly outDir?: string;
+  readonly keepWorkspace?: boolean;
+  readonly modulePath?: string;
+  readonly runTests?: boolean;
   readonly actionPackage?: SingleFilePiecePackage;
   readonly actionCacheRecords?:
     | false
     | ReadonlyMap<string, PieceCompileActionCacheRecord>
     | Record<string, PieceCompileActionCacheRecord>
     | readonly PieceCompileActionCacheRecord[];
-  readonly actionCacheMode?: "status-only" | "bypass" | (string & {});
+  readonly actionCacheMode?: "status-only" | "bypass" | "reuse-local" | (string & {});
   readonly actionCacheStorePath?: string;
 }
 
@@ -323,7 +328,7 @@ export interface CompilePieceActionOptions extends CompileKotlinPieceFileOptions
     | ReadonlyMap<string, PieceCompileActionCacheRecord>
     | Record<string, PieceCompileActionCacheRecord>
     | readonly PieceCompileActionCacheRecord[];
-  readonly actionCacheMode?: "status-only" | "bypass" | (string & {});
+  readonly actionCacheMode?: "status-only" | "bypass" | "reuse-local" | (string & {});
   readonly actionCacheStorePath?: string;
 }
 
