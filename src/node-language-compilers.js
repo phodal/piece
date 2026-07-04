@@ -30,6 +30,110 @@ function packageNameFromGo(source) {
   return source.match(/^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)/m)?.[1] ?? "main";
 }
 
+function parseConcatenatedJsonObjects(source) {
+  const decoder = new TextDecoder();
+  const bytes = new TextEncoder().encode(String(source ?? ""));
+  const values = [];
+  let offset = 0;
+
+  while (offset < bytes.length) {
+    while (offset < bytes.length && /\s/.test(decoder.decode(bytes.slice(offset, offset + 1)))) {
+      offset += 1;
+    }
+    if (offset >= bytes.length) break;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let end = offset;
+    for (; end < bytes.length; end += 1) {
+      const char = decoder.decode(bytes.slice(end, end + 1));
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === "\\") {
+          escaped = true;
+        } else if (char === "\"") {
+          inString = false;
+        }
+        continue;
+      }
+      if (char === "\"") {
+        inString = true;
+        continue;
+      }
+      if (char === "{") depth += 1;
+      if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end += 1;
+          break;
+        }
+      }
+    }
+    values.push(JSON.parse(decoder.decode(bytes.slice(offset, end))));
+    offset = end;
+  }
+
+  return values;
+}
+
+function normalizeGoListPackage(pkg, workspace) {
+  return {
+    importPath: pkg.ImportPath ?? "",
+    name: pkg.Name ?? "",
+    dir: pkg.Dir ? relative(workspace, pkg.Dir) || "." : "",
+    module: pkg.Module
+      ? {
+          path: pkg.Module.Path ?? "",
+          version: pkg.Module.Version ?? "",
+          main: Boolean(pkg.Module.Main)
+        }
+      : undefined,
+    goFiles: [...(pkg.GoFiles ?? [])].sort(),
+    imports: [...(pkg.Imports ?? [])].sort(),
+    deps: [...(pkg.Deps ?? [])].sort(),
+    testGoFiles: [...(pkg.TestGoFiles ?? [])].sort(),
+    testImports: [...(pkg.TestImports ?? [])].sort()
+  };
+}
+
+function goListHash(packages) {
+  if (packages.length === 0) return "";
+  return hashParts(
+    packages.flatMap((pkg) => [
+      pkg.importPath,
+      pkg.name,
+      pkg.module?.path,
+      pkg.module?.version,
+      pkg.module?.main ? "main" : "",
+      ...pkg.goFiles,
+      ...pkg.imports,
+      ...pkg.deps,
+      ...pkg.testGoFiles,
+      ...pkg.testImports
+    ])
+  );
+}
+
+function createGoListReport(commandResult, workspace) {
+  if (commandResult.exitCode !== 0) {
+    return {
+      version: 1,
+      status: "error",
+      packageHash: "",
+      packages: []
+    };
+  }
+  const packages = parseConcatenatedJsonObjects(commandResult.stdout).map((pkg) => normalizeGoListPackage(pkg, workspace));
+  return {
+    version: 1,
+    status: "success",
+    packageHash: goListHash(packages),
+    packages
+  };
+}
+
 function isKotlinSourcePath(path) {
   return /\.(?:kt|kts)$/i.test(String(path ?? ""));
 }
@@ -870,6 +974,9 @@ export async function compileGoPieceFile(options = {}) {
     await writeFile(join(workspace, sourceName), source, "utf8");
     await writeFile(join(workspace, "go.mod"), `module ${modulePath}\n\ngo 1.22\n`, "utf8");
 
+    const goListCommand = await runCommand(goCommand, ["list", "-json", "./..."], { cwd: workspace, env: options.env });
+    commands.push(goListCommand);
+    const goList = createGoListReport(goListCommand, workspace);
     const buildArgs = packageName === "main" ? ["build", "-o", join(outputDir, sanitizeProjectName(sourceName.replace(/\.go$/, ""))), "."] : ["build", "./..."];
     commands.push(await runCommand(goCommand, buildArgs, { cwd: workspace, env: options.env }));
     if ((options.runTests ?? true) && commands.at(-1)?.exitCode === 0) {
@@ -883,6 +990,7 @@ export async function compileGoPieceFile(options = {}) {
       filePath,
       target: packageName === "main" ? "binary" : "package",
       status: compileStatus(commands),
+      goList,
       workspace: options.keepWorkspace ? workspace : undefined,
       outputFiles,
       commands,

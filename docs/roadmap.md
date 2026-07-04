@@ -15,7 +15,7 @@ The repository already has:
 
 - A language-neutral manifest, graph, closure, package, and reconcile pipeline in `src/core/`.
 - TypeScript-family extraction and React preview as one feedback adapter, not the core abstraction.
-- A Go single-file adapter plus `compileGoPieceFile()` using `go build` and `go test`.
+- A Go single-file adapter plus `compileGoPieceFile()` using `go list -json`, `go build`, and `go test`.
 - `piece-core` as a Kotlin Multiplatform core with model, builder DSL, graph, and reconcile contracts in `commonMain`.
 - Kotlin/JVM PSI extraction, compiler diagnostics, BindingContext-backed symbol refinement, source-set companion files, host-provided classpath entries, Gradle/KMP `projectRoot` analysis input discovery, dependency coordinates, project dependencies, target variants, source-set-scoped project model inputs, stable project model hashes in action/cache identities, and a Gradle/KMP compile backend.
 - An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain` and a Node smoke entrypoint.
@@ -33,7 +33,7 @@ The important gaps are:
 - Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing, companion source-set external bindings, imported aliases, simple jar-backed classpath classes, Kotlin constructors, Kotlin top-level jar functions, Kotlin extension jar functions, owner-qualified member properties, callable signatures for overload and generic fixtures, and signature-qualified graph edges when one declaration calls multiple overloads of the same imported function.
 - Kotlin project discovery has a JVM Gradle Tooling API path for analysis and compile inputs. `projectRoot` can discover KMP source roots, compile classpaths, dependency coordinates, project dependencies, and target variants; saved-file compile can run an inferred real project variant; source-set-scoped project model hashes now feed action/cache identities; and unsafe or incomplete project discovery produces explicit scope fallback diagnostics.
 - Kotlin compile actions are real and owned by the JVM backend, with real-project `projectRoot` compile for saved files and generated temporary MPP projects for unsaved single-file buffers. The final shape should keep making Kotlin/JVM the rule owner and Node only the invoker.
-- Go semantics are still mostly JavaScript-side extraction plus official `go build`/`go test` for compile. The long-term Go rule should use `go list`, `go test`, and `go build` as the source of truth, or move the Go-specific backend into Go.
+- Go extraction is still JavaScript-side, but compile feedback is now grounded in official `go list -json ./...` package metadata before `go build`/`go test`. The long-term Go rule should use that metadata in extraction/action cache inputs or move the Go-specific backend into Go.
 - The root/browser-safe Kotlin extractor remains a lightweight fallback. Production Kotlin semantics should be routed through `piece-compiler/node` or a service/local agent.
 - Cache keys, artifact reuse, and fallback policy now include source, dependency, project-model, fallback-scope, source-set, compiler-options, and dependency-artifact identity for single-file feedback, but they are not yet a complete multi-language action cache.
 
@@ -152,6 +152,7 @@ Definition of done: a Kotlin file inside a real Gradle/KMP project can be analyz
 - Move Kotlin rule logic fully behind Kotlin/JVM APIs.
 - Keep Node as a host that invokes Kotlin JVM and reads JSON reports.
 - Move Go toward official `go list`-grounded extraction or a Go-owned backend.
+- Done: make `compileGoPieceFile()` run `go list -json ./...` before build/test and return package/module/import metadata plus a stable package hash.
 - Keep JS/TS support first-class, but as one language rule family, not the core architecture.
 
 Definition of done: Piece defines targets/actions/artifacts, while each language backend owns the rule implementation through official tooling.
@@ -322,7 +323,17 @@ The third Phase 6 slice is now implemented:
 
 ## Next Small Slice
 
-The next implementation slice should move to Phase 5:
+The next implementation slice should keep moving through Phase 5:
 
-1. Move Go toward official `go list`-grounded extraction or a Go-owned backend while keeping Node as the host.
+1. Use `go list` metadata in Go analysis/package action cache inputs, or build a Go-owned analyzer behind the same Node host contract.
 2. Keep JS/TS as a first-class language rule family without making React the core architecture.
+
+## Completed Phase 5 Go List Compile Metadata Slice
+
+The first Phase 5 Go ownership slice is now implemented:
+
+1. `compileGoPieceFile()` runs official `go list -json ./...` before `go build` and optional `go test`.
+2. The compile report returns normalized package, module, file, import, dependency, and test metadata.
+3. A stable Go package hash summarizes the `go list` package graph for future action cache inputs.
+4. The Node host still owns orchestration only; Go toolchain metadata is now the source of truth for compile-scope package facts.
+5. `npm run language:compile:smoke` verifies the Go list command, module path, imports, package hash, and built artifact.

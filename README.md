@@ -63,7 +63,7 @@ The core vocabulary is intentionally small:
 
 - JavaScript, TypeScript, JSX, and TSX piece extraction.
 - React preview feedback with virtual modules and incremental rebuild metrics.
-- Go extraction plus single-file `go build` / `go test` feedback.
+- Go extraction plus single-file `go list -json`, `go build`, and `go test` feedback.
 - Kotlin PSI analysis through the JVM backend, with optional compiler diagnostics and project-model scoped fallback.
 - Kotlin compile feedback through Gradle-backed JVM tooling.
 - Generated `.pic` metadata and an ANTLR-backed JVM parser for the same package, target, action, and artifact model.

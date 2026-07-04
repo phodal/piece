@@ -45,6 +45,19 @@ const goResult = await compileGoPieceFile({
   source: goSource
 });
 assertSuccess(goResult, "Go");
+if (!goResult.commands.some((command) => command.command === "go" && command.args.join(" ") === "list -json ./...")) {
+  throw new Error(`Go compile did not run go list before build/test: ${JSON.stringify(goResult.commands)}`);
+}
+if (goResult.goList?.status !== "success" || !goResult.goList.packageHash) {
+  throw new Error(`Go list did not return stable package metadata: ${JSON.stringify(goResult.goList)}`);
+}
+const goPackage = goResult.goList.packages.find((pkg) => pkg.name === "main");
+if (!goPackage) {
+  throw new Error(`Go list did not report the main package: ${JSON.stringify(goResult.goList)}`);
+}
+if (goPackage.module?.path !== "piece.local/Pricing" || !goPackage.imports.includes("fmt") || !goPackage.goFiles.includes("Pricing.go")) {
+  throw new Error(`Go list package metadata was incomplete: ${JSON.stringify(goPackage)}`);
+}
 if (!goResult.outputFiles.some((file) => file.path.endsWith("Pricing"))) {
   throw new Error("Go compile did not produce the expected main binary artifact.");
 }

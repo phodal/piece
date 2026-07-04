@@ -218,6 +218,26 @@ export interface KotlinPieceCompileResult extends PieceLanguageCompileResult {
 export interface GoPieceCompileResult extends PieceLanguageCompileResult {
   readonly language: "go";
   readonly target: "binary" | "package";
+  readonly goList: {
+    readonly version: 1;
+    readonly status: "success" | "error";
+    readonly packageHash: string;
+    readonly packages: readonly Array<{
+      readonly importPath: string;
+      readonly name: string;
+      readonly dir: string;
+      readonly module?: {
+        readonly path: string;
+        readonly version: string;
+        readonly main: boolean;
+      };
+      readonly goFiles: readonly string[];
+      readonly imports: readonly string[];
+      readonly deps: readonly string[];
+      readonly testGoFiles: readonly string[];
+      readonly testImports: readonly string[];
+    }>;
+  };
 }
 
 export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise<GoPieceCompileResult>;
