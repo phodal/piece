@@ -146,8 +146,18 @@ export interface NodeBuildPiecePreviewOptions extends BuildPiecePreviewOptions {
   readonly pieceDslOverrideMode?: PieceDslOverrideMode;
 }
 
+export interface NodeActionPackageOrigin {
+  readonly kind: "piece-dsl-override" | (string & {});
+  readonly mode?: PieceDslOverrideMode;
+  readonly base?: PieceDslOverrideBase;
+  readonly pieceDslSource?: string;
+  readonly generatedFilePath?: string;
+  readonly overrideFilePath?: string;
+}
+
 export interface NodePieceFileAnalysis extends PieceFileAnalysis {
   readonly pieceDslMerge?: PieceDslMergeResult;
+  readonly actionPackageOrigin?: NodeActionPackageOrigin;
 }
 
 export interface NodeCompileActionDiagnostic {
@@ -173,6 +183,7 @@ export interface NodeCompileActionSelection {
     | "analysis-piece-package"
     | "missing"
     | (string & {});
+  readonly actionPackageOrigin?: NodeActionPackageOrigin;
   readonly feedbackScope: {
     readonly level: string;
     readonly fallbackRequired: boolean;

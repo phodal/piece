@@ -346,7 +346,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Expose action-snapshot override origin metadata so app-level diagnostics can distinguish source-set override packages from current-file override packages.
+1. Add focused source-set package view unit coverage outside the heavy Gradle smoke, so target promotion rules stay fast to verify.
+
+## Completed Phase 5/6 Action Package Origin Metadata Slice
+
+The action package origin metadata slice is now implemented:
+
+1. Action-snapshot override analysis records `actionPackageOrigin` for generated action packages.
+2. Origin metadata includes the override kind, mode, requested merge base, resulting `.pic` source, generated file path, and override file path.
+3. App-level `compileActionSelection` exposes the same origin metadata without changing action package precedence.
+4. Source-set override packages can therefore still report `actionPackageSource: "analysis-action-package"` while also identifying `base: "source-set-package-view"`.
+5. `npm run language:project-model:smoke` verifies source-set action-snapshot override origin metadata on both analysis and app-level compile action selection.
 
 ## Completed Phase 5/6 App-Level Source-Set Override Dispatch Slice
 

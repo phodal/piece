@@ -146,6 +146,7 @@ function compileActionSelectionForStatus(options = {}, status = {}) {
   const sourceSet = compileActionSourceSetSelection(analysis);
   return {
     actionPackageSource: actionPackageSource(options, analysis),
+    ...(analysis?.actionPackageOrigin ? { actionPackageOrigin: analysis.actionPackageOrigin } : {}),
     feedbackScope: {
       level: analysis?.feedbackScope?.level ?? "unknown",
       fallbackRequired: analysis?.feedbackScope?.fallbackRequired === true,
@@ -247,6 +248,17 @@ function pieceDslOverrideMode(options = {}) {
   return options.pieceDslOverrideMode ?? "metadata-only";
 }
 
+function actionPackageOriginForOverride(options = {}, analysis, merged) {
+  return {
+    kind: "piece-dsl-override",
+    mode: pieceDslOverrideMode(options),
+    base: pieceDslOverrideBase(options),
+    pieceDslSource: analysis.pieceDslSource,
+    generatedFilePath: merged.generatedFilePath,
+    overrideFilePath: merged.overrideFilePath
+  };
+}
+
 async function applyPieceDslOverride(analysis, options = {}) {
   if (!hasPieceDslOverride(options)) {
     return analysis;
@@ -276,7 +288,8 @@ async function applyPieceDslOverride(analysis, options = {}) {
   }
   const actionAnalysis = {
     ...nextAnalysis,
-    actionPackage: merged.piecePackage
+    actionPackage: merged.piecePackage,
+    actionPackageOrigin: actionPackageOriginForOverride(options, nextAnalysis, merged)
   };
   return {
     ...actionAnalysis,

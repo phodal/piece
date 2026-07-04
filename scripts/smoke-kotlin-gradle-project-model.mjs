@@ -544,6 +544,13 @@ fun detached(): String = "detached"
       snapshotActionPackage: sourceSetActionSnapshotOverrideAnalysis.snapshot.actionPackage
     })}`
   );
+  assert(
+    sourceSetActionSnapshotOverrideAnalysis.actionPackageOrigin?.kind === "piece-dsl-override" &&
+      sourceSetActionSnapshotOverrideAnalysis.actionPackageOrigin.base === "source-set-package-view" &&
+      sourceSetActionSnapshotOverrideAnalysis.actionPackageOrigin.mode === "action-snapshot" &&
+      sourceSetActionSnapshotOverrideAnalysis.actionPackageOrigin.pieceDslSource === "source-set-package-view-override",
+    `Source-set action-snapshot override did not expose action package origin metadata: ${JSON.stringify(sourceSetActionSnapshotOverrideAnalysis.actionPackageOrigin)}`
+  );
   const actionSnapshotAppStatus = await compilePieceApp({
     filePath: renderPath,
     source,
@@ -556,6 +563,7 @@ fun detached(): String = "detached"
   assert(
     actionSnapshotAppStatus.compileAction?.status === "success" &&
       actionSnapshotAppStatus.compileActionSelection?.actionPackageSource === "analysis-action-package" &&
+      actionSnapshotAppStatus.compileActionSelection.actionPackageOrigin?.base === "source-set-package-view" &&
       actionSnapshotAppStatus.compileAction.pieceAction?.targetLabel === promotedUserTarget.label,
     `App-level compile action did not dispatch through the source-set action-snapshot override package: ${JSON.stringify({
       selection: actionSnapshotAppStatus.compileActionSelection,
