@@ -506,6 +506,53 @@ fun render(): String = parse(1)
     `Kotlin Analysis API did not retain the selected Int overload signature: ${JSON.stringify(intOverloadManifest.importBindings)}`
   );
 
+  const multiOverloadSource = `package demo.externaluse
+
+import demo.external.parse
+
+fun render(): String = parse("x") + parse(1)
+`;
+  const multiOverloadManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/UseMultiOverload.kt",
+    source: multiOverloadSource,
+    backend: "analysis-api",
+    analysisApiEnabled: true,
+    classpath: [formatterJar]
+  });
+  const multiOverloadRender = multiOverloadManifest.slices.find((slice) => slice.name === "render");
+  assert(
+    multiOverloadRender?.importBindings?.some((binding) => binding.local === "parse" && binding.signature === "(String)") &&
+      multiOverloadRender?.importBindings?.some((binding) => binding.local === "parse" && binding.signature === "(Int)"),
+    `Kotlin Analysis API did not retain declaration-local overload bindings: ${JSON.stringify(multiOverloadRender)}`
+  );
+
+  const multiOverloadAnalysis = await analyzePieceFile({
+    filePath: "/repo/src/UseMultiOverload.kt",
+    source: multiOverloadSource,
+    declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
+      backend: "analysis-api",
+      analysisApiEnabled: true,
+      classpath: [formatterJar]
+    })
+  });
+  const multiOverloadEdges = multiOverloadAnalysis.graph.edges.filter(
+    (edge) =>
+      edge.kind === "external" &&
+      edge.to === `classpath:${formatterJar}!demo/external#parse` &&
+      edge.symbols.includes("parse")
+  );
+  assert(
+    multiOverloadEdges.some((edge) => edge.import?.signature === "(String)") &&
+      multiOverloadEdges.some((edge) => edge.import?.signature === "(Int)"),
+    `Kotlin Analysis API graph did not retain both overload edges: ${JSON.stringify(multiOverloadAnalysis.graph.edges)}`
+  );
+  const multiOverloadTarget = multiOverloadAnalysis.piecePackage.targets.find((target) => target.name === "render");
+  assert(
+    multiOverloadTarget?.externalDeps.includes(`classpath:${formatterJar}!demo/external#parse(String)`) &&
+      multiOverloadTarget?.externalDeps.includes(`classpath:${formatterJar}!demo/external#parse(Int)`),
+    `Kotlin Analysis API package did not retain signature-qualified overload deps: ${JSON.stringify(multiOverloadAnalysis.piecePackage.targets)}`
+  );
+
   const genericFunctionSource = `package demo.externaluse
 
 import demo.external.box

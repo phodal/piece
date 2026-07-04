@@ -6,7 +6,7 @@ function sliceById(manifest) {
 }
 
 function edgeId(edge) {
-  return `${edge.from}->${edge.to}:${edge.kind}:${edge.symbols.join(",")}`;
+  return `${edge.from}->${edge.to}:${edge.kind}:${edge.symbols.join(",")}:${edge.import?.signature ?? ""}`;
 }
 
 function createEdge(from, to, kind, symbol) {
@@ -32,6 +32,14 @@ function edgeKindForReference(reference, slice, targetSlice) {
   return "runtime";
 }
 
+function importBindingsForReference(slice, symbolTable, reference) {
+  const sliceBindings = (slice.importBindings ?? []).filter((binding) => binding.local === reference);
+  if (sliceBindings.length > 0) {
+    return sliceBindings;
+  }
+  return symbolTable.importsByLocal.get(reference) ?? [];
+}
+
 function collectEdgesForSlice({ slice, symbolTable, slices, globals }) {
   const edges = new Map();
   const diagnostics = [];
@@ -40,6 +48,20 @@ function collectEdgesForSlice({ slice, symbolTable, slices, globals }) {
     const localTarget = symbolTable.local.get(reference);
     if (localTarget && localTarget !== slice.id) {
       addEdge(edges, createEdge(slice.id, localTarget, edgeKindForReference(reference, slice, slices.get(localTarget)), reference));
+      continue;
+    }
+
+    const importBindings = importBindingsForReference(slice, symbolTable, reference);
+    if (importBindings.length > 0) {
+      for (const importBinding of importBindings) {
+        addEdge(edges, {
+          from: slice.id,
+          to: `${importBinding.source}#${importBinding.imported}`,
+          kind: "external",
+          symbols: [reference],
+          import: importBinding
+        });
+      }
       continue;
     }
 

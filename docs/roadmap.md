@@ -29,7 +29,7 @@ The repository already has:
 
 The important gaps are:
 
-- Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing, companion source-set external bindings, imported aliases, simple jar-backed classpath classes, Kotlin constructors, Kotlin top-level jar functions, Kotlin extension jar functions, owner-qualified member properties, and callable signatures for overload and generic fixtures, but multi-call overload graph disambiguation still needs expansion.
+- Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing, companion source-set external bindings, imported aliases, simple jar-backed classpath classes, Kotlin constructors, Kotlin top-level jar functions, Kotlin extension jar functions, owner-qualified member properties, callable signatures for overload and generic fixtures, and signature-qualified graph edges when one declaration calls multiple overloads of the same imported function.
 - Kotlin project discovery has a JVM Gradle Tooling API path for analysis and compile inputs. `projectRoot` can discover KMP source roots, compile classpaths, dependency coordinates, project dependencies, and target variants; saved-file compile can run an inferred real project variant; source-set-scoped project model hashes now feed action/cache identities; and unsafe or incomplete project discovery produces explicit scope fallback diagnostics.
 - Kotlin compile actions are real and owned by the JVM backend, with real-project `projectRoot` compile for saved files and generated temporary MPP projects for unsaved single-file buffers. The final shape should keep making Kotlin/JVM the rule owner and Node only the invoker.
 - Go semantics are still mostly JavaScript-side extraction plus official `go build`/`go test` for compile. The long-term Go rule should use `go list`, `go test`, and `go build` as the source of truth, or move the Go-specific backend into Go.
@@ -126,7 +126,7 @@ Definition of done: source extraction can produce a deterministic `.pic`, parse 
 - Done: preserve imported alias locals while binding them to Analysis API-resolved source-set declarations.
 - Done: resolve simple jar-backed classpath class, constructor, top-level function, extension function, and owner-qualified member property symbols into external edges.
 - Done: retain optional callable `signature` metadata for overloaded and generic Analysis API bindings without widening the stable `PieceImportBinding.kind` contract.
-- Continue `KotlinAnalysisExtractor` toward richer classpath/project models and multi-call overload graph disambiguation.
+- Done: preserve declaration-local Analysis API import bindings so graph edges and generated package external deps can distinguish multiple same-name overload calls in one declaration.
 
 Definition of done: Kotlin semantic symbols and diagnostics can run through Analysis API when available, and tests prove the FE10 fallback is not silently treated as the final backend.
 
@@ -276,6 +276,16 @@ The tenth Phase 3 slice is now implemented:
 4. Runtime closure and header-change hashes include `signature`, so changing a resolved overload can invalidate the right cached artifacts.
 5. `npm run language:analysis-api:smoke` verifies selected overload and generic callable signatures for jar-backed Kotlin functions.
 
+## Completed Phase 3 Multi-Call Overload Graph Slice
+
+The eleventh Phase 3 slice is now implemented:
+
+1. Kotlin Analysis API manifest slices now carry declaration-local import bindings in addition to the whole-file import binding list.
+2. The npm symbol table keeps same-name imports as a one-to-many map instead of reducing every local symbol to one binding.
+3. The slice graph prefers declaration-local import bindings, so one function body can emit separate external edges for calls such as `parse("x")` and `parse(1)`.
+4. Signature-aware graph edge identity and package external deps keep overload identities such as `#parse(String)` and `#parse(Int)` distinct.
+5. `npm run language:analysis-api:smoke` verifies both overload graph edges and signature-qualified package deps for a single declaration that calls multiple overloads.
+
 ## Next Small Slice
 
 The first Phase 4 project-model slices are now implemented:
@@ -292,7 +302,7 @@ The first Phase 4 project-model slices are now implemented:
 10. `manifest.projectModel.projectDependencies` records resolved Gradle project dependencies such as `:app -> :domain`; `analysisScope.projectPath`, `analysisScope.projectPaths`, and `analysisScope.projectDependencies` keep source roots and classpaths scoped to the edited project plus reachable project dependencies while excluding unrelated projects.
 11. `manifest.projectModel.analysisScope.fallbackReason` and `analysisScope.diagnostics` explain unsafe project-model states such as an edited file outside all discovered source sets or a selected source set without a matching compile classpath; the same diagnostics are also visible in `manifest.diagnostics`.
 
-The next implementation slice should move beyond Phase 4:
+The next implementation slice should move into Phase 6:
 
-1. Continue Phase 3's remaining multi-call overload graph disambiguation.
-2. Start Phase 6's broader fallback explanation model so Piece can report whether an edit is handled at piece, file, source-set, or project level and why.
+1. Start the broader fallback explanation model so Piece can report whether an edit is handled at piece, file, source-set, or project level and why.
+2. Extend action cache inputs beyond the current source/project model hashes toward dependency hashes and fallback scope metadata.

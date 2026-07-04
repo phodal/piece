@@ -57,7 +57,7 @@ export function buildPieceClosure({ target, manifest, graph }) {
     for (const edge of outgoing.get(sliceId) ?? []) {
       if (edge.kind === "external") {
         if (edge.import) {
-          externalImports.set(`${edge.import.source}:${edge.import.local}`, edge.import);
+          externalImports.set(`${edge.import.source}:${edge.import.local}:${edge.import.imported}:${edge.import.signature ?? ""}`, edge.import);
         }
         continue;
       }
@@ -97,7 +97,11 @@ export function buildPieceClosure({ target, manifest, graph }) {
     runtimeSlices: runtimeSlices.map((slice) => slice.id),
     typeSlices: typeSlices.map((slice) => slice.id),
     valueSlices: valueSlices.map((slice) => slice.id),
-    externalImports: [...externalImports.values()].sort((left, right) => `${left.source}:${left.local}`.localeCompare(`${right.source}:${right.local}`)),
+    externalImports: [...externalImports.values()].sort((left, right) =>
+      `${left.source}:${left.local}:${left.imported}:${left.signature ?? ""}`.localeCompare(
+        `${right.source}:${right.local}:${right.imported}:${right.signature ?? ""}`
+      )
+    ),
     diagnostics,
     fallbackMode,
     hashes: {

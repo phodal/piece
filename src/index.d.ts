@@ -287,6 +287,7 @@ export interface PieceSlice {
     readonly typeReferences: readonly string[];
     readonly jsxReferences: readonly string[];
   };
+  readonly importBindings?: readonly PieceImportBinding[];
   readonly preview: {
     readonly previewable: boolean;
     readonly reason?: string;

@@ -86,6 +86,10 @@ function projectModelActionInput(manifest) {
   return modelHash ? `project-model:${modelHash}` : undefined;
 }
 
+function externalDependencyId(edge) {
+  return edge.import?.signature ? `${edge.to}${edge.import.signature}` : edge.to;
+}
+
 export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
   const packageName = bazelPackageName(filePath);
   const packageLabel = sourceLabel(filePath);
@@ -121,7 +125,7 @@ export function createSingleFilePiecePackage({ filePath, manifest, graph }) {
       typeDeps: [
         ...new Set(sliceEdges.filter((edge) => edge.kind === "type" && targetLabels.has(edge.to)).map((edge) => targetLabels.get(edge.to)))
       ].sort(),
-      externalDeps: [...new Set(sliceEdges.filter((edge) => edge.kind === "external").map((edge) => edge.to))].sort(),
+      externalDeps: [...new Set(sliceEdges.filter((edge) => edge.kind === "external").map(externalDependencyId))].sort(),
       actions: targetActions,
       artifacts: targetArtifacts,
       visibility: ["//visibility:private"]

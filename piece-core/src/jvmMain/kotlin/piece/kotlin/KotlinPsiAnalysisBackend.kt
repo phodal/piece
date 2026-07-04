@@ -108,6 +108,7 @@ data class KotlinPsiManifestSlice(
     val range: PieceSourceRange,
     val source: String,
     val symbols: KotlinPsiManifestSymbol,
+    val importBindings: List<KotlinPsiImportBinding> = emptyList(),
     val preview: KotlinPsiManifestPreview,
     val hashes: KotlinPsiManifestHashes,
     val safety: KotlinPsiManifestSafety,
@@ -460,6 +461,7 @@ private fun KotlinPieceDeclaration.toManifestSlice(
             references = references,
             typeReferences = references.filter { it in typeReferenceSet },
         ),
+        importBindings = semanticSymbols?.importBindings.orEmpty(),
         preview = KotlinPsiManifestPreview(
             previewable = kind == PieceTargetKind.Class || kind == PieceTargetKind.Function,
             reason = if (kind == PieceTargetKind.Class || kind == PieceTargetKind.Function) null else "not a runnable feedback target",
@@ -615,6 +617,7 @@ private fun KotlinPsiManifestSlice.toJson(): String = buildKotlinPsiJsonObject {
     rawField("range", range.toJson())
     field("source", source)
     rawField("symbols", symbols.toJson())
+    field("importBindings", importBindings) { it.toJson() }
     rawField("preview", preview.toJson())
     rawField("hashes", hashes.toJson())
     rawField("safety", safety.toJson())
