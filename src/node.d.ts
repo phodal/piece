@@ -146,8 +146,15 @@ export interface NodePieceFileAnalysis extends PieceFileAnalysis {
   readonly pieceDslMerge?: PieceDslMergeResult;
 }
 
+export interface NodeCompileActionDiagnostic {
+  readonly code: "piece-compile-action-dispatch-failed" | (string & {});
+  readonly severity: "error";
+  readonly message: string;
+}
+
 export interface NodeCompilePieceAppStatus extends CompilePieceAppStatus {
   readonly compileAction?: GoPieceCompileResult | KotlinPieceCompileResult;
+  readonly compileActionDiagnostics?: readonly NodeCompileActionDiagnostic[];
 }
 
 export interface KotlinPieceDslGenerationResult {

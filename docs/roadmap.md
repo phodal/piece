@@ -29,6 +29,7 @@ The repository already has:
 - Go and Kotlin language compile helpers can resolve `pieceAction` from an explicit `actionPackage` target/action selection.
 - `compilePieceAction()` can dispatch an analyzed package compile action to the matching Go or Kotlin language helper.
 - `compilePieceApp({ compileAction: true })` can attach an opt-in language compile report to app status.
+- App-level compile action dispatch failures return structured diagnostics without discarding app status.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -341,8 +342,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Convert app-level compile-action dispatch failures into structured diagnostics so unsupported language or invalid action selections do not discard the app status.
+1. Make unknown-edge compile-action fallback visible in action/cache metadata before expanding beyond the current-file package.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 5/6 App-Level Compile Action Diagnostics Slice
+
+The app-level compile action diagnostics slice is now implemented:
+
+1. `compilePieceApp({ compileAction: true })` catches compile-action dispatch and selection failures at the app-status boundary.
+2. Failed dispatch returns `compileActionDiagnostics` with code `piece-compile-action-dispatch-failed`.
+3. The normal app status, analysis, and preview metadata remain available when compile-action dispatch fails.
+4. The status diagnostic count includes the compile-action dispatch diagnostic.
+5. `npm run language:compile:smoke` verifies an invalid app-level Go `pieceTarget` returns a structured diagnostic instead of throwing away the app status.
 
 ## Completed Phase 5/6 App-Level Compile Action Slice
 

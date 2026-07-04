@@ -89,6 +89,25 @@ function compileActionOptionsForStatus(options = {}, status) {
   return compileOptions;
 }
 
+function compileActionDiagnostic(error) {
+  return {
+    code: "piece-compile-action-dispatch-failed",
+    severity: "error",
+    message: error?.message ?? String(error ?? "Piece compile action dispatch failed.")
+  };
+}
+
+function statusWithCompileActionDiagnostic(status, diagnostic) {
+  return {
+    ...status,
+    diagnostics: {
+      ...status.diagnostics,
+      issueCount: (status.diagnostics?.issueCount ?? 0) + 1
+    },
+    compileActionDiagnostics: [diagnostic]
+  };
+}
+
 function primaryGeneratedPackageForAnalysis(analysis) {
   if (analysis.pieceDslSource === "selected-package-view" && analysis.packageScope?.packageView) {
     return analysis.packageScope.packageView;
@@ -156,11 +175,15 @@ export async function compilePieceApp(options = {}) {
   if (!options.compileAction) {
     return status;
   }
-  const compileAction = await compilePieceAction(compileActionOptionsForStatus(options, status));
-  return {
-    ...status,
-    compileAction
-  };
+  try {
+    const compileAction = await compilePieceAction(compileActionOptionsForStatus(options, status));
+    return {
+      ...status,
+      compileAction
+    };
+  } catch (error) {
+    return statusWithCompileActionDiagnostic(status, compileActionDiagnostic(error));
+  }
 }
 
 export async function buildPiecePreview(options = {}) {

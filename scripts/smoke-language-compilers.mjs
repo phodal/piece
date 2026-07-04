@@ -151,6 +151,23 @@ assertSuccess(goAppStatus.compileAction, "Go app-level Piece action");
 if (JSON.stringify(goAppStatus.compileAction?.pieceAction) !== JSON.stringify(goResult.pieceAction)) {
   throw new Error(`compilePieceApp did not retain app-level Piece action identity: ${JSON.stringify(goAppStatus.compileAction?.pieceAction)}`);
 }
+const badGoAppStatus = await compilePieceApp({
+  filePath: "/repo/src/Pricing.go",
+  source: goSource,
+  target: "RenderGreeting",
+  compileAction: true,
+  actionPackage: goActionPackage,
+  pieceTarget: "MissingTarget"
+});
+if (badGoAppStatus.compileAction) {
+  throw new Error(`compilePieceApp should not attach a compile action for an invalid target: ${JSON.stringify(badGoAppStatus.compileAction)}`);
+}
+if (badGoAppStatus.compileActionDiagnostics?.[0]?.code !== "piece-compile-action-dispatch-failed") {
+  throw new Error(`compilePieceApp did not return a structured compile-action diagnostic: ${JSON.stringify(badGoAppStatus.compileActionDiagnostics)}`);
+}
+if ((badGoAppStatus.diagnostics?.issueCount ?? 0) <= (goAppStatus.diagnostics?.issueCount ?? 0)) {
+  throw new Error(`compilePieceApp did not count the compile-action diagnostic: ${JSON.stringify(badGoAppStatus.diagnostics)}`);
+}
 if (!goResult.commands.some((command) => command.command === "go" && command.args.join(" ") === "list -json ./...")) {
   throw new Error(`Go compile did not run go list before build/test: ${JSON.stringify(goResult.commands)}`);
 }
