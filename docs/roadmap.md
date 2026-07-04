@@ -32,7 +32,7 @@ The repository already has:
 - App-level compile action dispatch failures return structured diagnostics without discarding app status.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
-- A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
+- A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope plus structured fallback-reason identity into generated actions, snapshots, and preview runtime cache hashes.
 - JS and Wasm bridges that expose Kotlin core package and graph objects to npm and browser hosts.
 
 ## What Is Still Missing
@@ -342,8 +342,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Make unknown-edge compile-action fallback visible in action/cache metadata before expanding beyond the current-file package.
+1. Surface package/source-set selection blockers consistently on app-level compile status before widening compile action scope.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 6 Fallback Reason Action Metadata Slice
+
+The fallback reason action metadata slice is now implemented:
+
+1. `pieceFeedbackFallbackInputs()` converts non-info fallback reasons into stable `fallback-reason:<code>:<hash>` action inputs.
+2. Generated Piece actions include those fallback reason inputs when `feedbackScope.fallbackRequired` is true.
+3. Unknown-edge fallback therefore becomes visible directly in generated feedback and compile action/cache metadata, not only through the aggregate `feedback-scope:<hash>`.
+4. Clean piece-level feedback keeps the existing fast-path action input shape without adding fallback-reason inputs.
+5. `npm test` and `npm run pic:source:smoke` verify unknown-edge fallback metadata and `.pic` action input round trips.
 
 ## Completed Phase 5/6 App-Level Compile Action Diagnostics Slice
 

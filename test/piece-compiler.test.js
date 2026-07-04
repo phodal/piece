@@ -248,6 +248,8 @@ describe("piece compiler", () => {
     expect(analysis.feedbackScope.level).toBe("file");
     expect(analysis.feedbackScope.fallbackRequired).toBe(true);
     expect(analysis.feedbackScope.reasons.map((reason) => reason.code)).toContain("unknown-edge-fallback");
+    const brokenAction = analysis.piecePackage.actions.find((action) => action.id === "//repo/src:Broken.ts__function_Broken%feedback");
+    expect(brokenAction.inputs.some((input) => input.startsWith("fallback-reason:unknown-edge-fallback:"))).toBe(true);
     expect(preview.closure.fallbackMode).toBe("whole-file");
     expect(preview.closure.feedbackScope.level).toBe("file");
     expect(preview.closure.hashes.runtimeClosureHash).not.toBe(analysis.snapshot.declarations[analysis.previewTargets[0]].artifactCacheKey);

@@ -346,3 +346,38 @@ export function pieceFeedbackScopeInput(feedbackScope) {
 export function pieceFeedbackSourceSetInput(feedbackScope) {
   return feedbackScope?.sourceSet?.hashes?.scopeHash ? `source-set:${feedbackScope.sourceSet.hashes.scopeHash}` : undefined;
 }
+
+function fallbackReasonIdentity(reason) {
+  return [
+    reason.code,
+    reason.severity,
+    reason.projectRoot,
+    reason.projectPath,
+    reason.sourceSet,
+    reason.packageScopeHash,
+    reason.packageScopeInput,
+    reason.targetPolicy,
+    reason.targetScope,
+    reason.companionTargetMode,
+    reason.companionTargets === undefined ? undefined : `companion-targets:${reason.companionTargets}`,
+    reason.fastPath === undefined ? undefined : `fast-path:${reason.fastPath}`,
+    reason.edgeCount === undefined ? undefined : `edges:${reason.edgeCount}`,
+    reason.effectCount === undefined ? undefined : `effects:${reason.effectCount}`,
+    ...(reason.symbols ?? []),
+    ...(reason.sliceIds ?? []),
+    ...(reason.requiredSourceSets ?? []),
+    ...(reason.projectPaths ?? [])
+  ]
+    .filter(Boolean)
+    .join(":");
+}
+
+export function pieceFeedbackFallbackInputs(feedbackScope) {
+  if (!feedbackScope?.fallbackRequired) {
+    return [];
+  }
+  return (feedbackScope.reasons ?? [])
+    .filter((reason) => reason.severity !== "info")
+    .map((reason) => `fallback-reason:${reason.code}:${hashParts([fallbackReasonIdentity(reason)])}`)
+    .sort();
+}
