@@ -345,7 +345,7 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should move beyond the shipped Phase 1-6 feedback loop:
 
-1. Promote successful output artifacts into a content-addressed local artifact store so `reuse-local` does not depend on caller-managed workspaces or temporary output paths.
+1. Extend action-cache persistence and `reuse-local` coverage beyond the current Go smoke path to Kotlin and JS/TS package actions, keeping Kotlin execution in the JVM backend and JS/TS as a language rule family.
 
 ### Phase 7: Distributed Action Cache and Runtime
 
@@ -394,7 +394,17 @@ The first opt-in artifact reuse slice is now implemented:
 3. Cached output files are validated with filesystem metadata before reuse; missing files, non-file paths, missing paths, empty outputs, failed cached results, or size mismatches force a `miss` and fall back to normal language execution.
 4. Reused compile reports keep the normal compile-result shape, return validated `outputFiles`, leave `commands` empty, and report `actionCache.execution.skipped: true` with `actionCache.reuse.status: "reused"`.
 5. The default remains `status-only`: persisted hits still execute the Go/Kotlin backend unless `reuse-local` is explicitly requested.
-6. `npm run language:compile:smoke` verifies a persisted Go miss, a default non-skipping hit, and an explicit `reuse-local` hit from a persistent local workspace.
+6. `npm run language:compile:smoke` verifies a persisted Go miss, a default non-skipping hit, and an explicit `reuse-local` hit.
+
+## Completed Phase 7 Local Artifact Store Slice
+
+The local artifact store slice is now implemented:
+
+1. Successful compile-action persistence promotes output files into an `artifacts/<record-key>/` directory beside the local `piece-action-cache-store`.
+2. Promoted artifact filenames include a SHA-256 content hash prefix, and stored output metadata carries `contentHash` and `originalPath`.
+3. `compilePieceAction()` creates a controlled temporary workspace for action-cache store writes when callers do not provide `workspace`, `outDir`, or `keepWorkspace`, then cleans it after artifact promotion completes.
+4. `reuse-local` validates and returns promoted artifact-store paths, so reuse no longer depends on caller-managed workspaces or temporary output paths.
+5. `npm run language:compile:smoke` verifies a Go persisted miss, a default non-skipping hit, and a `reuse-local` hit without passing a persistent workspace.
 
 ## Completed Roadmap Completion Audit Slice
 

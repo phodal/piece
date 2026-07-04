@@ -157,7 +157,6 @@ if (JSON.stringify(goResult.pieceAction) !== JSON.stringify({
 }
 const goActionCacheRoot = await mkdtemp(join(tmpdir(), "piece-go-action-cache-"));
 const goActionCacheStorePath = join(goActionCacheRoot, "action-cache.json");
-const goActionCacheWorkspace = join(goActionCacheRoot, "workspace");
 try {
   const goAppStatus = await compilePieceApp({
     filePath: "/repo/src/Pricing.go",
@@ -165,8 +164,7 @@ try {
     target: "RenderGreeting",
     compileAction: true,
     actionPackage: goActionPackage,
-    actionCacheStorePath: goActionCacheStorePath,
-    workspace: goActionCacheWorkspace
+    actionCacheStorePath: goActionCacheStorePath
   });
   assertSuccess(goAppStatus.compileAction, "Go app-level Piece action");
   if (
@@ -184,7 +182,11 @@ try {
   }
   const goActionCacheStore = JSON.parse(await readFile(goActionCacheStorePath, "utf8"));
   const storedRecord = goActionCacheStore.records?.[goAppStatus.compileAction.actionCache.record.key];
-  if (storedRecord?.kind !== "piece-action-cache-record" || storedRecord.result?.status !== "success") {
+  if (
+    storedRecord?.kind !== "piece-action-cache-record" ||
+    storedRecord.result?.status !== "success" ||
+    !storedRecord.result.outputFiles?.every((file) => file.path.includes("/artifacts/") && file.contentHash)
+  ) {
     throw new Error(`compilePieceApp did not persist a usable action-cache record: ${JSON.stringify(goActionCacheStore)}`);
   }
   if (JSON.stringify(goAppStatus.compileAction?.pieceAction) !== JSON.stringify(goResult.pieceAction)) {
@@ -221,8 +223,7 @@ try {
     source: goSource,
     analysis: goAppStatus.analysis,
     actionPackage: goActionPackage,
-    actionCacheStorePath: goActionCacheStorePath,
-    workspace: goActionCacheWorkspace
+    actionCacheStorePath: goActionCacheStorePath
   });
   assertSuccess(goActionCacheHit, "Go status-only action-cache hit");
   if (
@@ -240,8 +241,7 @@ try {
     analysis: goAppStatus.analysis,
     actionPackage: goActionPackage,
     actionCacheStorePath: goActionCacheStorePath,
-    actionCacheMode: "reuse-local",
-    workspace: goActionCacheWorkspace
+    actionCacheMode: "reuse-local"
   });
   assertSuccess(goActionCacheReuse, "Go reused local action-cache hit");
   if (
@@ -250,7 +250,8 @@ try {
     goActionCacheReuse.actionCache.execution.reason !== "cached-artifact-reuse" ||
     goActionCacheReuse.actionCache.reuse?.status !== "reused" ||
     goActionCacheReuse.commands.length !== 0 ||
-    goActionCacheReuse.outputFiles.length === 0
+    goActionCacheReuse.outputFiles.length === 0 ||
+    !goActionCacheReuse.outputFiles.every((file) => file.path.includes("/artifacts/"))
   ) {
     throw new Error(`compilePieceAction did not reuse a trusted local cache hit: ${JSON.stringify({
       actionCache: goActionCacheReuse.actionCache,

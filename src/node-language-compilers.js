@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -825,6 +826,13 @@ function localActionCacheStorePath(options = {}) {
   return resolveHostPath(String(options.actionCacheStorePath), options.cwd ?? process.cwd());
 }
 
+async function prepareActionCacheCompileWorkspace(options = {}, storePath) {
+  if (!storePath || options.workspace || options.outDir || options.keepWorkspace) {
+    return undefined;
+  }
+  return prepareWorkspace("piece-action-cache-");
+}
+
 function actionCacheRecordsFromStore(store) {
   const records = store?.records;
   return normalizeNodeActionCacheRecords(Array.isArray(records) ? records : records ?? {});
@@ -877,7 +885,44 @@ function appendActionCacheReasons(actionCache, reasons = []) {
   };
 }
 
-function actionCacheStoreRecordForResult(record, result) {
+function artifactStoreRootFor(storePath) {
+  return join(dirname(storePath), "artifacts");
+}
+
+async function contentHashForFile(path) {
+  return createHash("sha256").update(await readFile(path)).digest("hex");
+}
+
+async function promoteActionCacheOutputFiles(storePath, record, outputFiles = []) {
+  if (!storePath || !record?.key || outputFiles.length === 0) {
+    return outputFiles;
+  }
+  const artifactRoot = join(artifactStoreRootFor(storePath), record.key);
+  await mkdir(artifactRoot, { recursive: true });
+  const promoted = [];
+  for (const [index, outputFile] of outputFiles.entries()) {
+    const outputPath = outputFile?.path;
+    if (!outputPath) continue;
+    const info = await stat(outputPath);
+    if (!info.isFile()) continue;
+    const contentHash = await contentHashForFile(outputPath);
+    const artifactName = `${index}-${contentHash.slice(0, 16)}-${sanitizeProjectName(basename(outputPath))}`;
+    const artifactPath = join(artifactRoot, artifactName);
+    if (resolve(outputPath) !== resolve(artifactPath)) {
+      await copyFile(outputPath, artifactPath);
+    }
+    promoted.push({
+      path: artifactPath,
+      sizeBytes: info.size,
+      contentHash,
+      originalPath: outputPath
+    });
+  }
+  return promoted;
+}
+
+async function actionCacheStoreRecordForResult(storePath, record, result) {
+  const outputFiles = await promoteActionCacheOutputFiles(storePath, record, result.outputFiles ?? []);
   return {
     ...record,
     result: {
@@ -889,7 +934,7 @@ function actionCacheStoreRecordForResult(record, result) {
       sourceSet: result.sourceSet,
       projectRoot: result.projectRoot,
       workspace: result.workspace,
-      outputFiles: result.outputFiles ?? [],
+      outputFiles,
       commandCount: result.commands?.length ?? 0,
       updatedAt: new Date().toISOString()
     }
@@ -1083,7 +1128,7 @@ async function persistLocalActionCacheRecord(storePath, record, result, actionCa
         existingRecords = {};
       }
     }
-    const recordForResult = actionCacheStoreRecordForResult(record, result);
+    const recordForResult = await actionCacheStoreRecordForResult(storePath, record, result);
     const records = {
       ...existingRecords,
       [record.key]: recordForResult
@@ -2034,25 +2079,36 @@ export async function compilePieceAction(options = {}) {
     }
     actionCache = actionCacheWithReuseMiss(actionCache, validation, matchedRecord);
   }
-  let result;
-  if (language === "go") {
-    result = await compileGoPieceFile(compileOptions);
-  } else if (language === "kotlin") {
-    result = await compileKotlinPieceFile(compileOptions);
-  } else {
-    throw new Error(`Unsupported Piece compile action language: ${language}.`);
+  const actionCacheCompileWorkspace = await prepareActionCacheCompileWorkspace(options, storePath);
+  if (actionCacheCompileWorkspace) {
+    compileOptions.workspace = actionCacheCompileWorkspace.path;
   }
-  const persistence = await persistLocalActionCacheRecord(storePath, actionCacheRecord, result, actionCache);
-  if (persistence) {
-    actionCache = {
-      ...actionCache,
-      persistence
+
+  try {
+    let result;
+    if (language === "go") {
+      result = await compileGoPieceFile(compileOptions);
+    } else if (language === "kotlin") {
+      result = await compileKotlinPieceFile(compileOptions);
+    } else {
+      throw new Error(`Unsupported Piece compile action language: ${language}.`);
+    }
+    const persistence = await persistLocalActionCacheRecord(storePath, actionCacheRecord, result, actionCache);
+    if (persistence) {
+      actionCache = {
+        ...actionCache,
+        persistence
+      };
+    }
+    return {
+      ...result,
+      actionCache
     };
+  } finally {
+    if (actionCacheCompileWorkspace) {
+      await cleanupWorkspace(actionCacheCompileWorkspace.path, false);
+    }
   }
-  return {
-    ...result,
-    actionCache
-  };
 }
 
 export async function analyzeKotlinPieceFile(options = {}) {

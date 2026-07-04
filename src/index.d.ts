@@ -700,6 +700,8 @@ export interface PieceActionCacheReason {
 export interface PieceCompileActionCacheOutputFile {
   readonly path: string;
   readonly sizeBytes: number;
+  readonly contentHash?: string;
+  readonly originalPath?: string;
 }
 
 export interface PieceCompileActionCacheRecordResult {
