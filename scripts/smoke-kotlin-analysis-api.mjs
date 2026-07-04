@@ -43,6 +43,7 @@ async function createExternalFormatterJar(workspace) {
     source: `package demo.external
 
 fun formatName(name: String): String = "External: $name"
+fun String.decorate(): String = "[$this]"
 `,
     target: "jvm",
     workspace
@@ -291,6 +292,54 @@ fun render(name: String): String = formatName(name)
         edge.symbols.includes("formatName")
     ),
     `Kotlin Analysis API top-level function binding did not become a jar-backed external graph edge: ${JSON.stringify(topLevelFunctionAnalysis.graph.edges)}`
+  );
+
+  const extensionFunctionSource = `package demo.externaluse
+
+import demo.external.decorate
+
+fun render(name: String): String = name.decorate()
+`;
+  const extensionFunctionManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/UseFormatterExtension.kt",
+    source: extensionFunctionSource,
+    backend: "analysis-api",
+    analysisApiEnabled: true,
+    classpath: [formatterJar]
+  });
+  assert(
+    extensionFunctionManifest.analysisBackend?.actual === "analysis-api" &&
+      extensionFunctionManifest.analysisBackend?.symbols === "analysis-api",
+    `Kotlin Analysis API extension function backend was not used: ${JSON.stringify(extensionFunctionManifest.analysisBackend)}`
+  );
+  const extensionFunctionBinding = extensionFunctionManifest.importBindings.find(
+    (binding) =>
+      binding.local === "decorate" &&
+      binding.imported === "decorate" &&
+      binding.source === `classpath:${formatterJar}!demo/external`
+  );
+  assert(
+    extensionFunctionBinding,
+    `Kotlin Analysis API did not map the extension function to its jar-backed classpath binding: ${JSON.stringify(extensionFunctionManifest.importBindings)}`
+  );
+
+  const extensionFunctionAnalysis = await analyzePieceFile({
+    filePath: "/repo/src/UseFormatterExtension.kt",
+    source: extensionFunctionSource,
+    declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
+      backend: "analysis-api",
+      analysisApiEnabled: true,
+      classpath: [formatterJar]
+    })
+  });
+  assert(
+    extensionFunctionAnalysis.graph.edges.some(
+      (edge) =>
+        edge.kind === "external" &&
+        edge.to === `classpath:${formatterJar}!demo/external#decorate` &&
+        edge.symbols.includes("decorate")
+    ),
+    `Kotlin Analysis API extension function binding did not become a jar-backed external graph edge: ${JSON.stringify(extensionFunctionAnalysis.graph.edges)}`
   );
 } finally {
   await rm(classpathWorkspace, { recursive: true, force: true });

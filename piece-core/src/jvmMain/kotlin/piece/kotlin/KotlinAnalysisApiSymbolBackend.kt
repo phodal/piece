@@ -107,10 +107,10 @@ internal class KotlinAnalysisApiSymbolBackend {
             when {
                 parts.firstOrNull() == "DECL" && parts.size >= 6 -> {
                     symbolsByDeclaration[parts[1]] = MutableAnalysisApiSymbols(
-                        runtimeReferences = parts[2].csvNames(),
-                        typeReferences = parts[3].csvNames(),
-                        resolvedRuntimeNames = parts[4].csvNames(),
-                        resolvedTypeNames = parts[5].csvNames(),
+                        runtimeReferences = parts[2].csvNames().toMutableList(),
+                        typeReferences = parts[3].csvNames().toMutableList(),
+                        resolvedRuntimeNames = parts[4].csvNames().toMutableList(),
+                        resolvedTypeNames = parts[5].csvNames().toMutableList(),
                     )
                 }
 
@@ -119,22 +119,28 @@ internal class KotlinAnalysisApiSymbolBackend {
                     val symbols = symbolsByDeclaration.getOrPut(declaration) {
                         MutableAnalysisApiSymbols()
                     }
+                    val isTypeOnly = parts[6].toBooleanStrictOrNull() ?: false
                     symbols.importBindings += KotlinPsiImportBinding(
                         local = parts[2],
                         imported = parts[3],
                         source = parts[4],
                         kind = parts[5],
-                        isTypeOnly = parts[6].toBooleanStrictOrNull() ?: false,
+                        isTypeOnly = isTypeOnly,
                     )
+                    if (isTypeOnly) {
+                        symbols.typeReferences += parts[2]
+                    } else {
+                        symbols.runtimeReferences += parts[2]
+                    }
                 }
             }
         }
         val immutableSymbols = symbolsByDeclaration.mapValues { (_, symbols) ->
             KotlinSemanticSymbols(
-                runtimeReferences = symbols.runtimeReferences,
-                typeReferences = symbols.typeReferences,
-                resolvedRuntimeNames = symbols.resolvedRuntimeNames,
-                resolvedTypeNames = symbols.resolvedTypeNames,
+                runtimeReferences = symbols.runtimeReferences.distinct().sorted(),
+                typeReferences = symbols.typeReferences.distinct().sorted(),
+                resolvedRuntimeNames = symbols.resolvedRuntimeNames.distinct().sorted(),
+                resolvedTypeNames = symbols.resolvedTypeNames.distinct().sorted(),
                 importBindings = symbols.importBindings.distinctBy {
                     "${it.local}:${it.imported}:${it.source}:${it.kind}:${it.isTypeOnly}"
                 }.sortedWith(compareBy({ it.source }, { it.imported }, { it.local })),
@@ -156,10 +162,10 @@ private data class AnalysisApiSourceFile(
 )
 
 private data class MutableAnalysisApiSymbols(
-    val runtimeReferences: List<String> = emptyList(),
-    val typeReferences: List<String> = emptyList(),
-    val resolvedRuntimeNames: List<String> = emptyList(),
-    val resolvedTypeNames: List<String> = emptyList(),
+    val runtimeReferences: MutableList<String> = mutableListOf(),
+    val typeReferences: MutableList<String> = mutableListOf(),
+    val resolvedRuntimeNames: MutableList<String> = mutableListOf(),
+    val resolvedTypeNames: MutableList<String> = mutableListOf(),
     val importBindings: MutableList<KotlinPsiImportBinding> = mutableListOf(),
 )
 
