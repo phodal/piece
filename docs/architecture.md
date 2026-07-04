@@ -32,7 +32,7 @@ SourceFile
   -> PieceArtifact
 ```
 
-The durable model should be language-neutral:
+The durable model should be language-neutral. The current Kotlin builder DSL is an internal construction API:
 
 ```kotlin
 pieceFile("Pricing.kt") {
@@ -46,7 +46,24 @@ pieceFile("Pricing.kt") {
 }
 ```
 
-This DSL should usually be generated from source, not handwritten. A host may still write or patch it when it wants to override target names, fixture inputs, visibility, or feedback actions.
+The external DSL should be a `.pic` file parsed with ANTLR. It should usually be generated from source, not handwritten. A host may still write or patch it when it wants to override target names, fixture inputs, visibility, or feedback actions:
+
+```pic
+package "//repo/src:Pricing.kt" {
+  language kotlin
+  source "/repo/src/Pricing.kt"
+
+  target function "renderGreeting" {
+    deps ":User", ":Greeting", ":prefix"
+    action compile {
+      mnemonic "PieceCompile"
+      output "Pricing.kt__function_renderGreeting.compile.json"
+    }
+  }
+}
+```
+
+ANTLR parser code should live on the JVM side first, while the AST, diagnostics, and model conversion stay in `commonMain`. See [roadmap.md](./roadmap.md) for the `.pic` implementation sequence.
 
 ## Kotlin MPP Direction
 
@@ -185,6 +202,6 @@ Keep the implementation honest:
 - single file only;
 - no workspace-wide dependency resolver yet;
 - no handwritten BUILD files;
-- generated DSL and package targets are metadata first;
+- generated `.pic` files and package targets are metadata first;
 - unknown edges force fallback instead of pretending local feedback is safe;
 - Kotlin's production extractor and compile backend belong in Kotlin MPP, while the npm Kotlin extractor remains a bridge and test fixture until that core is complete.

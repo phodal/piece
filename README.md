@@ -85,6 +85,7 @@ piece-core/
 
 docs/
   architecture.md       single-file Bazel mapping and DSL direction
+  roadmap.md            .pic DSL and language-backend roadmap
   kotlin-piece-benchmark.md
 ```
 
@@ -126,6 +127,8 @@ The repository includes a root Gradle wrapper. From the repository root, `./grad
 `npm run language:analysis:smoke` verifies that the Node entrypoint routes Kotlin analysis through the JVM PSI backend and can opt into Kotlin compiler semantic diagnostics plus local, companion-file, and `sourceRoots` symbol refinement. It also checks that companion source-set declarations and host-provided external jars are visible to compiler diagnostics instead of being treated as unresolved single-file names. `npm run language:compile:smoke` requires a local Go toolchain. It compiles a real Go single-file module, then asks the Kotlin/JVM backend to compile a Kotlin source set with a companion file for JVM, JS, and Wasm.
 
 `npm run benchmark:kotlin-piece` writes `reports/kotlin-piece-benchmark.json` and checks that Kotlin piece analysis beats full-file analysis for the generated fixture. See [docs/kotlin-piece-benchmark.md](./docs/kotlin-piece-benchmark.md).
+
+See [docs/roadmap.md](./docs/roadmap.md) for the remaining Kotlin backend work and the planned ANTLR-based `.pic` DSL.
 
 ## License
 
