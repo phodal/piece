@@ -23,6 +23,7 @@ fun main(args: Array<String>) {
         source = source,
         target = options["target"]?.takeIf { it.isNotBlank() } ?: "jvm",
         sourceSet = options["sourceSet"]?.takeIf { it.isNotBlank() },
+        pieceAction = options.toPieceAction(),
         workspace = options["workspace"]?.takeIf { it.isNotBlank() }?.let { Path.of(it) },
         keepWorkspace = options["keepWorkspace"] == "true",
         gradleCommand = gradleCommand,
@@ -40,6 +41,7 @@ fun main(args: Array<String>) {
             sourceSet = request.sourceSet ?: "commonMain",
             status = "error",
             workspace = request.workspace?.takeIf { request.keepWorkspace }?.toString(),
+            pieceAction = request.pieceAction,
             outputFiles = emptyList(),
             commands = emptyList(),
             diagnostics = listOf(
@@ -62,4 +64,17 @@ fun main(args: Array<String>) {
 
 private fun Map<String, String>.required(name: String): String {
     return this[name]?.takeIf { it.isNotBlank() } ?: error("Missing --$name=<value>")
+}
+
+private fun Map<String, String>.toPieceAction(): KotlinCompilePieceAction? {
+    val targetLabel = this["pieceTargetLabel"]?.takeIf { it.isNotBlank() }
+    val actionId = this["pieceActionId"]?.takeIf { it.isNotBlank() }
+    val artifactId = this["pieceArtifactId"]?.takeIf { it.isNotBlank() }
+    if (targetLabel == null && actionId == null && artifactId == null) return null
+    return KotlinCompilePieceAction(
+        targetLabel = targetLabel ?: error("Missing --pieceTargetLabel=<label> for compile action metadata."),
+        actionId = actionId ?: error("Missing --pieceActionId=<id> for compile action metadata."),
+        artifactId = artifactId ?: error("Missing --pieceArtifactId=<id> for compile action metadata."),
+        kind = this["pieceActionKind"]?.takeIf { it.isNotBlank() } ?: "compile",
+    )
 }

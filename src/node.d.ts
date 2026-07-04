@@ -24,6 +24,13 @@ export interface PieceCompilerOutputFile {
   readonly sizeBytes: number;
 }
 
+export interface PieceCompileActionReference {
+  readonly targetLabel: string;
+  readonly actionId: string;
+  readonly artifactId: string;
+  readonly kind?: "compile" | (string & {});
+}
+
 export interface PieceLanguageCompileDiagnostic {
   readonly code: string;
   readonly severity: "error";
@@ -39,6 +46,7 @@ export interface PieceLanguageCompileResult {
   readonly target: string;
   readonly status: "success" | "error";
   readonly workspace?: string;
+  readonly pieceAction?: PieceCompileActionReference;
   readonly outputFiles: readonly PieceCompilerOutputFile[];
   readonly commands: readonly PieceCompilerCommandResult[];
   readonly diagnostics: readonly PieceLanguageCompileDiagnostic[];
@@ -66,6 +74,7 @@ export interface CompileKotlinPieceFileOptions {
   readonly gradleCommand?: string;
   readonly kotlinPluginVersion?: string;
   readonly tasks?: readonly string[];
+  readonly pieceAction?: PieceCompileActionReference;
   readonly env?: Record<string, string | undefined>;
 }
 

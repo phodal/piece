@@ -56,6 +56,10 @@ tasks.register<JavaExec>("runKotlinCompileBackend") {
             "--tasks=${providers.gradleProperty("pieceCompile.tasks").orNull ?: ""}",
             "--outputReport=$outputReport",
             "--keepWorkspace=${providers.gradleProperty("pieceCompile.keepWorkspace").orNull ?: "false"}",
+            "--pieceTargetLabel=${providers.gradleProperty("pieceCompile.pieceTargetLabel").orNull ?: ""}",
+            "--pieceActionId=${providers.gradleProperty("pieceCompile.pieceActionId").orNull ?: ""}",
+            "--pieceArtifactId=${providers.gradleProperty("pieceCompile.pieceArtifactId").orNull ?: ""}",
+            "--pieceActionKind=${providers.gradleProperty("pieceCompile.pieceActionKind").orNull ?: ""}",
         )
         providers.gradleProperty("pieceCompile.workspace").orNull?.takeIf { it.isNotBlank() }?.let {
             cliArgs += "--workspace=$it"

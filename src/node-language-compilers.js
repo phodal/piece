@@ -264,6 +264,7 @@ export async function compileKotlinPieceFile(options = {}) {
   const filePath = options.filePath ?? "Main.kt";
   const source = options.source ?? "";
   const target = options.target ?? "jvm";
+  const pieceAction = options.pieceAction;
   if (!["jvm", "js", "wasmJs", "all"].includes(target)) {
     throw new TypeError(`Unsupported Kotlin compile target: ${target}`);
   }
@@ -288,7 +289,11 @@ export async function compileKotlinPieceFile(options = {}) {
       `-PpieceCompile.gradleCommand=${resolveGradleCommand(options.gradleCommand)}`,
       `-PpieceCompile.kotlinPluginVersion=${options.kotlinPluginVersion ?? ""}`,
       `-PpieceCompile.tasks=${options.tasks?.join(",") ?? ""}`,
-      `-PpieceCompile.keepWorkspace=${options.keepWorkspace ? "true" : "false"}`
+      `-PpieceCompile.keepWorkspace=${options.keepWorkspace ? "true" : "false"}`,
+      `-PpieceCompile.pieceTargetLabel=${pieceAction?.targetLabel ?? ""}`,
+      `-PpieceCompile.pieceActionId=${pieceAction?.actionId ?? ""}`,
+      `-PpieceCompile.pieceArtifactId=${pieceAction?.artifactId ?? ""}`,
+      `-PpieceCompile.pieceActionKind=${pieceAction?.kind ?? "compile"}`
     ];
     if (options.workspace) {
       args.push(`-PpieceCompile.workspace=${resolve(options.workspace)}`);
@@ -306,6 +311,7 @@ export async function compileKotlinPieceFile(options = {}) {
       filePath,
       target,
       sourceSet: options.sourceSet ?? "",
+      ...(pieceAction ? { pieceAction } : {}),
       status: "error",
       outputFiles: [],
       commands,

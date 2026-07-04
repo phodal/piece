@@ -23,12 +23,20 @@ data class KotlinCompileRequest(
     val source: String,
     val target: String = "jvm",
     val sourceSet: String? = null,
+    val pieceAction: KotlinCompilePieceAction? = null,
     val workspace: Path? = null,
     val keepWorkspace: Boolean = false,
     val gradleCommand: String,
     val gradleVersion: String = DEFAULT_GRADLE_VERSION,
     val kotlinPluginVersion: String = DEFAULT_KOTLIN_PLUGIN_VERSION,
     val tasks: List<String> = emptyList(),
+)
+
+data class KotlinCompilePieceAction(
+    val targetLabel: String,
+    val actionId: String,
+    val artifactId: String,
+    val kind: String = "compile",
 )
 
 data class KotlinCommandResult(
@@ -64,6 +72,7 @@ data class KotlinCompileResult(
     val sourceSet: String,
     val status: String,
     val workspace: String?,
+    val pieceAction: KotlinCompilePieceAction? = null,
     val outputFiles: List<KotlinOutputFile>,
     val commands: List<KotlinCommandResult>,
     val diagnostics: List<KotlinCompileDiagnostic>,
@@ -76,6 +85,7 @@ data class KotlinCompileResult(
         field("target", target)
         field("sourceSet", sourceSet)
         workspace?.let { field("workspace", it) }
+        pieceAction?.let { rawField("pieceAction", it.toJson()) }
         field("status", status)
         field("outputFiles", outputFiles) { it.toJson() }
         field("commands", commands) { it.toJson() }
@@ -116,6 +126,7 @@ class KotlinCompileBackend {
                 sourceSet = sourceSet,
                 status = status,
                 workspace = workspace.takeIf { request.keepWorkspace }?.toString(),
+                pieceAction = request.pieceAction,
                 outputFiles = collectFiles(workspace.resolve("build").resolve("libs")) +
                     collectFiles(workspace.resolve("build").resolve("dist")),
                 commands = commands,
@@ -403,6 +414,10 @@ private class JsonObjectBuilder {
         fields += "${name.jsonString()}:null"
     }
 
+    fun rawField(name: String, value: String) {
+        fields += "${name.jsonString()}:$value"
+    }
+
     fun <T> field(name: String, values: List<T>, encode: (T) -> String) {
         fields += "${name.jsonString()}:${values.joinToString(prefix = "[", postfix = "]") { encode(it) }}"
     }
@@ -412,6 +427,13 @@ private class JsonObjectBuilder {
 
 private fun buildJsonObject(init: JsonObjectBuilder.() -> Unit): String {
     return JsonObjectBuilder().apply(init).build()
+}
+
+private fun KotlinCompilePieceAction.toJson(): String = buildJsonObject {
+    field("targetLabel", targetLabel)
+    field("actionId", actionId)
+    field("artifactId", artifactId)
+    field("kind", kind)
 }
 
 private fun KotlinOutputFile.toJson(): String = buildJsonObject {
