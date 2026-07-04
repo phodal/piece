@@ -1,5 +1,5 @@
 export * from "./index.js";
-import type { PieceBuildEngine, PieceDeclarationExtractor, PieceFileManifest, VirtualFileSystem } from "./index.js";
+import type { PieceBuildEngine, PieceDeclarationExtractor, PieceFileManifest, SingleFilePiecePackage, VirtualFileSystem } from "./index.js";
 export function createNodeEsbuildBuildEngine(options?: {
   readonly name?: string;
   readonly buildOptions?: Record<string, unknown>;
@@ -50,6 +50,31 @@ export interface PieceLanguageCompileResult {
   readonly outputFiles: readonly PieceCompilerOutputFile[];
   readonly commands: readonly PieceCompilerCommandResult[];
   readonly diagnostics: readonly PieceLanguageCompileDiagnostic[];
+}
+
+export interface PieceDslParseDiagnostic {
+  readonly code: string;
+  readonly severity: "info" | "warning" | "error";
+  readonly message: string;
+  readonly line?: number;
+  readonly column?: number;
+  readonly command?: string;
+}
+
+export interface PieceDslParseResult {
+  readonly version: 1;
+  readonly parser: "antlr-pic-parser";
+  readonly filePath: string;
+  readonly source: string;
+  readonly piecePackage: SingleFilePiecePackage | null;
+  readonly diagnostics: readonly PieceDslParseDiagnostic[];
+}
+
+export interface ParsePieceDslFileOptions {
+  readonly filePath?: string;
+  readonly source?: string;
+  readonly cwd?: string;
+  readonly env?: Record<string, string | undefined>;
 }
 
 export interface CompileGoPieceFileOptions {
@@ -127,4 +152,5 @@ export interface GoPieceCompileResult extends PieceLanguageCompileResult {
 export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise<GoPieceCompileResult>;
 export function compileKotlinPieceFile(options?: CompileKotlinPieceFileOptions): Promise<KotlinPieceCompileResult>;
 export function analyzeKotlinPieceFile(options?: AnalyzeKotlinPieceFileOptions): Promise<PieceFileManifest>;
+export function parsePieceDslFile(options?: ParsePieceDslFileOptions): Promise<PieceDslParseResult>;
 export function createNodeKotlinPsiDeclarationExtractor(options?: NodeKotlinPsiDeclarationExtractorOptions): PieceDeclarationExtractor;

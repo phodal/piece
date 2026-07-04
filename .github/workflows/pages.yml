@@ -50,6 +50,9 @@ jobs:
       - name: Core check
         run: npm run core:check
 
+      - name: Pic DSL smoke
+        run: npm run pic:dsl:smoke
+
       - name: Language analysis smoke
         run: npm run language:analysis:smoke
 

@@ -7,6 +7,9 @@ plugins {
 group = "cc.phodal.piece"
 version = "0.1.0"
 
+val antlrTool = configurations.create("antlrTool")
+val generatedPicAntlrDir = layout.buildDirectory.dir("generated/antlr/pic")
+
 kotlin {
     jvm()
     js(IR) {
@@ -25,12 +28,49 @@ kotlin {
     sourceSets {
         jvmMain.dependencies {
             implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.2.21")
+            implementation("org.antlr:antlr4-runtime:4.13.2")
         }
 
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
     }
+}
+
+dependencies {
+    antlrTool("org.antlr:antlr4:4.13.2")
+}
+
+val generatePicAntlr = tasks.register<JavaExec>("generatePicAntlr") {
+    val grammarFile = layout.projectDirectory.file("../grammar/Piece.g4")
+    inputs.file(grammarFile)
+    outputs.dir(generatedPicAntlrDir)
+    classpath = antlrTool
+    mainClass.set("org.antlr.v4.Tool")
+    args(
+        "-visitor",
+        "-no-listener",
+        "-package",
+        "piece.pic.antlr",
+        "-Xexact-output-dir",
+        "-o",
+        generatedPicAntlrDir.get().asFile.absolutePath,
+        grammarFile.asFile.absolutePath,
+    )
+}
+
+extensions.configure<org.gradle.api.tasks.SourceSetContainer>("sourceSets") {
+    named("jvmMain") {
+        java.srcDir(generatedPicAntlrDir)
+    }
+}
+
+tasks.named("compileJvmMainJava") {
+    dependsOn(generatePicAntlr)
+}
+
+tasks.named("compileKotlinJvm") {
+    dependsOn(generatePicAntlr)
 }
 
 tasks.register<JavaExec>("runKotlinCompileBackend") {
@@ -68,6 +108,28 @@ tasks.register<JavaExec>("runKotlinCompileBackend") {
             cliArgs += "--workspace=$it"
         }
         setArgs(cliArgs)
+    }
+}
+
+tasks.register<JavaExec>("runPicParserBackend") {
+    dependsOn("jvmMainClasses")
+
+    val jvmCompilation = kotlin.targets.getByName("jvm").compilations.getByName("main")
+    mainClass.set("piece.pic.PicParserCli")
+    classpath = files(jvmCompilation.output.allOutputs, jvmCompilation.runtimeDependencyFiles)
+
+    doFirst {
+        val sourceFile = providers.gradleProperty("pieceDsl.sourceFile").orNull
+            ?: error("Missing -PpieceDsl.sourceFile=<path>")
+        val outputReport = providers.gradleProperty("pieceDsl.outputReport").orNull
+            ?: error("Missing -PpieceDsl.outputReport=<path>")
+        setArgs(
+            listOf(
+                "--filePath=${providers.gradleProperty("pieceDsl.filePath").orNull ?: "package.pic"}",
+                "--sourceFile=$sourceFile",
+                "--outputReport=$outputReport",
+            ),
+        )
     }
 }
 

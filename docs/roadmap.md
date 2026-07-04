@@ -18,13 +18,14 @@ The repository already has:
 - A Go single-file adapter plus `compileGoPieceFile()` using `go build` and `go test`.
 - `piece-core` as a Kotlin Multiplatform core with model, builder DSL, graph, and reconcile contracts in `commonMain`.
 - Kotlin/JVM PSI extraction, compiler diagnostics, BindingContext-backed symbol refinement, source-set companion files, host-provided classpath entries, and a Gradle/KMP compile backend.
+- An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain` and a Node smoke entrypoint.
 - JS and Wasm bridges that expose Kotlin core package and graph objects to npm and browser hosts.
 
 ## What Is Still Missing
 
 The important gaps are:
 
-- No formal Piece file DSL yet. The current Kotlin builder DSL is useful inside `piece-core`, but it is not a stable user-facing or generated file format.
+- The first `.pic` parser slice exists, but source extractors do not yet emit `.pic`, and override merging is not implemented.
 - Kotlin semantic analysis still uses FE10 `BindingContext` as the symbol-resolution fallback. It needs a real Kotlin Analysis API backend when the standalone artifacts are stable enough for this package.
 - Kotlin project discovery is still host-provided. Source roots, companion files, and classpath can be passed in, but the backend does not yet discover full Gradle/KMP source sets, dependencies, and variants on its own.
 - Kotlin compile actions are real but still mediated by the npm function that creates a temporary Gradle project. The final shape should make Kotlin/JVM the rule owner and Node only the invoker.
@@ -87,12 +88,12 @@ ANTLR's Java runtime should stay in `jvmMain` first. `commonMain` should own onl
 
 ### Phase 1: Formalize `.pic`
 
-- Add `grammar/Piece.g4`.
-- Add generated-parser Gradle wiring for JVM.
-- Add `PicAst`, diagnostics, and `PicToModel` in `commonMain`.
-- Add `AntlrPicParserBackend` in `jvmMain`.
-- Add tests that parse `.pic` into the existing `PiecePackage`, `PieceTarget`, `PieceAction`, and `PieceArtifact` model.
-- Add a CLI or Node API entrypoint such as `parsePieceDslFile()` that returns JSON and diagnostics.
+- Done: add `grammar/Piece.g4`.
+- Done: add generated-parser Gradle wiring for JVM.
+- Done: add `PicAst`, diagnostics, and `PicToModel` in `commonMain`.
+- Done: add `AntlrPicParserBackend` in `jvmMain`.
+- Done: add tests that parse `.pic` into the existing `PiecePackage`, `PieceTarget`, `PieceAction`, and `PieceArtifact` model.
+- Done: add a Node API entrypoint, `parsePieceDslFile()`, plus `npm run pic:dsl:smoke`.
 
 Definition of done: a `.pic` file can round-trip into the same package/action graph that source extraction currently generates.
 
@@ -143,11 +144,11 @@ Definition of done: Piece can explain whether an edit is handled at piece, file,
 
 ## Near-Term Slice
 
-The next small implementation slice should be Phase 1:
+The next small implementation slice should be Phase 2:
 
-1. Add `grammar/Piece.g4`.
-2. Add JVM ANTLR parser wiring.
-3. Parse one `.pic` fixture into the existing `PiecePackage`.
-4. Add a smoke command and document the `.pic` contract.
+1. Make Kotlin PSI extraction emit deterministic `.pic` package text as an optional artifact.
+2. Parse that generated `.pic` back through `parsePieceDslFile()`.
+3. Compare the parsed package with the source-extracted package for target/action parity.
+4. Repeat the same shape for Go and TypeScript once Kotlin proves the contract.
 
-This moves the DSL from an internal Kotlin builder API into a stable file format without weakening the Kotlin/JVM backend boundary.
+This moves `.pic` from a handwritten fixture into the generated package contract without weakening the Kotlin/JVM backend boundary.

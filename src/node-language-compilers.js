@@ -226,6 +226,47 @@ function errorKotlinPsiManifest({ filePath, source, parserName, commands }) {
   };
 }
 
+function errorPicDslReport({ filePath, source, commands }) {
+  return {
+    version: 1,
+    parser: "antlr-pic-parser",
+    filePath,
+    source,
+    piecePackage: null,
+    diagnostics: diagnosticsFromCommands(commands)
+  };
+}
+
+export async function parsePieceDslFile(options = {}) {
+  const filePath = options.filePath ?? "package.pic";
+  const source = options.source ?? await readFile(resolveHostPath(filePath, options.cwd ?? process.cwd()), "utf8");
+  const hostWorkspaceInfo = await prepareWorkspace("piece-pic-dsl-host-");
+  const hostWorkspace = hostWorkspaceInfo.path;
+  const sourceFile = join(hostWorkspace, sourceBasename(filePath, "package.pic"));
+  const outputReport = join(hostWorkspace, "pic-report.json");
+
+  try {
+    await writeFile(sourceFile, source, "utf8");
+    const args = [
+      "-p",
+      join(PACKAGE_ROOT, "piece-core"),
+      "runPicParserBackend",
+      "--quiet",
+      `-PpieceDsl.filePath=${filePath}`,
+      `-PpieceDsl.sourceFile=${sourceFile}`,
+      `-PpieceDsl.outputReport=${outputReport}`
+    ];
+
+    const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
+    if (await pathExists(outputReport)) {
+      return readJsonFile(outputReport);
+    }
+    return errorPicDslReport({ filePath, source, commands: [backendCommand] });
+  } finally {
+    await cleanupWorkspace(hostWorkspace, false);
+  }
+}
+
 export async function compileGoPieceFile(options = {}) {
   const filePath = options.filePath ?? "Main.go";
   const source = options.source ?? "";
