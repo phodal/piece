@@ -29,6 +29,8 @@ fun main(args: Array<String>) {
             status = "fallback",
             sourceSets = emptyList(),
             classpaths = emptyList(),
+            dependencies = emptyList(),
+            targetVariants = emptyList(),
             sourceRoots = emptyList(),
             classpath = emptyList(),
             hashes = projectModelHashes(
@@ -36,6 +38,8 @@ fun main(args: Array<String>) {
                 status = "fallback",
                 sourceSets = emptyList(),
                 classpaths = emptyList(),
+                dependencies = emptyList(),
+                targetVariants = emptyList(),
                 sourceRoots = emptyList(),
                 classpath = emptyList(),
             ),

@@ -17,7 +17,7 @@ The repository already has:
 - TypeScript-family extraction and React preview as one feedback adapter, not the core abstraction.
 - A Go single-file adapter plus `compileGoPieceFile()` using `go build` and `go test`.
 - `piece-core` as a Kotlin Multiplatform core with model, builder DSL, graph, and reconcile contracts in `commonMain`.
-- Kotlin/JVM PSI extraction, compiler diagnostics, BindingContext-backed symbol refinement, source-set companion files, host-provided classpath entries, Gradle/KMP `projectRoot` analysis input discovery, source-set-scoped project model inputs, stable project model hashes in action/cache identities, and a Gradle/KMP compile backend.
+- Kotlin/JVM PSI extraction, compiler diagnostics, BindingContext-backed symbol refinement, source-set companion files, host-provided classpath entries, Gradle/KMP `projectRoot` analysis input discovery, dependency coordinates, target variants, source-set-scoped project model inputs, stable project model hashes in action/cache identities, and a Gradle/KMP compile backend.
 - An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain` and a Node smoke entrypoint.
 - A Kotlin PSI `.pic` generator that emits deterministic package text and verifies the generated file by parsing it back through the same ANTLR backend.
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
@@ -30,7 +30,7 @@ The repository already has:
 The important gaps are:
 
 - Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing, companion source-set external bindings, imported aliases, simple jar-backed classpath classes, Kotlin constructors, Kotlin top-level jar functions, Kotlin extension jar functions, owner-qualified member properties, and callable signatures for overload and generic fixtures, but multi-call overload graph disambiguation still needs expansion.
-- Kotlin project discovery has an initial JVM Gradle Tooling API path for analysis and compile inputs. `projectRoot` can discover KMP source roots and compile classpaths, saved-file compile can run an inferred real project variant, and source-set-scoped project model hashes now feed action/cache identities, but complete dependency/target modeling still needs expansion.
+- Kotlin project discovery has an initial JVM Gradle Tooling API path for analysis and compile inputs. `projectRoot` can discover KMP source roots, compile classpaths, dependency coordinates, and target variants; saved-file compile can run an inferred real project variant; and source-set-scoped project model hashes now feed action/cache identities. Complete multi-project dependency modeling still needs expansion.
 - Kotlin compile actions are real and owned by the JVM backend, with real-project `projectRoot` compile for saved files and generated temporary MPP projects for unsaved single-file buffers. The final shape should keep making Kotlin/JVM the rule owner and Node only the invoker.
 - Go semantics are still mostly JavaScript-side extraction plus official `go build`/`go test` for compile. The long-term Go rule should use `go list`, `go test`, and `go build` as the source of truth, or move the Go-specific backend into Go.
 - The root/browser-safe Kotlin extractor remains a lightweight fallback. Production Kotlin semantics should be routed through `piece-compiler/node` or a service/local agent.
@@ -139,7 +139,8 @@ Definition of done: Kotlin semantic symbols and diagnostics can run through Anal
 - Done: let `compileKotlinPieceFile({ projectRoot })` invoke the real Gradle/KMP project variant for saved files, inferring source sets such as `jvmMain` and tasks such as `compileKotlinJvm`.
 - Done: add stable Gradle project model hashes and include them in generated Piece action inputs plus snapshot artifact cache keys.
 - Done: infer the edited file's source set before Gradle project-model discovery, resolve only the matching target compile classpath, and expose `manifest.projectModel.analysisScope` with required source sets, scoped classpath, and a scoped cache hash.
-- Continue from source sets, classpaths, compile variants, and project model hashes toward dependency coordinates and complete target/dependency modeling.
+- Done: expose resolved Gradle module dependency coordinates and target variants, including compile task and classpath configuration metadata, in `manifest.projectModel` and the scoped analysis model.
+- Continue from source sets, classpaths, dependency coordinates, target variants, and project model hashes toward complete multi-project dependency modeling.
 - Keep manual inputs as override hooks for editor buffers and unsaved files.
 
 Definition of done: a Kotlin file inside a real Gradle/KMP project can be analyzed and compiled with the correct source set and classpath without hand-supplied dependency lists.
@@ -286,8 +287,9 @@ The first Phase 4 project-model slices are now implemented:
 6. `compileKotlinPieceFile({ projectRoot })` treats `filePath` as a saved project file, infers source sets such as `jvmMain`, runs real Gradle/KMP compile tasks such as `compileKotlinJvm`, and reports `projectRoot` plus compiled project outputs.
 7. `manifest.projectModel.hashes` records stable source-root, classpath, and full model hashes; generated Piece actions include `project-model:<hash>` inputs, and snapshots include the same hash in artifact cache keys.
 8. `manifest.projectModel.analysisScope` narrows single-file analysis to the edited source set plus required shared source sets such as `commonMain`, and Gradle project-model discovery receives the inferred source set so it can avoid resolving unrelated target compile classpaths.
+9. `manifest.projectModel.dependencies` records resolved module coordinates such as `demo.external:external-user:1.0.0`; `manifest.projectModel.targetVariants` records source set, target name, compile task, and classpath configuration; `analysisScope` carries the coordinates and variants used by the edited file.
 
 The next implementation slice should continue Phase 4:
 
-1. Model dependency coordinates and target variants explicitly instead of only flattening classpath files.
+1. Expand dependency modeling across multiple Gradle projects instead of only the current project/source-set variant.
 2. Keep FE10 fallback and Analysis API gate diagnostics visible when project discovery cannot prove a safe result.

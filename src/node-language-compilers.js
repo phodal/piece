@@ -273,6 +273,8 @@ async function collectKotlinGradleProjectModel(options = {}) {
       status: "fallback",
       sourceSets: [],
       classpaths: [],
+      dependencies: [],
+      targetVariants: [],
       sourceRoots: [],
       classpath: [],
       commands: [backendCommand],
@@ -312,6 +314,23 @@ function kotlinProjectModelHashes(projectModel) {
       files: [...(classpathEntry.files ?? [])].sort()
     }))
     .sort((left, right) => `${left.projectPath}:${left.name}`.localeCompare(`${right.projectPath}:${right.name}`));
+  const dependencies = [...(projectModel?.dependencies ?? [])]
+    .map((dependency) => ({
+      projectPath: dependency.projectPath ?? "",
+      configuration: dependency.configuration ?? "",
+      coordinates: dependency.coordinates ?? ""
+    }))
+    .sort((left, right) => `${left.projectPath}:${left.configuration}:${left.coordinates}`.localeCompare(`${right.projectPath}:${right.configuration}:${right.coordinates}`));
+  const targetVariants = [...(projectModel?.targetVariants ?? [])]
+    .map((variant) => ({
+      projectPath: variant.projectPath ?? "",
+      sourceSet: variant.sourceSet ?? "",
+      targetName: variant.targetName ?? "",
+      compilationName: variant.compilationName ?? "",
+      compileTask: variant.compileTask ?? "",
+      classpathConfiguration: variant.classpathConfiguration ?? ""
+    }))
+    .sort((left, right) => `${left.projectPath}:${left.sourceSet}:${left.targetName}`.localeCompare(`${right.projectPath}:${right.sourceSet}:${right.targetName}`));
   const sourceRootsHash = hashParts(sourceRoots);
   const classpathHash = hashParts(classpath);
   const modelHash = hashParts([
@@ -333,6 +352,21 @@ function kotlinProjectModelHashes(projectModel) {
       classpathEntry.projectPath,
       classpathEntry.name,
       classpathEntry.files.join("\u001e")
+    ]),
+    ...dependencies.flatMap((dependency) => [
+      "dependency",
+      dependency.projectPath,
+      dependency.configuration,
+      dependency.coordinates
+    ]),
+    ...targetVariants.flatMap((variant) => [
+      "targetVariant",
+      variant.projectPath,
+      variant.sourceSet,
+      variant.targetName,
+      variant.compilationName,
+      variant.compileTask,
+      variant.classpathConfiguration
     ])
   ]);
   return {
@@ -413,7 +447,16 @@ function kotlinProjectModelScopeHashes(scope) {
     ...(scope.requiredSourceSets ?? []),
     sourceRootsHash,
     classpathHash,
-    ...(scope.classpathConfigurations ?? [])
+    ...(scope.classpathConfigurations ?? []),
+    ...(scope.dependencyCoordinates ?? []),
+    ...(scope.targetVariants ?? []).flatMap((variant) => [
+      variant.projectPath,
+      variant.sourceSet,
+      variant.targetName,
+      variant.compilationName,
+      variant.compileTask,
+      variant.classpathConfiguration
+    ])
   ]);
   return {
     sourceRootsHash,
@@ -437,6 +480,13 @@ function focusKotlinProjectModel(projectModel, options = {}) {
     selectedSourceSet?.name
       ? (modelWithHashes.classpaths ?? []).filter((classpathEntry) => classpathMatchesKotlinSourceSet(classpathEntry, selectedSourceSet.name))
       : [];
+  const matchingClasspathNames = new Set(matchingClasspaths.map((entry) => `${entry.projectPath}:${entry.name}`));
+  const matchingDependencies = (modelWithHashes.dependencies ?? []).filter((dependency) =>
+    matchingClasspathNames.has(`${dependency.projectPath}:${dependency.configuration}`)
+  );
+  const matchingTargetVariants = selectedSourceSet?.name
+    ? (modelWithHashes.targetVariants ?? []).filter((variant) => variant.sourceSet === selectedSourceSet.name)
+    : [];
   const selectedClasspath = matchingClasspaths.length > 0 ? [...new Set(matchingClasspaths.flatMap((entry) => entry.files ?? []))].sort() : [...(modelWithHashes.classpath ?? [])];
   const scope = {
     status: selectedSourceSet ? "selected" : "fallback",
@@ -444,7 +494,9 @@ function focusKotlinProjectModel(projectModel, options = {}) {
     requiredSourceSets,
     sourceRoots: selectedSourceRoots,
     classpath: selectedClasspath,
-    classpathConfigurations: matchingClasspaths.map((entry) => `${entry.projectPath}:${entry.name}`).sort()
+    classpathConfigurations: matchingClasspaths.map((entry) => `${entry.projectPath}:${entry.name}`).sort(),
+    dependencyCoordinates: [...new Set(matchingDependencies.map((dependency) => dependency.coordinates).filter(Boolean))].sort(),
+    targetVariants: matchingTargetVariants
   };
   return {
     ...modelWithHashes,
@@ -481,6 +533,8 @@ function attachKotlinProjectModel(manifest, projectModel) {
       classpath: modelWithHashes.classpath ?? [],
       sourceSets: modelWithHashes.sourceSets ?? [],
       classpaths: modelWithHashes.classpaths ?? [],
+      dependencies: modelWithHashes.dependencies ?? [],
+      targetVariants: modelWithHashes.targetVariants ?? [],
       hashes: modelWithHashes.hashes,
       analysisScope: modelWithHashes.analysisScope
     },

@@ -45,10 +45,22 @@ public class ExternalUser {
 
 async function createKmpFixture(projectRoot) {
   const externalJar = await createExternalUserJar(projectRoot);
-  const libsDir = join(projectRoot, "libs");
-  await mkdir(libsDir, { recursive: true });
-  const projectJar = join(libsDir, "external-user.jar");
+  const moduleCoordinates = "demo.external:external-user:1.0.0";
+  const moduleDir = join(projectRoot, "repo", "demo", "external", "external-user", "1.0.0");
+  await mkdir(moduleDir, { recursive: true });
+  const projectJar = join(moduleDir, "external-user-1.0.0.jar");
   await copyFile(externalJar, projectJar);
+  await writeFile(
+    join(moduleDir, "external-user-1.0.0.pom"),
+    `<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>demo.external</groupId>
+  <artifactId>external-user</artifactId>
+  <version>1.0.0</version>
+</project>
+`,
+    "utf8"
+  );
 
   await writeFile(
     join(projectRoot, "settings.gradle.kts"),
@@ -62,6 +74,9 @@ async function createKmpFixture(projectRoot) {
 dependencyResolutionManagement {
   repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
   repositories {
+    maven {
+      url = uri("repo")
+    }
     mavenCentral()
   }
 }
@@ -84,7 +99,7 @@ kotlin {
 
     val jvmMain by getting {
       dependencies {
-        implementation(files("libs/external-user.jar"))
+        implementation("demo.external:external-user:1.0.0")
       }
     }
   }
@@ -130,13 +145,13 @@ class UnusedModel
     "utf8"
   );
 
-  return { projectJar, modelPath, renderPath };
+  return { moduleCoordinates, projectJar, modelPath, renderPath };
 }
 
 const workspace = await realpath(await mkdtemp(join(tmpdir(), "piece-kotlin-gradle-project-model-")));
 
 try {
-  const { projectJar, modelPath, renderPath } = await createKmpFixture(workspace);
+  const { moduleCoordinates, modelPath, renderPath } = await createKmpFixture(workspace);
   const source = await readFile(renderPath, "utf8");
   const manifest = await analyzeKotlinPieceFile({
     filePath: renderPath,
@@ -152,9 +167,25 @@ try {
       manifest.projectModel.sourceRoots.some((root) => root.endsWith("/src/jvmMain/kotlin")),
     `Gradle project model did not discover KMP source roots: ${JSON.stringify(manifest.projectModel.sourceRoots)}`
   );
+  const projectJar = manifest.projectModel.classpath.find((file) => file.endsWith("external-user-1.0.0.jar"));
+  assert(projectJar, `Gradle project model did not discover the jvmMain jar dependency: ${JSON.stringify(manifest.projectModel.classpath)}`);
   assert(
-    manifest.projectModel.classpath.includes(projectJar),
-    `Gradle project model did not discover the jvmMain jar dependency: ${JSON.stringify(manifest.projectModel.classpath)}`
+    manifest.projectModel.dependencies.some(
+      (dependency) =>
+        dependency.configuration === "jvmCompileClasspath" &&
+        dependency.coordinates === moduleCoordinates
+    ),
+    `Gradle project model did not expose dependency coordinates: ${JSON.stringify(manifest.projectModel.dependencies)}`
+  );
+  assert(
+    manifest.projectModel.targetVariants.some(
+      (variant) =>
+        variant.sourceSet === "jvmMain" &&
+        variant.targetName === "jvm" &&
+        variant.compileTask === "compileKotlinJvm" &&
+        variant.classpathConfiguration === "jvmCompileClasspath"
+    ),
+    `Gradle project model did not expose the jvmMain target variant: ${JSON.stringify(manifest.projectModel.targetVariants)}`
   );
   assert(
     manifest.projectModel.hashes?.modelHash &&
@@ -181,6 +212,14 @@ try {
   assert(
     manifest.projectModel.analysisScope.classpath.includes(projectJar),
     `Gradle project model analysis scope did not retain the jvmMain classpath: ${JSON.stringify(manifest.projectModel.analysisScope.classpath)}`
+  );
+  assert(
+    manifest.projectModel.analysisScope.dependencyCoordinates.includes(moduleCoordinates),
+    `Gradle project model analysis scope did not retain dependency coordinates: ${JSON.stringify(manifest.projectModel.analysisScope.dependencyCoordinates)}`
+  );
+  assert(
+    manifest.projectModel.analysisScope.targetVariants.some((variant) => variant.compileTask === "compileKotlinJvm"),
+    `Gradle project model analysis scope did not retain target variants: ${JSON.stringify(manifest.projectModel.analysisScope.targetVariants)}`
   );
   assert(
     manifest.projectModel.analysisScope.hashes?.scopeHash,

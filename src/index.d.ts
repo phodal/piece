@@ -368,6 +368,24 @@ export interface PieceProjectModelClasspath {
   readonly files: readonly string[];
 }
 
+export interface PieceProjectModelDependency {
+  readonly projectPath: string;
+  readonly configuration: string;
+  readonly group: string;
+  readonly name: string;
+  readonly version: string;
+  readonly coordinates: string;
+}
+
+export interface PieceProjectModelTargetVariant {
+  readonly projectPath: string;
+  readonly sourceSet: string;
+  readonly targetName: string;
+  readonly compilationName: string;
+  readonly compileTask: string;
+  readonly classpathConfiguration: string;
+}
+
 export interface PieceProjectModelHashes {
   readonly sourceRootsHash: string;
   readonly classpathHash: string;
@@ -387,6 +405,8 @@ export interface PieceProjectModelAnalysisScope {
   readonly sourceRoots: readonly string[];
   readonly classpath: readonly string[];
   readonly classpathConfigurations: readonly string[];
+  readonly dependencyCoordinates: readonly string[];
+  readonly targetVariants: readonly PieceProjectModelTargetVariant[];
   readonly hashes: PieceProjectModelAnalysisScopeHashes;
 }
 
@@ -398,6 +418,8 @@ export interface PieceProjectModelMetadata {
   readonly classpath: readonly string[];
   readonly sourceSets: readonly PieceProjectModelSourceSet[];
   readonly classpaths: readonly PieceProjectModelClasspath[];
+  readonly dependencies: readonly PieceProjectModelDependency[];
+  readonly targetVariants: readonly PieceProjectModelTargetVariant[];
   readonly hashes: PieceProjectModelHashes;
   readonly analysisScope?: PieceProjectModelAnalysisScope;
 }
