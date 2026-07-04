@@ -53,6 +53,9 @@ jobs:
       - name: Pic DSL smoke
         run: npm run pic:dsl:smoke
 
+      - name: Kotlin Pic generation smoke
+        run: npm run pic:kotlin:smoke
+
       - name: Language analysis smoke
         run: npm run language:analysis:smoke
 

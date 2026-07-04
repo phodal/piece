@@ -37,11 +37,26 @@ targetKind
 
 targetMember
     : depsDeclaration
+    | runtimeDepsDeclaration
+    | typeDepsDeclaration
+    | externalDepsDeclaration
     | actionDeclaration
     ;
 
 depsDeclaration
     : DEPS stringList
+    ;
+
+runtimeDepsDeclaration
+    : RUNTIME_DEPS stringList
+    ;
+
+typeDepsDeclaration
+    : TYPE_DEPS stringList
+    ;
+
+externalDepsDeclaration
+    : EXTERNAL_DEPS stringList
     ;
 
 stringList
@@ -79,6 +94,9 @@ LANGUAGE: 'language';
 SOURCE: 'source';
 TARGET: 'target';
 DEPS: 'deps';
+RUNTIME_DEPS: 'runtimeDeps';
+TYPE_DEPS: 'typeDeps';
+EXTERNAL_DEPS: 'externalDeps';
 ACTION: 'action';
 MNEMONIC: 'mnemonic';
 OUTPUT: 'output';

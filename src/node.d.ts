@@ -77,6 +77,22 @@ export interface ParsePieceDslFileOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
+export interface KotlinPieceDslGenerationResult {
+  readonly version: 1;
+  readonly generator: "kotlin-psi-pic-generator";
+  readonly filePath: string;
+  readonly source: string;
+  readonly pic: string;
+  readonly piecePackage: SingleFilePiecePackage | null;
+  readonly diagnostics: readonly PieceDslParseDiagnostic[];
+}
+
+export interface GenerateKotlinPieceDslFileOptions {
+  readonly filePath?: string;
+  readonly source?: string;
+  readonly env?: Record<string, string | undefined>;
+}
+
 export interface CompileGoPieceFileOptions {
   readonly filePath?: string;
   readonly source?: string;
@@ -153,4 +169,5 @@ export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise
 export function compileKotlinPieceFile(options?: CompileKotlinPieceFileOptions): Promise<KotlinPieceCompileResult>;
 export function analyzeKotlinPieceFile(options?: AnalyzeKotlinPieceFileOptions): Promise<PieceFileManifest>;
 export function parsePieceDslFile(options?: ParsePieceDslFileOptions): Promise<PieceDslParseResult>;
+export function generateKotlinPieceDslFile(options?: GenerateKotlinPieceDslFileOptions): Promise<KotlinPieceDslGenerationResult>;
 export function createNodeKotlinPsiDeclarationExtractor(options?: NodeKotlinPsiDeclarationExtractorOptions): PieceDeclarationExtractor;

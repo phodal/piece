@@ -21,9 +21,9 @@ fun picDocumentToPiecePackage(document: PicDocument): PiecePackage {
     val targets = document.targets.map { target ->
         val targetKind = target.kind.toPieceTargetKind()
         val label = pieceTargetLabel(document.source, targetKind, target.name)
-        val normalizedDeps = target.deps.map { dep ->
-            pieceNormalizeDep(packageName, dep, targetLabelsByName)
-        }.sorted()
+        val normalizedDeps = target.normalizedDeps(packageName, targetLabelsByName)
+        val normalizedRuntimeDeps = target.normalizedRuntimeDeps(packageName, targetLabelsByName)
+        val normalizedTypeDeps = target.normalizedTypeDeps(packageName, targetLabelsByName)
         val actions = target.effectiveActions().map { action ->
             "$label%${action.name()}"
         }
@@ -38,14 +38,16 @@ fun picDocumentToPiecePackage(document: PicDocument): PiecePackage {
             rule = "${document.language}_piece_${targetKind.name.lowercase()}",
             source = sourceLabel,
             deps = normalizedDeps,
-            runtimeDeps = normalizedDeps,
+            runtimeDeps = normalizedRuntimeDeps,
+            typeDeps = normalizedTypeDeps,
+            externalDeps = target.externalDeps.distinct().sorted(),
             actions = actions,
             artifacts = artifacts,
         )
     }
     val rules = document.targets.map { target ->
         val targetKind = target.kind.toPieceTargetKind()
-        val actionKind = target.effectiveActions().first().kind.toPieceActionKind()
+        val actionKind = target.primaryRuleAction().kind.toPieceActionKind()
         PieceRule(
             name = "${document.language}_piece_${targetKind.name.lowercase()}",
             language = document.language,
@@ -57,9 +59,8 @@ fun picDocumentToPiecePackage(document: PicDocument): PiecePackage {
     val actions = document.targets.flatMap { target ->
         val targetKind = target.kind.toPieceTargetKind()
         val label = pieceTargetLabel(document.source, targetKind, target.name)
-        val normalizedDeps = target.deps.map { dep ->
-            pieceNormalizeDep(packageName, dep, targetLabelsByName)
-        }.sorted()
+        val normalizedDeps = target.normalizedDeps(packageName, targetLabelsByName)
+        val externalDeps = target.externalDeps.distinct().sorted()
         target.effectiveActions().map { action ->
             val actionKind = action.kind.toPieceActionKind()
             val artifactId = artifactId(label, action)
@@ -68,7 +69,7 @@ fun picDocumentToPiecePackage(document: PicDocument): PiecePackage {
                 target = label,
                 kind = actionKind,
                 mnemonic = action.mnemonic ?: "Piece${actionKind.name}",
-                inputs = listOf(sourceLabel) + normalizedDeps,
+                inputs = listOf(sourceLabel) + normalizedDeps + externalDeps,
                 outputs = listOf(action.output ?: artifactId),
             )
         }
@@ -109,6 +110,33 @@ private fun packageNameFromLabel(label: String): String? {
 
 private fun PicTarget.effectiveActions(): List<PicAction> {
     return actions.ifEmpty { listOf(PicAction(PicActionKind.Feedback)) }
+}
+
+private fun PicTarget.primaryRuleAction(): PicAction {
+    return effectiveActions().firstOrNull { it.kind == PicActionKind.Compile } ?: effectiveActions().first()
+}
+
+private fun PicTarget.normalizedDeps(packageName: String, targetLabelsByName: Map<String, String>): List<String> {
+    return (
+        deps.normalizedPackageDeps(packageName, targetLabelsByName) +
+            runtimeDeps.normalizedPackageDeps(packageName, targetLabelsByName) +
+            typeDeps.normalizedPackageDeps(packageName, targetLabelsByName)
+        ).distinct().sorted()
+}
+
+private fun PicTarget.normalizedRuntimeDeps(packageName: String, targetLabelsByName: Map<String, String>): List<String> {
+    if (runtimeDeps.isNotEmpty()) {
+        return runtimeDeps.normalizedPackageDeps(packageName, targetLabelsByName)
+    }
+    return deps.normalizedPackageDeps(packageName, targetLabelsByName)
+}
+
+private fun PicTarget.normalizedTypeDeps(packageName: String, targetLabelsByName: Map<String, String>): List<String> {
+    return typeDeps.normalizedPackageDeps(packageName, targetLabelsByName)
+}
+
+private fun List<String>.normalizedPackageDeps(packageName: String, targetLabelsByName: Map<String, String>): List<String> {
+    return map { dep -> pieceNormalizeDep(packageName, dep, targetLabelsByName) }.distinct().sorted()
 }
 
 private fun PicAction.name(): String {

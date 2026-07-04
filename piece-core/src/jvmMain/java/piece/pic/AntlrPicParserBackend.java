@@ -66,19 +66,34 @@ public final class AntlrPicParserBackend {
         PicTargetKind kind = targetKind(context.targetKind().getText());
         String name = stringValue(context.STRING().getSymbol());
         List<String> deps = new ArrayList<>();
+        List<String> runtimeDeps = new ArrayList<>();
+        List<String> typeDeps = new ArrayList<>();
+        List<String> externalDeps = new ArrayList<>();
         List<PicAction> actions = new ArrayList<>();
 
         for (PieceParser.TargetMemberContext member : context.targetMember()) {
             if (member.depsDeclaration() != null) {
-                for (TerminalNode node : member.depsDeclaration().stringList().STRING()) {
-                    deps.add(stringValue(node.getSymbol()));
-                }
+                deps.addAll(toStringList(member.depsDeclaration().stringList()));
+            } else if (member.runtimeDepsDeclaration() != null) {
+                runtimeDeps.addAll(toStringList(member.runtimeDepsDeclaration().stringList()));
+            } else if (member.typeDepsDeclaration() != null) {
+                typeDeps.addAll(toStringList(member.typeDepsDeclaration().stringList()));
+            } else if (member.externalDepsDeclaration() != null) {
+                externalDeps.addAll(toStringList(member.externalDepsDeclaration().stringList()));
             } else if (member.actionDeclaration() != null) {
                 actions.add(toAction(member.actionDeclaration()));
             }
         }
 
-        return new PicTarget(kind, name, deps, actions);
+        return new PicTarget(kind, name, deps, runtimeDeps, typeDeps, externalDeps, actions);
+    }
+
+    private List<String> toStringList(PieceParser.StringListContext context) {
+        List<String> values = new ArrayList<>();
+        for (TerminalNode node : context.STRING()) {
+            values.add(stringValue(node.getSymbol()));
+        }
+        return values;
     }
 
     private PicAction toAction(PieceParser.ActionDeclarationContext context) {

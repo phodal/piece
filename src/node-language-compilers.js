@@ -237,6 +237,18 @@ function errorPicDslReport({ filePath, source, commands }) {
   };
 }
 
+function errorKotlinPicGenerationReport({ filePath, source, commands }) {
+  return {
+    version: 1,
+    generator: "kotlin-psi-pic-generator",
+    filePath,
+    source,
+    pic: "",
+    piecePackage: null,
+    diagnostics: diagnosticsFromCommands(commands)
+  };
+}
+
 export async function parsePieceDslFile(options = {}) {
   const filePath = options.filePath ?? "package.pic";
   const source = options.source ?? await readFile(resolveHostPath(filePath, options.cwd ?? process.cwd()), "utf8");
@@ -262,6 +274,36 @@ export async function parsePieceDslFile(options = {}) {
       return readJsonFile(outputReport);
     }
     return errorPicDslReport({ filePath, source, commands: [backendCommand] });
+  } finally {
+    await cleanupWorkspace(hostWorkspace, false);
+  }
+}
+
+export async function generateKotlinPieceDslFile(options = {}) {
+  const filePath = options.filePath ?? "Main.kt";
+  const source = options.source ?? "";
+  const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-pic-host-");
+  const hostWorkspace = hostWorkspaceInfo.path;
+  const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
+  const outputReport = join(hostWorkspace, "kotlin-pic-report.json");
+
+  try {
+    await writeFile(sourceFile, source, "utf8");
+    const args = [
+      "-p",
+      join(PACKAGE_ROOT, "piece-core"),
+      "runKotlinPicGeneratorBackend",
+      "--quiet",
+      `-PpiecePic.filePath=${filePath}`,
+      `-PpiecePic.sourceFile=${sourceFile}`,
+      `-PpiecePic.outputReport=${outputReport}`
+    ];
+
+    const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
+    if (await pathExists(outputReport)) {
+      return readJsonFile(outputReport);
+    }
+    return errorKotlinPicGenerationReport({ filePath, source, commands: [backendCommand] });
   } finally {
     await cleanupWorkspace(hostWorkspace, false);
   }

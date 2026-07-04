@@ -11,6 +11,9 @@ data class PicTarget(
     val kind: PicTargetKind,
     val name: String,
     val deps: List<String> = emptyList(),
+    val runtimeDeps: List<String> = emptyList(),
+    val typeDeps: List<String> = emptyList(),
+    val externalDeps: List<String> = emptyList(),
     val actions: List<PicAction> = emptyList(),
 )
 

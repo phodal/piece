@@ -23,6 +23,7 @@
     "core:bridge:smoke": "npm run core:js:build && node scripts/smoke-kotlin-core-bridge.mjs",
     "core:wasm:build": "./gradlew wasmJsBrowserDistribution",
     "pic:dsl:smoke": "node scripts/smoke-pic-dsl.mjs",
+    "pic:kotlin:smoke": "node scripts/smoke-kotlin-pic-dsl.mjs",
     "language:analysis:smoke": "node scripts/smoke-kotlin-psi-analysis.mjs",
     "language:compile:smoke": "node scripts/smoke-language-compilers.mjs",
     "benchmark:kotlin-piece": "node scripts/benchmark-kotlin-piece.mjs",

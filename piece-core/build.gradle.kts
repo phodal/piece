@@ -133,6 +133,28 @@ tasks.register<JavaExec>("runPicParserBackend") {
     }
 }
 
+tasks.register<JavaExec>("runKotlinPicGeneratorBackend") {
+    dependsOn("jvmMainClasses")
+
+    val jvmCompilation = kotlin.targets.getByName("jvm").compilations.getByName("main")
+    mainClass.set("piece.kotlin.KotlinPicGeneratorBackendCliKt")
+    classpath = files(jvmCompilation.output.allOutputs, jvmCompilation.runtimeDependencyFiles)
+
+    doFirst {
+        val sourceFile = providers.gradleProperty("piecePic.sourceFile").orNull
+            ?: error("Missing -PpiecePic.sourceFile=<path>")
+        val outputReport = providers.gradleProperty("piecePic.outputReport").orNull
+            ?: error("Missing -PpiecePic.outputReport=<path>")
+        setArgs(
+            listOf(
+                "--filePath=${providers.gradleProperty("piecePic.filePath").orNull ?: "Main.kt"}",
+                "--sourceFile=$sourceFile",
+                "--outputReport=$outputReport",
+            ),
+        )
+    }
+}
+
 tasks.register<JavaExec>("runKotlinPsiAnalysisBackend") {
     dependsOn("jvmMainClasses")
 

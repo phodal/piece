@@ -17,7 +17,9 @@ class AntlrPicParserBackendTest {
               target class "Greeting" {}
               target value "prefix" {}
               target function "renderGreeting" {
-                deps ":User", ":Greeting", ":prefix"
+                runtimeDeps ":prefix"
+                typeDeps ":User", ":Greeting"
+                externalDeps "demo.External"
                 action compile {
                   mnemonic "PieceCompile"
                   output "Pricing.kt__function_renderGreeting.compile.json"
@@ -40,6 +42,13 @@ class AntlrPicParserBackendTest {
             "//repo/src:Pricing.kt__function_renderGreeting%compile",
             pkg.actions.single { it.kind.name == "Compile" }.id,
         )
+        val renderGreeting = pkg.targets.first { it.name == "renderGreeting" }
+        assertEquals(listOf("//repo/src:Pricing.kt__value_prefix"), renderGreeting.runtimeDeps)
+        assertEquals(
+            listOf("//repo/src:Pricing.kt__class_Greeting", "//repo/src:Pricing.kt__class_User"),
+            renderGreeting.typeDeps,
+        )
+        assertEquals(listOf("demo.External"), renderGreeting.externalDeps)
     }
 
     @Test
