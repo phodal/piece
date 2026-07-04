@@ -219,6 +219,7 @@ export interface KotlinCoreBridgeTargetSpec {
   readonly name: string;
   readonly deps?: readonly string[];
   readonly action?: string;
+  readonly actionKind?: "feedback" | "compile" | "preview" | "test" | "typecheck" | "documentation";
 }
 
 export interface KotlinCoreBridge {

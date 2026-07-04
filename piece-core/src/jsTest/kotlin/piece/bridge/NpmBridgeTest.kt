@@ -38,4 +38,19 @@ class NpmBridgeTest {
         assertContains(graphJson, "\"to\":\"//repo/src:Pricing.kt__value_prefix\"")
         assertTrue(graphJson.contains("\"kind\":\"runtime\"") || graphJson.contains("\"kind\":\"type\""))
     }
+
+    @Test
+    fun exportsCompileActionsForGeneratedTargetSpecs() {
+        val packageJson = createPiecePackageJson(
+            filePath = "/repo/src/Pricing.kt",
+            language = "kotlin",
+            targetSpecs = "function\trenderGreeting\t\tcompile\tcompile",
+        )
+
+        assertContains(packageJson, "\"actionKind\":\"compile\"")
+        assertContains(packageJson, "\"id\":\"//repo/src:Pricing.kt__function_renderGreeting%compile\"")
+        assertContains(packageJson, "\"kind\":\"compile\"")
+        assertContains(packageJson, "\"mnemonic\":\"PieceCompile\"")
+        assertContains(packageJson, "\"kind\":\"piece-compile\"")
+    }
 }

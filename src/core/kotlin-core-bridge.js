@@ -23,7 +23,9 @@ function targetSpecLine(target) {
     throw new TypeError("Kotlin core bridge targets require kind and name.");
   }
   const deps = [...(target.deps ?? [])].join(",");
-  return [target.kind, target.name, deps, target.action ?? "analysis"].join("\t");
+  const actionKind = target.actionKind ?? (target.action === "compile" ? "compile" : "feedback");
+  const actionName = target.action ?? (actionKind === "compile" ? "compile" : "analysis");
+  return [target.kind, target.name, deps, actionName, actionKind].join("\t");
 }
 
 function targetSpecsText(targets) {

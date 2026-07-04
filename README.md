@@ -62,7 +62,7 @@ The Bazel-like part is the package, target, action, dependency graph, and cachea
 - Incremental analysis for single-piece edits when the boundary is safe.
 - A Go adapter that emits the same piece package shape and can compile a real single-file Go module with `go build` and `go test`.
 - A Kotlin adapter for single-file experiments, plus a Kotlin Multiplatform core under `piece-core/`.
-- A Kotlin/JVM PSI analysis backend. The `piece-compiler/node` entrypoint uses it by default for `.kt` and `.kts` files; the root and browser-safe paths keep the lightweight npm extractor. Node callers can opt into Kotlin compiler semantic diagnostics and BindingContext-backed symbol refinement through the same JVM backend, including inline companion files, explicit Kotlin file paths, or collected `sourceRoots` from the same source set.
+- A Kotlin/JVM PSI analysis backend. The `piece-compiler/node` entrypoint uses it by default for `.kt` and `.kts` files; the root and browser-safe paths keep the lightweight npm extractor. Node callers can opt into Kotlin compiler semantic diagnostics and BindingContext-backed symbol refinement through the same JVM backend, including inline companion files, explicit Kotlin file paths, or collected `sourceRoots` from the same source set. The Kotlin PSI package view now declares compile actions from the Kotlin side, while JS/Wasm bridges only expose that action model to npm/web hosts.
 - A Kotlin/JVM compile backend that generates a temporary Kotlin Multiplatform Gradle project and drives it through Gradle Tooling API, with wrapper fallback when the Tooling API distribution cannot be located.
 - A Kotlin piece benchmark that verifies piece-level analysis is faster than whole-file analysis on a generated single-file fixture.
 

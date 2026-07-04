@@ -2,7 +2,9 @@ package piece.kotlin
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import piece.extract.SourceFile
+import piece.model.PieceActionKind
 
 class KotlinPsiDeclarationExtractorTest {
     @Test
@@ -44,6 +46,35 @@ class KotlinPsiDeclarationExtractorTest {
         )
 
         val renderGreeting = pkg.targets.first { it.name == "renderGreeting" }
+        assertEquals(PieceActionKind.Compile, pkg.rules.first { it.name == "kotlin_piece_function" }.actionKind)
+        assertEquals("kotlin.function.compile", pkg.rules.first { it.name == "kotlin_piece_function" }.implementation)
+        assertEquals(
+            listOf(
+                "//repo/src:Pricing.kt__function_renderGreeting%feedback",
+                "//repo/src:Pricing.kt__function_renderGreeting%compile",
+            ),
+            renderGreeting.actions,
+        )
+        assertEquals(
+            listOf(
+                "//repo/src:Pricing.kt__function_renderGreeting.piece.json",
+                "//repo/src:Pricing.kt__function_renderGreeting.compile.json",
+            ),
+            renderGreeting.artifacts,
+        )
+        assertTrue(
+            pkg.actions.any {
+                it.id == "//repo/src:Pricing.kt__function_renderGreeting%compile" &&
+                    it.kind == PieceActionKind.Compile &&
+                    it.outputs == listOf("//repo/src:Pricing.kt__function_renderGreeting.compile.json")
+            },
+        )
+        assertTrue(
+            pkg.artifacts.any {
+                it.id == "//repo/src:Pricing.kt__function_renderGreeting.compile.json" &&
+                    it.kind == "piece-compile"
+            },
+        )
         assertEquals(
             listOf(
                 "//repo/src:Pricing.kt__class_Greeting",

@@ -13,7 +13,7 @@ const piecePackage = bridge.createPackageFromTargets({
     { kind: "class", name: "User" },
     { kind: "class", name: "Greeting" },
     { kind: "value", name: "prefix" },
-    { kind: "function", name: "renderGreeting", deps: [":User", ":Greeting", ":prefix"] }
+    { kind: "function", name: "renderGreeting", deps: [":User", ":Greeting", ":prefix"], actionKind: "compile" }
   ]
 });
 
@@ -24,6 +24,12 @@ if (piecePackage.label !== "//repo/src:Pricing.kt") {
 const renderGreeting = piecePackage.targets.find((target) => target.name === "renderGreeting");
 if (!renderGreeting || renderGreeting.label !== "//repo/src:Pricing.kt__function_renderGreeting") {
   throw new Error("Kotlin core bridge did not return the renderGreeting target.");
+}
+if (!piecePackage.actions.some((action) => action.id === "//repo/src:Pricing.kt__function_renderGreeting%compile" && action.kind === "compile")) {
+  throw new Error("Kotlin core bridge did not return the renderGreeting compile action.");
+}
+if (!piecePackage.artifacts.some((artifact) => artifact.id === "//repo/src:Pricing.kt__function_renderGreeting.compile.json")) {
+  throw new Error("Kotlin core bridge did not return the renderGreeting compile artifact.");
 }
 
 const graph = bridge.createGraphFromTargets({

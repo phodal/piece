@@ -2,9 +2,11 @@ package piece.bridge
 
 import kotlin.js.ExperimentalJsExport
 import kotlin.js.JsExport
+import piece.dsl.PieceActionSpec
 import piece.dsl.pieceFile
 import piece.graph.toGraph
 import piece.model.PieceAction
+import piece.model.PieceActionKind
 import piece.model.PieceArtifact
 import piece.model.PieceEdgeKind
 import piece.model.PieceGraph
@@ -50,6 +52,7 @@ private data class TargetSpec(
     val name: String,
     val deps: List<String>,
     val actionName: String,
+    val actionKind: PieceActionKind,
 )
 
 private fun packageFromTargetSpecs(filePath: String, languageName: String, targetSpecs: String): PiecePackage {
@@ -68,7 +71,7 @@ private fun packageFromTargetSpecs(filePath: String, languageName: String, targe
                 if (spec.deps.isNotEmpty()) {
                     deps(*spec.deps.toTypedArray())
                 }
-                action(feedback(spec.actionName))
+                action(spec.toActionSpec())
             }
         }
     }
@@ -84,7 +87,31 @@ private fun parseTargetSpec(line: String): TargetSpec {
         name = parts[1],
         deps = parts.getOrNull(2).orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() },
         actionName = parts.getOrNull(3)?.takeIf { it.isNotBlank() } ?: "analysis",
+        actionKind = parseActionKind(parts.getOrNull(4)),
     )
+}
+
+private fun TargetSpec.toActionSpec(): PieceActionSpec {
+    return when (actionKind) {
+        PieceActionKind.Compile -> PieceActionSpec(actionName, PieceActionKind.Compile, "piece-compile")
+        PieceActionKind.Preview -> PieceActionSpec(actionName, PieceActionKind.Preview, "piece-preview")
+        PieceActionKind.Test -> PieceActionSpec(actionName, PieceActionKind.Test, "piece-test")
+        PieceActionKind.Typecheck -> PieceActionSpec(actionName, PieceActionKind.Typecheck, "piece-typecheck")
+        PieceActionKind.Documentation -> PieceActionSpec(actionName, PieceActionKind.Documentation, "piece-documentation")
+        else -> PieceActionSpec(actionName, PieceActionKind.Feedback, "piece-feedback")
+    }
+}
+
+private fun parseActionKind(value: String?): PieceActionKind {
+    return when (value?.lowercase()?.takeIf { it.isNotBlank() } ?: "feedback") {
+        "feedback", "analysis" -> PieceActionKind.Feedback
+        "compile" -> PieceActionKind.Compile
+        "preview" -> PieceActionKind.Preview
+        "test" -> PieceActionKind.Test
+        "typecheck" -> PieceActionKind.Typecheck
+        "documentation", "doc", "docs" -> PieceActionKind.Documentation
+        else -> error("Unsupported piece action kind: $value")
+    }
 }
 
 private fun parseTargetKind(value: String): PieceTargetKind {

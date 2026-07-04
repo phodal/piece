@@ -476,6 +476,7 @@ export function UserCard() {
             expect(filePath).toBe("/repo/src/Pricing.kt");
             expect(language).toBe("kotlin");
             expect(targetSpecs).toContain("function\trenderGreeting\t:prefix\tanalysis");
+            expect(targetSpecs).toContain("function\tcompileGreeting\t\tcompile\tcompile");
             return JSON.stringify({
               version: 1,
               kind: "single-file-package",
@@ -520,7 +521,8 @@ export function UserCard() {
       filePath: "/repo/src/Pricing.kt",
       targets: [
         { kind: "value", name: "prefix" },
-        { kind: "function", name: "renderGreeting", deps: [":prefix"] }
+        { kind: "function", name: "renderGreeting", deps: [":prefix"] },
+        { kind: "function", name: "compileGreeting", actionKind: "compile" }
       ]
     });
     const graph = bridge.createGraphFromTargets({

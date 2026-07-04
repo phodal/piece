@@ -49,7 +49,15 @@ class KotlinPsiDeclarationExtractor : DeclarationExtractor {
                 declaration.toTarget(file.filePath, sourceLabel, labelsByName)
             }
             val rules = targets
-                .map { PieceRule(name = it.rule, language = "kotlin", targetKind = it.kind) }
+                .map {
+                    PieceRule(
+                        name = it.rule,
+                        language = "kotlin",
+                        targetKind = it.kind,
+                        actionKind = PieceActionKind.Compile,
+                        implementation = "kotlin.${it.kind.name.lowercase()}.compile",
+                    )
+                }
                 .distinctBy { it.name }
                 .sortedBy { it.name }
             val actions = targets.flatMap { target ->
@@ -57,9 +65,9 @@ class KotlinPsiDeclarationExtractor : DeclarationExtractor {
                     PieceAction(
                         id = actionId,
                         target = target.label,
-                        kind = PieceActionKind.Feedback,
+                        kind = actionKindFromId(actionId),
                         inputs = listOf(target.source) + target.deps + target.externalDeps,
-                        outputs = target.artifacts,
+                        outputs = listOf(artifactIdForActionId(actionId)),
                     )
                 }
             }
@@ -68,7 +76,7 @@ class KotlinPsiDeclarationExtractor : DeclarationExtractor {
                     PieceArtifact(
                         id = artifactId,
                         target = target.label,
-                        kind = "piece-feedback",
+                        kind = artifactKindFromId(artifactId),
                         path = artifactId.replace("//", "").replace(":", "__"),
                     )
                 }
@@ -112,8 +120,10 @@ private fun KotlinPieceDeclaration.toTarget(
         .distinct()
         .sorted()
     val deps = (runtimeDeps + typeDeps).distinct().sorted()
-    val actionId = "$label%feedback"
-    val artifactId = "$label.piece.json"
+    val feedbackActionId = "$label%feedback"
+    val compileActionId = "$label%compile"
+    val feedbackArtifactId = "$label.piece.json"
+    val compileArtifactId = "$label.compile.json"
 
     return PieceTarget(
         id = "$filePath#${kind.name.lowercase()}:$name",
@@ -126,9 +136,28 @@ private fun KotlinPieceDeclaration.toTarget(
         runtimeDeps = runtimeDeps,
         typeDeps = typeDeps,
         externalDeps = externalDeps,
-        actions = listOf(actionId),
-        artifacts = listOf(artifactId),
+        actions = listOf(feedbackActionId, compileActionId),
+        artifacts = listOf(feedbackArtifactId, compileArtifactId),
     )
+}
+
+private fun actionKindFromId(actionId: String): PieceActionKind {
+    return when (actionId.substringAfterLast('%')) {
+        "compile" -> PieceActionKind.Compile
+        else -> PieceActionKind.Feedback
+    }
+}
+
+private fun artifactIdForActionId(actionId: String): String {
+    val targetLabel = actionId.substringBeforeLast('%')
+    return when (actionKindFromId(actionId)) {
+        PieceActionKind.Compile -> "$targetLabel.compile.json"
+        else -> "$targetLabel.piece.json"
+    }
+}
+
+private fun artifactKindFromId(artifactId: String): String {
+    return if (artifactId.endsWith(".compile.json")) "piece-compile" else "piece-feedback"
 }
 
 internal fun KtDeclaration.toPieceDeclaration(file: SourceFile): KotlinPieceDeclaration? {
