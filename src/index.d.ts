@@ -539,12 +539,24 @@ export interface PieceGoListMetadata {
   readonly packages: readonly PieceGoListPackageMetadata[];
 }
 
+export interface PieceGoPackageScopeMetadata {
+  readonly version: 1;
+  readonly status: "selected" | "file" | (string & {});
+  readonly files: readonly {
+    readonly filePath: string;
+    readonly hash: string;
+  }[];
+  readonly hash: string;
+  readonly input?: string;
+}
+
 export interface PieceToolchainMetadata {
   readonly version: 1;
   readonly kind: "go-list" | (string & {});
   readonly status: "success" | "fallback" | "error" | (string & {});
   readonly hash: string;
   readonly inputs: readonly string[];
+  readonly packageScope?: PieceGoPackageScopeMetadata;
   readonly goList?: PieceGoListMetadata;
   readonly [key: string]: unknown;
 }

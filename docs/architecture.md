@@ -133,7 +133,7 @@ The current repository has not fully moved to this layout yet. Today:
 - TypeScript-family extraction lives in `src/core/typescript-declaration-extractor.js`.
 - `src/languages/typescript/declaration-extractor.js` exposes the TypeScript extractor through the language directory.
 - `src/languages/go/declaration-extractor.js` remains the browser-safe Go single-file fallback; it emits the same manifest and Bazel-like `PiecePackage` shape without making the root or browser bundle depend on Go.
-- `src/node-language-compilers.js` owns Node host language-tool entrypoints. Node-side Go analysis defaults to a Go-owned `go/parser` / `go/ast` analyzer under `go-backend/analyzer`, then shells out to official `go list -json ./...` metadata before generated package actions; Go compilation runs `go list`, `go build`, and optional `go test`. Kotlin compilation delegates to the `piece-core` Kotlin/JVM backend. Node hosts can also call `analyzeKotlinPieceFile()` or `createNodeKotlinPsiDeclarationExtractor()` to run Kotlin PSI analysis on the JVM, opt into Kotlin compiler semantic diagnostics or symbol refinement with optional `sourceFiles`, `sourceRoots`, `classpath`, or Gradle/KMP `projectRoot` discovery, and `piece-compiler/node` wires that extractor as the default Kotlin resolver.
+- `src/node-language-compilers.js` owns Node host language-tool entrypoints. Node-side Go analysis defaults to a Go-owned `go/parser` / `go/ast` analyzer under `go-backend/analyzer`, then shells out to official `go list -json ./...` metadata before generated package actions. Go `sourceFiles` and `sourceRoots` companion files are written into the temporary module so package files and package source hashes can enter action identity while the declaration manifest remains focused on the edited file. Go compilation runs `go list`, `go build`, and optional `go test`. Kotlin compilation delegates to the `piece-core` Kotlin/JVM backend. Node hosts can also call `analyzeKotlinPieceFile()` or `createNodeKotlinPsiDeclarationExtractor()` to run Kotlin PSI analysis on the JVM, opt into Kotlin compiler semantic diagnostics or symbol refinement with optional `sourceFiles`, `sourceRoots`, `classpath`, or Gradle/KMP `projectRoot` discovery, and `piece-compiler/node` wires that extractor as the default Kotlin resolver.
 - React preview entry generation lives in `src/core/virtual-modules.js`.
 - `src/adapters/react/virtual-modules.js` exposes the React virtual-module adapter through the adapter directory.
 - Kotlin extraction in `src/languages/kotlin/declaration-extractor.js` remains a runnable npm-side adapter for single-file experiments and browser-safe fallback. Node-side Kotlin PSI analysis lives in `piece-core` and is exposed through `piece-compiler/node`.
@@ -199,12 +199,12 @@ Kotlin can run on the Web in two supported ways: [Kotlin/JS](https://kotlinlang.
 
 Keep the implementation honest:
 
-- single file only;
+- declaration graphs are still single-file first, while selected toolchain scopes can include same-package companion files;
 - no workspace-wide dependency resolver yet;
 - no handwritten BUILD files;
 - generated `.pic` files and package targets are metadata first;
 - unknown edges force fallback instead of pretending local feedback is safe;
 - `feedbackScope` records whether the current graph is safe at piece, file, source-set, or project level, with reason codes for unknown edges, top-level effects, slice safety fallback, and Gradle project-model scope fallback;
 - selected Kotlin Gradle/KMP source-set scopes carry their scoped source roots, classpath, dependency coordinates, project dependencies, target variants, and `source-set:<scopeHash>` action input without widening to unrelated projects;
-- generated Piece action inputs now include target source, dependency, fallback-scope, source-set, Go toolchain, compiler-options, and dependency-artifact hashes; snapshot artifact cache keys include the action-cache identity, and preview runtime cache keys include the fallback-scope identity;
+- generated Piece action inputs now include target source, dependency, fallback-scope, source-set, Go toolchain and package-source scope, compiler-options, and dependency-artifact hashes; snapshot artifact cache keys include the action-cache identity, and preview runtime cache keys include the fallback-scope identity;
 - Kotlin's production extractor and compile backend belong in Kotlin MPP, while the npm Kotlin extractor remains a bridge and test fixture until that core is complete.

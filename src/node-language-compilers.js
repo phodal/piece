@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { hashParts } from "./core/hash.js";
+import { hashParts, stableTextHash } from "./core/hash.js";
 import { mergePiecePackages, piecePackageToPicDsl } from "./core/pic-dsl.js";
 import { createGoDeclarationExtractor } from "./languages/go/declaration-extractor.js";
 
@@ -158,14 +158,39 @@ function goListManifestDiagnostics(commandResult, goList) {
   ];
 }
 
-function createGoListToolchainMetadata(goList) {
-  const inputs = goList.status === "success" && goList.packageHash ? [`go-list:${goList.packageHash}`] : [];
+function isGoSourcePath(path) {
+  return /\.go$/i.test(String(path ?? ""));
+}
+
+function createGoPackageScope({ filePath, source, companions = [] }) {
+  const files = [
+    { filePath, hash: stableTextHash(source ?? "") },
+    ...companions.map((companion) => ({ filePath: companion.filePath, hash: stableTextHash(companion.source ?? "") }))
+  ]
+    .filter((file) => file.filePath)
+    .sort((left, right) => String(left.filePath).localeCompare(String(right.filePath)));
+  const hash = companions.length > 0 ? hashParts(files.flatMap((file) => [file.filePath, file.hash])) : "";
+  return {
+    version: 1,
+    status: companions.length > 0 ? "selected" : "file",
+    files,
+    hash,
+    input: hash ? `go-package-scope:${hash}` : undefined
+  };
+}
+
+function createGoListToolchainMetadata(goList, packageScope) {
+  const inputs = [
+    goList.status === "success" && goList.packageHash ? `go-list:${goList.packageHash}` : undefined,
+    packageScope?.input
+  ].filter(Boolean);
   return {
     version: 1,
     kind: "go-list",
     status: goList.status === "success" ? "success" : "fallback",
     hash: goList.packageHash,
     inputs,
+    packageScope,
     goList
   };
 }
@@ -217,13 +242,83 @@ async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env }) {
   }
 }
 
-async function collectGoListForSource({ filePath, source, goCommand = "go", modulePath, env }) {
+function goWorkspaceRelativePath(filePath, primaryFilePath, cwd) {
+  const normalized = String(filePath ?? "").replace(/\\/g, "/");
+  const normalizedPrimary = String(primaryFilePath ?? "").replace(/\\/g, "/");
+  if (dirname(normalized) === dirname(normalizedPrimary)) {
+    return sourceBasename(normalized, "Companion.go");
+  }
+  if (!isAbsolute(filePath)) {
+    return normalized.replace(/^\.?\//, "");
+  }
+  const relativePath = relative(cwd, filePath).replace(/\\/g, "/");
+  if (!relativePath.startsWith("..")) {
+    return relativePath;
+  }
+  return join("__companions", sanitizeProjectName(dirname(normalized)), sourceBasename(normalized, "Companion.go"));
+}
+
+async function writeGoWorkspaceSources({ workspace, filePath, source, companions = [], cwd }) {
+  const sourceName = sourceBasename(filePath, "Main.go");
+  await writeFile(join(workspace, sourceName), source, "utf8");
+  for (const companion of companions) {
+    if (!companion.filePath || sameSourceIdentity(companion.filePath, filePath, cwd)) continue;
+    const relativePath = goWorkspaceRelativePath(companion.filePath, filePath, cwd);
+    const target = join(workspace, relativePath);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, companion.source ?? "", "utf8");
+  }
+  return sourceName;
+}
+
+async function collectGoCompanionSources(options, primaryFilePath) {
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const companions = [];
+  const seen = new Set();
+
+  function addCompanion(filePath, source) {
+    if (!filePath || !isGoSourcePath(filePath) || sameSourceIdentity(filePath, primaryFilePath, cwd)) {
+      return;
+    }
+    const key = resolveHostPath(String(filePath), cwd);
+    if (seen.has(key)) return;
+    seen.add(key);
+    companions.push({ filePath: String(filePath), source: source ?? "" });
+  }
+
+  for (const sourceFile of Array.isArray(options.sourceFiles) ? options.sourceFiles : []) {
+    if (typeof sourceFile === "string") {
+      const actualPath = resolveHostPath(sourceFile, cwd);
+      if (isGoSourcePath(sourceFile) && !sameSourceIdentity(sourceFile, primaryFilePath, cwd)) {
+        addCompanion(sourceFile, await readFile(actualPath, "utf8"));
+      }
+      continue;
+    }
+    addCompanion(sourceFile?.filePath, sourceFile?.source);
+  }
+
+  for (const sourceRoot of Array.isArray(options.sourceRoots) ? options.sourceRoots : []) {
+    const sourceRootPath = String(sourceRoot);
+    const root = resolveHostPath(sourceRootPath, cwd);
+    const files = await collectFiles(root);
+    for (const file of files) {
+      const filePath = isAbsolute(sourceRootPath) ? file.path : relative(cwd, file.path);
+      if (isGoSourcePath(filePath) && !sameSourceIdentity(filePath, primaryFilePath, cwd)) {
+        addCompanion(filePath, await readFile(file.path, "utf8"));
+      }
+    }
+  }
+
+  return companions;
+}
+
+async function collectGoListForSource({ filePath, source, companions = [], goCommand = "go", modulePath, env, cwd = process.cwd() }) {
   const workspaceInfo = await prepareWorkspace("piece-go-analysis-");
   const workspace = workspaceInfo.path;
   const sourceName = sourceBasename(filePath, "Main.go");
   const resolvedModulePath = modulePath ?? `piece.local/${sanitizeProjectName(sourceName.replace(/\.go$/, ""))}`;
   try {
-    await writeFile(join(workspace, sourceName), source, "utf8");
+    await writeGoWorkspaceSources({ workspace, filePath, source, companions, cwd });
     await writeFile(join(workspace, "go.mod"), `module ${resolvedModulePath}\n\ngo 1.22\n`, "utf8");
     const command = await runCommand(goCommand, ["list", "-json", "./..."], { cwd: workspace, env });
     return {
@@ -1114,6 +1209,8 @@ export function createNodeGoDeclarationExtractor(options = {}) {
   return {
     name: options.name ?? baseExtractor.name,
     async extract({ filePath, source, previousTree }) {
+      const cwd = resolve(options.cwd ?? process.cwd());
+      const companionSources = await collectGoCompanionSources(options, filePath);
       let manifest;
       if (options.goAnalyzer === false || options.backend === "javascript") {
         manifest = await baseExtractor.extract({ filePath, source, previousTree });
@@ -1145,11 +1242,14 @@ export function createNodeGoDeclarationExtractor(options = {}) {
       const result = await collectGoListForSource({
         filePath,
         source,
+        companions: companionSources,
         goCommand: options.goCommand ?? "go",
         modulePath: options.modulePath ?? options.goModulePath,
-        env: options.env
+        env: options.env,
+        cwd
       });
-      const toolchain = createGoListToolchainMetadata(result.goList);
+      const packageScope = createGoPackageScope({ filePath, source, companions: companionSources });
+      const toolchain = createGoListToolchainMetadata(result.goList, packageScope);
       return {
         ...manifest,
         toolchain,

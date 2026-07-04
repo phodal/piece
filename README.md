@@ -63,11 +63,11 @@ The core vocabulary is intentionally small:
 
 - JavaScript, TypeScript, JSX, and TSX piece extraction.
 - React preview feedback with virtual modules and incremental rebuild metrics.
-- Go extraction through a Node-hosted Go AST analyzer, plus single-file `go list -json`, `go build`, and `go test` feedback.
+- Go extraction through a Node-hosted Go AST analyzer, plus package-scoped `go list -json` action identity and single-file `go build` / `go test` feedback.
 - Kotlin PSI analysis through the JVM backend, with optional compiler diagnostics and project-model scoped fallback.
 - Kotlin compile feedback through Gradle-backed JVM tooling.
 - Generated `.pic` metadata and an ANTLR-backed JVM parser for the same package, target, action, and artifact model.
-- Action cache identity that includes target source, dependency edges, fallback scope, selected Kotlin source sets, Go `go list` package metadata, host compiler options, and dependency artifact hashes.
+- Action cache identity that includes target source, dependency edges, fallback scope, selected Kotlin source sets, Go `go list` package metadata, Go package source hashes, host compiler options, and dependency artifact hashes.
 - Snapshot reconciliation for changed pieces, dirty propagation, reused artifacts, and invalidated artifacts.
 
 React is just one adapter. JS/TS, Go, Kotlin, and `.pic` metadata share the same manifest, graph, action, and artifact model.

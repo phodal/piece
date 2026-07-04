@@ -46,6 +46,13 @@ func RenderGreeting(user User) Greeting {
 }
 `;
 
+const goCompanionSource = `package pricing
+
+type Discount struct {
+  Percent int
+}
+`;
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -116,9 +123,18 @@ const goAnalysis = await assertRoundTrip({
   filePath: "/repo/src/Pricing.go",
   source: goSource,
   language: "go",
+  analysisOptions: {
+    sourceFiles: [
+      {
+        filePath: "/repo/src/Discount.go",
+        source: goCompanionSource
+      }
+    ]
+  },
   expectedSnippets: [
     "language go",
     "go-list:",
+    "go-package-scope:",
     'runtimeDeps "//repo/src:Pricing.go__value_prefix"',
     'typeDeps "//repo/src:Pricing.go__type_Greeting", "//repo/src:Pricing.go__type_User"',
     'externalDeps "fmt#fmt"',
@@ -130,8 +146,20 @@ assert(goAnalysis.manifest.analysisBackend?.actual === "go-ast", `Expected Go-ow
 assert(goAnalysis.manifest.toolchain?.kind === "go-list", `Expected Go analysis to include go-list metadata: ${JSON.stringify(goAnalysis.manifest.toolchain)}`);
 assert(goAnalysis.manifest.toolchain?.goList?.packageHash, `Expected Go list package hash: ${JSON.stringify(goAnalysis.manifest.toolchain)}`);
 assert(
+  goAnalysis.manifest.toolchain?.goList?.packages?.some((pkg) => pkg.goFiles.includes("Discount.go") && pkg.goFiles.includes("Pricing.go")),
+  `Expected Go list package metadata to include companion package files: ${JSON.stringify(goAnalysis.manifest.toolchain?.goList)}`
+);
+assert(
+  goAnalysis.manifest.toolchain?.packageScope?.files?.some((file) => file.filePath === "/repo/src/Discount.go"),
+  `Expected Go package scope to include companion source file: ${JSON.stringify(goAnalysis.manifest.toolchain?.packageScope)}`
+);
+assert(
   goAnalysis.actionCache.toolchainInputs.includes(`go-list:${goAnalysis.manifest.toolchain.goList.packageHash}`),
   `Expected action cache to include Go list input: ${JSON.stringify(goAnalysis.actionCache)}`
+);
+assert(
+  goAnalysis.actionCache.toolchainInputs.some((input) => input.startsWith("go-package-scope:")),
+  `Expected action cache to include Go package scope input: ${JSON.stringify(goAnalysis.actionCache)}`
 );
 const goCompileAction = goAnalysis.piecePackage.actions.find((action) => action.id === "//repo/src:Pricing.go__function_RenderGreeting%compile");
 assert(goCompileAction?.inputs.includes(`go-list:${goAnalysis.manifest.toolchain.goList.packageHash}`), `Expected Go compile action inputs to include go-list hash: ${JSON.stringify(goCompileAction)}`);

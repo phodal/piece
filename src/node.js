@@ -28,6 +28,9 @@ function withNodeDeclarationExtractor(options = {}) {
         goList: options.goList,
         goAnalyzer: options.goAnalyzer,
         backend: options.goAnalysisBackend,
+        sourceFiles: options.sourceFiles,
+        sourceRoots: options.sourceRoots,
+        cwd: options.cwd ?? options.fileSystem?.cwd,
         env: options.env
       })
     };
