@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { compileGoPieceFile, compileKotlinPieceFile } from "../src/node.js";
+import { analyzePieceFile, compileGoPieceFile, compilePieceAction } from "../src/node.js";
 
 const goSource = `package main
 
@@ -31,6 +31,19 @@ const kotlinModelSource = `package demo.pricing
 
 data class User(val name: String)
 data class Greeting(val message: String)
+`;
+
+const kotlinOverrideSource = `package "//repo/src:Pricing.kt" {
+  language kotlin
+  source "/repo/src/Pricing.kt"
+
+  target function "renderGreeting" {
+    label "//repo/src:pricing_kotlin_render_greeting"
+    action compile {
+      output "kotlin-render-greeting.compile.json"
+    }
+  }
+}
 `;
 
 function sourceLabelFor(filePath) {
@@ -145,23 +158,25 @@ if (!goResult.outputFiles.some((file) => file.path.endsWith("Pricing"))) {
 }
 
 const kotlinSourceRoot = await mkdtemp(join(tmpdir(), "piece-kotlin-compile-source-root-"));
-const kotlinActionPackage = compileActionPackage({
-  language: "kotlin",
-  filePath: "/repo/src/Pricing.kt",
-  targetName: "renderGreeting",
-  targetLabel: "//repo/src:pricing_kotlin_render_greeting",
-  output: "kotlin-render-greeting.compile.json"
-});
 let kotlinResult;
 try {
   await writeFile(join(kotlinSourceRoot, "Models.kt"), kotlinModelSource, "utf8");
-  kotlinResult = await compileKotlinPieceFile({
+  const kotlinAnalysis = await analyzePieceFile({
     filePath: "/repo/src/Pricing.kt",
     source: kotlinSource,
     sourceRoots: [kotlinSourceRoot],
+    overrideFilePath: "/repo/src/Pricing.override.pic",
+    overrideSource: kotlinOverrideSource,
+    pieceDslOverrideMode: "action-snapshot"
+  });
+  if (!kotlinAnalysis.actionPackage?.targets.some((target) => target.label === "//repo/src:pricing_kotlin_render_greeting")) {
+    throw new Error(`Kotlin analysis did not expose override actionPackage: ${JSON.stringify(kotlinAnalysis.actionPackage)}`);
+  }
+  kotlinResult = await compilePieceAction({
+    analysis: kotlinAnalysis,
+    sourceRoots: [kotlinSourceRoot],
     target: "all",
-    pieceTarget: "renderGreeting",
-    actionPackage: kotlinActionPackage
+    pieceTarget: "renderGreeting"
   });
 } finally {
   await rm(kotlinSourceRoot, { recursive: true, force: true });

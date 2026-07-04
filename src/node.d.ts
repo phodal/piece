@@ -201,6 +201,15 @@ export interface CompileKotlinPieceFileOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
+export interface CompilePieceActionOptions extends CompileKotlinPieceFileOptions {
+  readonly language?: "go" | "kotlin" | (string & {});
+  readonly analysis?: PieceFileAnalysis;
+  readonly outDir?: string;
+  readonly goCommand?: string;
+  readonly modulePath?: string;
+  readonly runTests?: boolean;
+}
+
 export interface AnalyzeKotlinPieceFileOptions {
   readonly filePath?: string;
   readonly source?: string;
@@ -276,6 +285,7 @@ export interface GoPieceCompileResult extends PieceLanguageCompileResult {
   readonly goList: PieceGoListMetadata;
 }
 
+export function compilePieceAction(options?: CompilePieceActionOptions): Promise<GoPieceCompileResult | KotlinPieceCompileResult>;
 export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise<GoPieceCompileResult>;
 export function compileKotlinPieceFile(options?: CompileKotlinPieceFileOptions): Promise<KotlinPieceCompileResult>;
 export function analyzePieceFile(options?: NodeAnalyzePieceFileOptions): Promise<NodePieceFileAnalysis>;

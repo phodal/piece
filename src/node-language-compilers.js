@@ -121,6 +121,32 @@ function resolveCompilePieceAction(options = {}) {
   };
 }
 
+function actionPackageForCompileAction(options = {}) {
+  return options.actionPackage ?? options.analysis?.actionPackage ?? options.analysis?.snapshot?.actionPackage ?? options.analysis?.piecePackage;
+}
+
+function filePathForCompileAction(options = {}, actionPackage) {
+  return options.filePath ?? options.analysis?.filePath ?? actionPackage?.filePath;
+}
+
+function sourceForCompileAction(options = {}) {
+  return options.source ?? options.analysis?.manifest?.source;
+}
+
+function languageForCompileAction(options = {}, actionPackage, filePath) {
+  const language = String(options.language ?? actionPackage?.language ?? "").toLowerCase();
+  if (language === "go" || language === "kotlin") {
+    return language;
+  }
+  if (/\.go$/i.test(filePath ?? "")) {
+    return "go";
+  }
+  if (/\.(?:kt|kts)$/i.test(filePath ?? "")) {
+    return "kotlin";
+  }
+  throw new Error(`Unsupported Piece compile action language: ${options.language ?? actionPackage?.language ?? filePath ?? "unknown"}.`);
+}
+
 function parseConcatenatedJsonObjects(source) {
   const decoder = new TextDecoder();
   const bytes = new TextEncoder().encode(String(source ?? ""));
@@ -1562,6 +1588,35 @@ export async function compileKotlinPieceFile(options = {}) {
   } finally {
     await cleanupWorkspace(hostWorkspace, false);
   }
+}
+
+export async function compilePieceAction(options = {}) {
+  const actionPackage = actionPackageForCompileAction(options);
+  if (!actionPackage) {
+    throw new Error("compilePieceAction() requires actionPackage or analysis with a Piece package.");
+  }
+  const filePath = filePathForCompileAction(options, actionPackage);
+  if (!filePath) {
+    throw new Error("compilePieceAction() requires filePath or an analyzed Piece package filePath.");
+  }
+  const source = sourceForCompileAction(options);
+  const compileOptions = {
+    ...options,
+    filePath,
+    actionPackage
+  };
+  if (source !== undefined) {
+    compileOptions.source = source;
+  }
+
+  const language = languageForCompileAction(options, actionPackage, filePath);
+  if (language === "go") {
+    return compileGoPieceFile(compileOptions);
+  }
+  if (language === "kotlin") {
+    return compileKotlinPieceFile(compileOptions);
+  }
+  throw new Error(`Unsupported Piece compile action language: ${language}.`);
 }
 
 export async function analyzeKotlinPieceFile(options = {}) {

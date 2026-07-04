@@ -27,6 +27,7 @@ The repository already has:
 - Merged override packages are metadata-only by default and can feed action/snapshot package views through explicit `pieceDslOverrideMode: "action-snapshot"`.
 - Node compile/build helpers retain explicit `actionPackage` metadata when override or action-snapshot options require Node analysis.
 - Go and Kotlin language compile helpers can resolve `pieceAction` from an explicit `actionPackage` target/action selection.
+- `compilePieceAction()` can dispatch an analyzed package compile action to the matching Go or Kotlin language helper.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -339,8 +340,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Add a higher-level Node compile-action runner that accepts an analyzed `actionPackage` and dispatches the selected compile action to the matching language helper.
+1. Add an opt-in app-level compile result to `compilePieceApp()` that invokes `compilePieceAction()` from the selected analysis package.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 5/6 Compile Action Runner Slice
+
+The compile action runner slice is now implemented:
+
+1. `piece-compiler/node` exports `compilePieceAction()`.
+2. The runner accepts an explicit `actionPackage`, `analysis.actionPackage`, `analysis.snapshot.actionPackage`, or the current-file `analysis.piecePackage`.
+3. It derives file path, source, and language from the analyzed package when callers do not pass them directly.
+4. It dispatches selected Go actions to `compileGoPieceFile()` and selected Kotlin actions to `compileKotlinPieceFile()`.
+5. `npm run language:compile:smoke` verifies a Kotlin `action-snapshot` analysis can feed `compilePieceAction()` and retain the override action identity in the compile report.
 
 ## Completed Phase 5/6 Language Compile Action Selection Slice
 
