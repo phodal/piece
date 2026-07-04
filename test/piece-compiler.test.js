@@ -7,6 +7,7 @@ import {
   createPackageScopeTargetModel,
   createPieceCompiler,
   createPieceSnapshot,
+  createSourceSetScopeTargetModel,
   explainPieceFeedbackScope,
   reconcilePieceSnapshot
 } from "piece-compiler";
@@ -540,6 +541,165 @@ export function Other() {
     expect(
       selectedPackageScope.packageView.actions.find((action) => action.id === "//repo/src:Discount.go__type_Discount%compile")?.inputs
     ).toContain("go-package-scope:package-scope-hash");
+  });
+
+  it("models source-set companion targets without promoting classpath deps", () => {
+    const renderPath = "/repo/app/src/jvmMain/kotlin/demo/app/Render.kt";
+    const userPath = "/repo/domain/src/commonMain/kotlin/demo/model/User.kt";
+    const externalSource = "classpath:/repo/external-user.jar!demo/external";
+    const manifest = {
+      version: 1,
+      filePath: renderPath,
+      source: "package demo.app\nfun render(user: User, external: ExternalUser): String = user.name + external.name\n",
+      parser: "kotlin-psi-declaration-extractor",
+      slices: [],
+      headers: [],
+      effects: [],
+      importBindings: [],
+      hasTopLevelEffect: false,
+      projectModel: {
+        kind: "gradle-kmp",
+        projectRoot: "/repo",
+        status: "success",
+        sourceRoots: ["/repo/app/src/jvmMain/kotlin", "/repo/domain/src/commonMain/kotlin"],
+        classpath: ["/repo/external-user.jar"],
+        sourceSets: [],
+        classpaths: [],
+        dependencies: [],
+        projectDependencies: [],
+        targetVariants: [],
+        hashes: {
+          sourceRootsHash: "roots-hash",
+          classpathHash: "classpath-hash",
+          modelHash: "model-hash"
+        },
+        analysisScope: {
+          status: "selected",
+          projectPath: ":app",
+          projectPaths: [":app", ":domain"],
+          sourceSet: "jvmMain",
+          requiredSourceSets: ["commonMain", "jvmMain"],
+          sourceRoots: ["/repo/app/src/jvmMain/kotlin", "/repo/domain/src/commonMain/kotlin"],
+          classpath: ["/repo/external-user.jar"],
+          classpathConfigurations: ["jvmCompileClasspath"],
+          dependencyCoordinates: ["demo.external:external-user:1.0.0"],
+          projectDependencies: [],
+          targetVariants: [],
+          diagnostics: [],
+          hashes: {
+            sourceRootsHash: "scope-roots-hash",
+            classpathHash: "scope-classpath-hash",
+            scopeHash: "source-set-scope-hash"
+          }
+        }
+      },
+      diagnostics: []
+    };
+    const graph = {
+      version: 1,
+      filePath: renderPath,
+      slices: [],
+      edges: [
+        {
+          from: `${renderPath}#function:render`,
+          to: `${userPath}#User`,
+          kind: "external",
+          symbols: ["User"],
+          import: {
+            local: "User",
+            imported: "User",
+            source: userPath,
+            kind: "named",
+            isTypeOnly: true
+          }
+        },
+        {
+          from: `${renderPath}#function:render`,
+          to: `${externalSource}#ExternalUser`,
+          kind: "external",
+          symbols: ["ExternalUser"],
+          import: {
+            local: "ExternalUser",
+            imported: "ExternalUser",
+            source: externalSource,
+            kind: "named",
+            isTypeOnly: true
+          }
+        }
+      ],
+      symbolTable: { local: {}, imports: {}, importsByLocal: {}, exports: {} },
+      diagnostics: []
+    };
+    const piecePackage = {
+      version: 1,
+      kind: "single-file-package",
+      language: "kotlin",
+      packageName: "repo/app/src/jvmMain/kotlin/demo/app",
+      label: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+      filePath: renderPath,
+      sourceFile: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+      rules: [],
+      targets: [
+        {
+          id: `${renderPath}#function:render`,
+          label: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt__function_render",
+          name: "render",
+          kind: "function",
+          rule: "kotlin_piece_function",
+          source: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt",
+          deps: [],
+          runtimeDeps: [],
+          typeDeps: [],
+          externalDeps: [`${userPath}#User`, `${externalSource}#ExternalUser`],
+          actions: ["//repo/app/src/jvmMain/kotlin/demo/app:Render.kt__function_render%feedback", "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt__function_render%compile"],
+          artifacts: [],
+          visibility: ["//visibility:private"]
+        }
+      ],
+      actions: [
+        {
+          id: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt__function_render%compile",
+          target: "//repo/app/src/jvmMain/kotlin/demo/app:Render.kt__function_render",
+          kind: "compile",
+          mnemonic: "PieceCompile",
+          inputs: ["//repo/app/src/jvmMain/kotlin/demo/app:Render.kt", `${userPath}#User`, `${externalSource}#ExternalUser`],
+          outputs: ["//repo/app/src/jvmMain/kotlin/demo/app:Render.kt__function_render.compile.json"]
+        }
+      ],
+      artifacts: []
+    };
+    const sourceSetScope = createSourceSetScopeTargetModel({
+      filePath: renderPath,
+      manifest,
+      graph,
+      piecePackage,
+      feedbackScope: { level: "source-set", fallbackRequired: false },
+      selection: "safe"
+    });
+
+    expect(sourceSetScope).toMatchObject({
+      kind: "source-set-scope-target-model",
+      status: "selected",
+      sourceSetScopeHash: "source-set-scope-hash",
+      promotion: {
+        requested: "safe",
+        appliedToDefaultPackage: false,
+        appliedToPackageView: true
+      }
+    });
+    const promotedUser = sourceSetScope.promotedTargets.find((target) => target.name === "User");
+    expect(promotedUser).toMatchObject({
+      sourceFile: userPath,
+      externalIdentity: `${userPath}#User`
+    });
+    expect(sourceSetScope.promotedTargets.some((target) => target.name === "ExternalUser")).toBe(false);
+    const packageViewRenderTarget = sourceSetScope.packageView.targets.find((target) => target.name === "render");
+    expect(packageViewRenderTarget.deps).toContain(promotedUser.label);
+    expect(packageViewRenderTarget.externalDeps).toContain(`${externalSource}#ExternalUser`);
+    expect(packageViewRenderTarget.externalDeps).not.toContain(`${userPath}#User`);
+    expect(
+      sourceSetScope.packageView.actions.find((action) => action.id === `${promotedUser.label}%compile`)?.inputs
+    ).toContain("source-set:source-set-scope-hash");
   });
 
   it("compiles virtual closure modules with node esbuild", async () => {

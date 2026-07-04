@@ -346,7 +346,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Add focused source-set package view unit coverage outside the heavy Gradle smoke, so target promotion rules stay fast to verify.
+1. Add source-set package view fallback coverage for unresolved edges and fallback project-model scopes.
+
+## Completed Phase 5/6 Source-Set Package View Unit Coverage Slice
+
+The source-set package view unit coverage slice is now implemented:
+
+1. `createSourceSetScopeTargetModel()` has focused unit coverage outside the heavier Gradle/KMP smoke.
+2. The unit test verifies selected source-set scope promotion for source-root companion declarations.
+3. It verifies classpath dependencies stay external rather than becoming promoted source-owned targets.
+4. It verifies package-view deps and action inputs include the promoted target and `source-set:<hash>` identity.
+5. `npm test` now covers this fast source-set package-view promotion path.
 
 ## Completed Phase 5/6 Action Package Origin Metadata Slice
 
