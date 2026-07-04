@@ -26,6 +26,7 @@ internal class KotlinAnalysisApiSymbolBackend {
             runIsolatedAnalysisApi(
                 sourceFile = AnalysisApiSourceFile(sourceFile, request.filePath),
                 companionSourceFiles = companionSourceFiles,
+                classpath = request.classpath,
             )
         } catch (error: Throwable) {
             KotlinBindingSymbolResult(
@@ -47,6 +48,7 @@ internal class KotlinAnalysisApiSymbolBackend {
     private fun runIsolatedAnalysisApi(
         sourceFile: AnalysisApiSourceFile,
         companionSourceFiles: List<AnalysisApiSourceFile>,
+        classpath: List<String>,
     ): KotlinBindingSymbolResult {
         val javaExecutable = File(System.getProperty("java.home"), "bin/java").absolutePath
         val childClasspath = analysisApiChildClasspath()
@@ -60,6 +62,11 @@ internal class KotlinAnalysisApiSymbolBackend {
             sourceFile.virtualPath,
         ) + companionSourceFiles.flatMap {
             listOf(it.physicalPath.toAbsolutePath().normalize().toString(), it.virtualPath)
+        } + classpath
+            .filter { it.isNotBlank() }
+            .distinct()
+            .flatMap {
+                listOf("--classpath", it)
         }
         val process = ProcessBuilder(command)
             .redirectErrorStream(true)

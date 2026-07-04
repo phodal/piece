@@ -1,5 +1,6 @@
 package piece.kotlin;
 
+import java.io.File;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
@@ -37,12 +38,15 @@ public final class KotlinAnalysisApiSymbolRunner {
 
     private static final class Runner {
         private final List<SourceInput> sources = new ArrayList<>();
+        private final List<String> classpathEntries = new ArrayList<>();
         private final Map<String, String> virtualPathByPhysicalPath = new LinkedHashMap<>();
         private final Class<?> compilerConfigurationClass;
         private final Class<?> compilerConfigurationKeyClass;
         private final Class<?> function1Class;
         private final Class<?> disposableClass;
         private final Class<?> psiElementClass;
+        private final Class<?> psiFileClass;
+        private final Class<?> virtualFileClass;
         private final Class<?> ktElementClass;
         private final Class<?> ktFileClass;
         private final Class<?> ktDeclarationClass;
@@ -50,12 +54,30 @@ public final class KotlinAnalysisApiSymbolRunner {
         private final Class<?> ktTypeReferenceClass;
         private final Class<?> kaSessionClass;
         private final Class<?> kaSymbolClass;
+        private final Class<?> kaClassLikeSymbolClass;
+        private final Class<?> kaCallableSymbolClass;
         private final Class<?> kaSymbolBasedReferenceClass;
         private final Class<?> psiTreeUtilClass;
 
-        Runner(String[] sourcePaths) throws ClassNotFoundException {
-            for (int i = 0; i < sourcePaths.length; i += 2) {
-                SourceInput source = new SourceInput(sourcePaths[i], sourcePaths[i + 1]);
+        Runner(String[] args) throws ClassNotFoundException {
+            List<String> sourcePaths = new ArrayList<>();
+            boolean readingClasspath = false;
+            for (String arg : args) {
+                if ("--classpath".equals(arg)) {
+                    readingClasspath = true;
+                    continue;
+                }
+                if (readingClasspath) {
+                    classpathEntries.add(arg);
+                } else {
+                    sourcePaths.add(arg);
+                }
+            }
+            if (sourcePaths.isEmpty() || sourcePaths.size() % 2 != 0) {
+                throw new IllegalArgumentException("Usage: KotlinAnalysisApiSymbolRunner <physical-source> <virtual-source> [physical-source virtual-source...] [--classpath <jar-or-directory>...]");
+            }
+            for (int i = 0; i < sourcePaths.size(); i += 2) {
+                SourceInput source = new SourceInput(sourcePaths.get(i), sourcePaths.get(i + 1));
                 sources.add(source);
                 virtualPathByPhysicalPath.put(normalizePath(source.physicalPath), source.virtualPath);
             }
@@ -64,6 +86,8 @@ public final class KotlinAnalysisApiSymbolRunner {
             function1Class = cls("kotlin.jvm.functions.Function1");
             disposableClass = cls("com.intellij.openapi.Disposable");
             psiElementClass = cls("com.intellij.psi.PsiElement");
+            psiFileClass = cls("com.intellij.psi.PsiFile");
+            virtualFileClass = cls("com.intellij.openapi.vfs.VirtualFile");
             ktElementClass = cls("org.jetbrains.kotlin.psi.KtElement");
             ktFileClass = cls("org.jetbrains.kotlin.psi.KtFile");
             ktDeclarationClass = cls("org.jetbrains.kotlin.psi.KtDeclaration");
@@ -71,6 +95,8 @@ public final class KotlinAnalysisApiSymbolRunner {
             ktTypeReferenceClass = cls("org.jetbrains.kotlin.psi.KtTypeReference");
             kaSessionClass = cls("org.jetbrains.kotlin.analysis.api.KaSession");
             kaSymbolClass = cls("org.jetbrains.kotlin.analysis.api.symbols.KaSymbol");
+            kaClassLikeSymbolClass = cls("org.jetbrains.kotlin.analysis.api.symbols.KaClassLikeSymbol");
+            kaCallableSymbolClass = cls("org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol");
             kaSymbolBasedReferenceClass = cls("org.jetbrains.kotlin.analysis.api.resolution.KaSymbolBasedReference");
             psiTreeUtilClass = cls("com.intellij.psi.util.PsiTreeUtil");
         }
@@ -87,6 +113,14 @@ public final class KotlinAnalysisApiSymbolRunner {
                 .getMethod("addKotlinSourceRoot", compilerConfigurationClass, String.class);
             for (SourceInput source : sources) {
                 addSourceRoot.invoke(null, config, source.physicalPath);
+            }
+            Method addJvmClasspathRoot = cls("org.jetbrains.kotlin.cli.jvm.config.JvmContentRootsKt")
+                .getMethod("addJvmClasspathRoot", compilerConfigurationClass, File.class);
+            for (String classpathEntry : classpathEntries) {
+                File file = new File(classpathEntry);
+                if (file.exists()) {
+                    addJvmClasspathRoot.invoke(null, config, file);
+                }
             }
 
             Object disposable = cls("com.intellij.openapi.util.Disposer")
@@ -204,7 +238,7 @@ public final class KotlinAnalysisApiSymbolRunner {
                         buckets.resolvedRuntimeNames.add(referencedName);
                     }
                 }
-                for (TopLevelSymbol symbol : resolution.topLevelSymbols) {
+                for (SymbolIdentity symbol : resolution.symbols) {
                     if (symbol.source.equals(primarySourcePath) && declarationName.equals(symbol.name)) {
                         continue;
                     }
@@ -213,7 +247,7 @@ public final class KotlinAnalysisApiSymbolRunner {
                             referencedName,
                             symbol.name,
                             symbol.source,
-                            "named",
+                            symbol.kind,
                             false
                         ));
                     } else {
@@ -253,9 +287,9 @@ public final class KotlinAnalysisApiSymbolRunner {
                         }
                         for (Object symbol : symbols) {
                             Object psi = kaSymbolClass.getMethod("getPsi").invoke(symbol);
-                            TopLevelSymbol topLevelSymbol = topLevelDeclaration(psi);
-                            if (topLevelSymbol != null) {
-                                resolution.topLevelSymbols.add(topLevelSymbol);
+                            SymbolIdentity symbolIdentity = symbolIdentity(symbol, psi);
+                            if (symbolIdentity != null) {
+                                resolution.symbols.add(symbolIdentity);
                             }
                         }
                     }
@@ -265,6 +299,50 @@ public final class KotlinAnalysisApiSymbolRunner {
             return (ReferenceResolution) cls("org.jetbrains.kotlin.analysis.api.AnalyzeKt")
                 .getMethod("analyze", ktElementClass, function1Class)
                 .invoke(null, reference, lambda);
+        }
+
+        private SymbolIdentity symbolIdentity(Object symbol, Object psi) throws Exception {
+            TopLevelSymbol topLevelSymbol = topLevelDeclaration(psi);
+            if (topLevelSymbol != null) {
+                return new SymbolIdentity(topLevelSymbol.name, topLevelSymbol.source, "named");
+            }
+            if (kaClassLikeSymbolClass.isInstance(symbol)) {
+                Object classId = kaClassLikeSymbolClass.getMethod("getClassId").invoke(symbol);
+                if (classId == null) {
+                    return null;
+                }
+                String packageName = classId.getClass().getMethod("getPackageFqName").invoke(classId).toString();
+                if (isImplicitRuntimePackage(packageName)) {
+                    return null;
+                }
+                Object shortClassName = classId.getClass().getMethod("getShortClassName").invoke(classId);
+                return new SymbolIdentity(
+                    nameString(shortClassName),
+                    classpathSource(psi, packageName),
+                    "named"
+                );
+            }
+            if (kaCallableSymbolClass.isInstance(symbol)) {
+                Object callableId = kaCallableSymbolClass.getMethod("getCallableId").invoke(symbol);
+                if (callableId == null) {
+                    return null;
+                }
+                Object className = callableId.getClass().getMethod("getClassName").invoke(callableId);
+                if (className != null && !className.toString().isBlank()) {
+                    return null;
+                }
+                String packageName = callableId.getClass().getMethod("getPackageName").invoke(callableId).toString();
+                if (isImplicitRuntimePackage(packageName)) {
+                    return null;
+                }
+                Object callableName = callableId.getClass().getMethod("getCallableName").invoke(callableId);
+                return new SymbolIdentity(
+                    nameString(callableName),
+                    classpathSource(psi, packageName),
+                    "named"
+                );
+            }
+            return null;
         }
 
         private boolean isInsideTypeReference(Object reference) throws Exception {
@@ -307,6 +385,71 @@ public final class KotlinAnalysisApiSymbolRunner {
             return name == null ? null : name.toString();
         }
 
+        private String classpathSource(Object psi, String packageName) throws Exception {
+            String virtualPath = psiVirtualPath(psi);
+            String ownerPath = packageName.isBlank() ? "" : packageName.replace('.', '/');
+            String classpathArtifact = classpathArtifactPath(virtualPath);
+            if (classpathArtifact != null) {
+                return "classpath:" + classpathArtifact + (ownerPath.isBlank() ? "" : "!" + ownerPath);
+            }
+            return "classpath:" + (packageName.isBlank() ? "<unknown>" : packageName);
+        }
+
+        private String psiVirtualPath(Object psi) throws Exception {
+            if (psi == null || !psiElementClass.isInstance(psi)) {
+                return null;
+            }
+            Object psiFile = psiElementClass.getMethod("getContainingFile").invoke(psi);
+            if (psiFile == null) {
+                return null;
+            }
+            Object virtualFile = psiFileClass.getMethod("getVirtualFile").invoke(psiFile);
+            if (virtualFile == null) {
+                return null;
+            }
+            Object path = virtualFileClass.getMethod("getPath").invoke(virtualFile);
+            return path == null ? null : path.toString();
+        }
+
+        private String classpathArtifactPath(String virtualPath) {
+            if (virtualPath == null || virtualPath.isBlank()) {
+                return null;
+            }
+            String path = virtualPath;
+            if (path.startsWith("jar://")) {
+                path = path.substring("jar://".length());
+            } else if (path.startsWith("file://")) {
+                path = path.substring("file://".length());
+            }
+            int jarIndex = path.indexOf(".jar!");
+            if (jarIndex >= 0) {
+                return normalizePath(path.substring(0, jarIndex + ".jar".length()));
+            }
+            if (path.endsWith(".jar")) {
+                return normalizePath(path);
+            }
+            String normalizedPath = normalizePath(path);
+            for (String classpathEntry : classpathEntries) {
+                String normalizedEntry = normalizePath(classpathEntry);
+                File entry = new File(normalizedEntry);
+                if (entry.isDirectory() && normalizedPath.startsWith(normalizedEntry + File.separator)) {
+                    return normalizedEntry;
+                }
+            }
+            return null;
+        }
+
+        private static String nameString(Object name) throws Exception {
+            Object value = name.getClass().getMethod("asString").invoke(name);
+            return value == null ? name.toString() : value.toString();
+        }
+
+        private static boolean isImplicitRuntimePackage(String packageName) {
+            return packageName.equals("kotlin") ||
+                packageName.startsWith("kotlin.") ||
+                packageName.equals("java.lang");
+        }
+
         private static Class<?> cls(String name) throws ClassNotFoundException {
             return Class.forName(name);
         }
@@ -330,13 +473,16 @@ public final class KotlinAnalysisApiSymbolRunner {
 
     private static final class ReferenceResolution {
         boolean resolved = false;
-        final List<TopLevelSymbol> topLevelSymbols = new ArrayList<>();
+        final List<SymbolIdentity> symbols = new ArrayList<>();
     }
 
     private record SourceInput(String physicalPath, String virtualPath) {
     }
 
     private record TopLevelSymbol(String name, String source) {
+    }
+
+    private record SymbolIdentity(String name, String source, String kind) {
     }
 
     private record ExternalBinding(String local, String imported, String source, String kind, boolean typeOnly)

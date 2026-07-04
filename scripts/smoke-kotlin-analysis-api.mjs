@@ -1,9 +1,40 @@
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { analyzeKotlinPieceFile, analyzePieceFile, createNodeKotlinPsiDeclarationExtractor } from "../src/node.js";
+
+const execFileAsync = promisify(execFile);
 
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+async function createExternalUserJar(workspace) {
+  const sourceDir = join(workspace, "src", "demo", "external");
+  const classesDir = join(workspace, "classes");
+  await mkdir(sourceDir, { recursive: true });
+  await mkdir(classesDir, { recursive: true });
+  const sourceFile = join(sourceDir, "ExternalUser.java");
+  await writeFile(
+    sourceFile,
+    `package demo.external;
+
+public class ExternalUser {
+  public String getName() {
+    return "Ada";
+  }
+}
+`,
+    "utf8"
+  );
+  await execFileAsync("javac", ["-d", classesDir, sourceFile]);
+  const jarPath = join(workspace, "external-user.jar");
+  await execFileAsync("jar", ["cf", jarPath, "-C", classesDir, "."]);
+  return jarPath;
 }
 
 const source = `package demo.symbols
@@ -137,5 +168,63 @@ assert(
   !aliasAnalysis.graph.edges.some((edge) => edge.to === "demo.symbols#User"),
   `Kotlin Analysis API imported alias should override the PSI package-only edge: ${JSON.stringify(aliasAnalysis.graph.edges)}`
 );
+
+const classpathWorkspace = await mkdtemp(join(tmpdir(), "piece-kotlin-analysis-api-classpath-"));
+try {
+  const externalJar = await createExternalUserJar(classpathWorkspace);
+  const externalClasspathSource = `package demo.externaluse
+
+import demo.external.ExternalUser
+
+fun render(user: ExternalUser): String = user.name
+`;
+  const classpathManifest = await analyzeKotlinPieceFile({
+    filePath: "/repo/src/ExternalRender.kt",
+    source: externalClasspathSource,
+    backend: "analysis-api",
+    analysisApiEnabled: true,
+    classpath: [externalJar]
+  });
+  assert(
+    classpathManifest.analysisBackend?.actual === "analysis-api" &&
+      classpathManifest.analysisBackend?.symbols === "analysis-api",
+    `Kotlin Analysis API classpath backend was not used: ${JSON.stringify(classpathManifest.analysisBackend)}`
+  );
+  const classpathBinding = classpathManifest.importBindings.find(
+    (binding) =>
+      binding.local === "ExternalUser" &&
+      binding.imported === "ExternalUser" &&
+      binding.source === `classpath:${externalJar}!demo/external`
+  );
+  assert(
+    classpathBinding,
+    `Kotlin Analysis API did not map the external class to its jar-backed classpath binding: ${JSON.stringify(classpathManifest.importBindings)}`
+  );
+  assert(
+    !classpathManifest.importBindings.some((binding) => binding.local === "String" || binding.imported === "String"),
+    `Kotlin Analysis API should not surface implicit Kotlin runtime types as classpath bindings: ${JSON.stringify(classpathManifest.importBindings)}`
+  );
+
+  const classpathAnalysis = await analyzePieceFile({
+    filePath: "/repo/src/ExternalRender.kt",
+    source: externalClasspathSource,
+    declarationExtractor: createNodeKotlinPsiDeclarationExtractor({
+      backend: "analysis-api",
+      analysisApiEnabled: true,
+      classpath: [externalJar]
+    })
+  });
+  assert(
+    classpathAnalysis.graph.edges.some(
+      (edge) =>
+        edge.kind === "external" &&
+        edge.to === `classpath:${externalJar}!demo/external#ExternalUser` &&
+        edge.symbols.includes("ExternalUser")
+    ),
+    `Kotlin Analysis API classpath binding did not become a jar-backed external graph edge: ${JSON.stringify(classpathAnalysis.graph.edges)}`
+  );
+} finally {
+  await rm(classpathWorkspace, { recursive: true, force: true });
+}
 
 console.log("Kotlin Analysis API smoke passed");
