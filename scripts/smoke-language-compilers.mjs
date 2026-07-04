@@ -20,6 +20,20 @@ func main() {
 }
 `;
 
+const goPricingSource = `package pricing
+
+type Greeting struct {
+  Discount Discount
+}
+`;
+
+const goPricingCompanionSource = `package pricing
+
+type Discount struct {
+  Percent int
+}
+`;
+
 const kotlinSource = `package demo.pricing
 
 fun renderGreeting(user: User): Greeting {
@@ -151,6 +165,12 @@ assertSuccess(goAppStatus.compileAction, "Go app-level Piece action");
 if (JSON.stringify(goAppStatus.compileAction?.pieceAction) !== JSON.stringify(goResult.pieceAction)) {
   throw new Error(`compilePieceApp did not retain app-level Piece action identity: ${JSON.stringify(goAppStatus.compileAction?.pieceAction)}`);
 }
+if (
+  goAppStatus.compileActionSelection?.actionPackageSource !== "explicit" ||
+  goAppStatus.compileActionSelection.feedbackScope.fallbackRequired !== false
+) {
+  throw new Error(`compilePieceApp did not expose app-level compile selection metadata: ${JSON.stringify(goAppStatus.compileActionSelection)}`);
+}
 const badGoAppStatus = await compilePieceApp({
   filePath: "/repo/src/Pricing.go",
   source: goSource,
@@ -164,6 +184,9 @@ if (badGoAppStatus.compileAction) {
 }
 if (badGoAppStatus.compileActionDiagnostics?.[0]?.code !== "piece-compile-action-dispatch-failed") {
   throw new Error(`compilePieceApp did not return a structured compile-action diagnostic: ${JSON.stringify(badGoAppStatus.compileActionDiagnostics)}`);
+}
+if (badGoAppStatus.compileActionSelection?.actionPackageSource !== "explicit") {
+  throw new Error(`compilePieceApp did not retain selection metadata on dispatch failure: ${JSON.stringify(badGoAppStatus.compileActionSelection)}`);
 }
 if ((badGoAppStatus.diagnostics?.issueCount ?? 0) <= (goAppStatus.diagnostics?.issueCount ?? 0)) {
   throw new Error(`compilePieceApp did not count the compile-action diagnostic: ${JSON.stringify(badGoAppStatus.diagnostics)}`);
@@ -183,6 +206,29 @@ if (goPackage.module?.path !== "piece.local/Pricing" || !goPackage.imports.inclu
 }
 if (!goResult.outputFiles.some((file) => file.path.endsWith("Pricing"))) {
   throw new Error("Go compile did not produce the expected main binary artifact.");
+}
+
+const goPackageScopeStatus = await compilePieceApp({
+  filePath: "/repo/src/Pricing.go",
+  source: goPricingSource,
+  sourceFiles: [
+    {
+      filePath: "/repo/src/Discount.go",
+      source: goPricingCompanionSource
+    }
+  ],
+  target: "Greeting",
+  compileAction: true
+});
+if (!goPackageScopeStatus.compileAction) {
+  throw new Error(`compilePieceApp did not attach a Go package-scope compile action report: ${JSON.stringify(goPackageScopeStatus)}`);
+}
+if (
+  goPackageScopeStatus.compileActionSelection?.packageScope?.status !== "candidate" ||
+  goPackageScopeStatus.compileActionSelection.packageScope.appliedToPackageView !== false ||
+  !goPackageScopeStatus.compileActionSelection.packageScope.reason?.includes("candidate")
+) {
+  throw new Error(`compilePieceApp did not expose package-scope selection metadata: ${JSON.stringify(goPackageScopeStatus.compileActionSelection)}`);
 }
 
 const kotlinSourceRoot = await mkdtemp(join(tmpdir(), "piece-kotlin-compile-source-root-"));

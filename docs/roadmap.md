@@ -30,6 +30,7 @@ The repository already has:
 - `compilePieceAction()` can dispatch an analyzed package compile action to the matching Go or Kotlin language helper.
 - `compilePieceApp({ compileAction: true })` can attach an opt-in language compile report to app status.
 - App-level compile action dispatch failures return structured diagnostics without discarding app status.
+- App-level compile action status exposes action package source, feedback-scope blockers, package-scope selection state, and source-set scope metadata.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope plus structured fallback-reason identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -342,8 +343,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Surface package/source-set selection blockers consistently on app-level compile status before widening compile action scope.
+1. Let Go compile action dispatch write safe same-package companion sources into the temporary module before widening beyond current-file status metadata.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 5/6 App-Level Selection Metadata Slice
+
+The app-level selection metadata slice is now implemented:
+
+1. `compilePieceApp({ compileAction: true })` returns `compileActionSelection` on successful and diagnostic app-level compile action paths.
+2. Selection metadata records whether the action package came from an explicit package, `analysis.actionPackage`, `snapshot.actionPackage`, or `analysis.piecePackage`.
+3. It exposes feedback-scope fallback blockers without requiring callers to inspect the full analysis object.
+4. It exposes package-scope candidate/selected status, requested selection mode, package-view application state, reason text, and non-info blockers.
+5. `npm run language:compile:smoke` verifies explicit action-package metadata, invalid-target diagnostic metadata, and Go package-scope candidate metadata on app-level compile status.
 
 ## Completed Phase 6 Fallback Reason Action Metadata Slice
 

@@ -97,13 +97,62 @@ function compileActionDiagnostic(error) {
   };
 }
 
-function statusWithCompileActionDiagnostic(status, diagnostic) {
+function actionPackageSource(options = {}, analysis) {
+  if (options.actionPackage) return "explicit";
+  if (analysis?.actionPackage) return "analysis-action-package";
+  if (analysis?.snapshot?.actionPackage) return "snapshot-action-package";
+  if (analysis?.piecePackage) return "analysis-piece-package";
+  return "missing";
+}
+
+function nonInfoReasons(reasons = []) {
+  return reasons.filter((reason) => reason?.severity !== "info");
+}
+
+function compileActionSelectionForStatus(options = {}, status = {}) {
+  const analysis = status.analysis;
+  const packageScope = analysis?.packageScope;
+  const packagePromotion = packageScope?.promotion;
+  const sourceSet = analysis?.feedbackScope?.sourceSet ?? analysis?.manifest?.projectModel?.analysisScope;
+  return {
+    actionPackageSource: actionPackageSource(options, analysis),
+    feedbackScope: {
+      level: analysis?.feedbackScope?.level ?? "unknown",
+      fallbackRequired: analysis?.feedbackScope?.fallbackRequired === true,
+      blockers: nonInfoReasons(analysis?.feedbackScope?.reasons ?? [])
+    },
+    ...(packageScope
+      ? {
+          packageScope: {
+            status: packageScope.status,
+            requested: packagePromotion?.requested,
+            appliedToPackageView: packagePromotion?.appliedToPackageView === true,
+            reason: packagePromotion?.reason,
+            blockers: nonInfoReasons(packagePromotion?.blockedReasons ?? [])
+          }
+        }
+      : {}),
+    ...(sourceSet
+      ? {
+          sourceSet: {
+            status: sourceSet.status,
+            projectPath: sourceSet.projectPath,
+            sourceSet: sourceSet.sourceSet,
+            fallbackReason: sourceSet.fallbackReason
+          }
+        }
+      : {})
+  };
+}
+
+function statusWithCompileActionDiagnostic(status, diagnostic, selection) {
   return {
     ...status,
     diagnostics: {
       ...status.diagnostics,
       issueCount: (status.diagnostics?.issueCount ?? 0) + 1
     },
+    ...(selection ? { compileActionSelection: selection } : {}),
     compileActionDiagnostics: [diagnostic]
   };
 }
@@ -175,14 +224,16 @@ export async function compilePieceApp(options = {}) {
   if (!options.compileAction) {
     return status;
   }
+  const compileActionSelection = compileActionSelectionForStatus(options, status);
   try {
     const compileAction = await compilePieceAction(compileActionOptionsForStatus(options, status));
     return {
       ...status,
+      compileActionSelection,
       compileAction
     };
   } catch (error) {
-    return statusWithCompileActionDiagnostic(status, compileActionDiagnostic(error));
+    return statusWithCompileActionDiagnostic(status, compileActionDiagnostic(error), compileActionSelection);
   }
 }
 

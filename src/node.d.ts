@@ -152,8 +152,44 @@ export interface NodeCompileActionDiagnostic {
   readonly message: string;
 }
 
+export interface NodeCompileActionSelectionReason {
+  readonly code: string;
+  readonly severity: "warning" | "error" | (string & {});
+  readonly message: string;
+  readonly [key: string]: unknown;
+}
+
+export interface NodeCompileActionSelection {
+  readonly actionPackageSource:
+    | "explicit"
+    | "analysis-action-package"
+    | "snapshot-action-package"
+    | "analysis-piece-package"
+    | "missing"
+    | (string & {});
+  readonly feedbackScope: {
+    readonly level: string;
+    readonly fallbackRequired: boolean;
+    readonly blockers: readonly NodeCompileActionSelectionReason[];
+  };
+  readonly packageScope?: {
+    readonly status?: string;
+    readonly requested?: string;
+    readonly appliedToPackageView: boolean;
+    readonly reason?: string;
+    readonly blockers: readonly NodeCompileActionSelectionReason[];
+  };
+  readonly sourceSet?: {
+    readonly status?: string;
+    readonly projectPath?: string;
+    readonly sourceSet?: string;
+    readonly fallbackReason?: string;
+  };
+}
+
 export interface NodeCompilePieceAppStatus extends CompilePieceAppStatus {
   readonly compileAction?: GoPieceCompileResult | KotlinPieceCompileResult;
+  readonly compileActionSelection?: NodeCompileActionSelection;
   readonly compileActionDiagnostics?: readonly NodeCompileActionDiagnostic[];
 }
 
