@@ -346,7 +346,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Add source-set package-view artifact/cache-key coverage for promoted source-set targets.
+1. Expose promoted source-set package-view artifact cache metadata through app-level action snapshots and status diagnostics.
+
+## Completed Phase 5/6 Source-Set Package View Artifact Cache Slice
+
+The source-set package view artifact cache slice is now implemented:
+
+1. Promoted package-view artifacts now carry stable `cacheKey` values instead of only action/output metadata.
+2. The promoted artifact cache identity includes action kind, promoted target identity, source identity, and selected scope inputs.
+3. Source-set package-view promoted artifacts therefore vary across `source-set:<scopeHash>` / `project-model:<scopeHash>` boundaries.
+4. The same helper path keeps Go package-scope promoted artifacts aligned with package-scope cache inputs.
+5. `npm test` verifies promoted source-set compile/feedback artifact cache keys exist and change when the selected source-set scope hash changes.
 
 ## Completed Phase 5/6 Gradle Source-Set Fallback App Diagnostics Slice
 

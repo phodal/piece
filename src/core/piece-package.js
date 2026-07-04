@@ -327,7 +327,10 @@ function promotedPackageTarget(target, language) {
     name: target.name,
     kind: target.kind,
     rule: target.rule,
+    sourceFile: target.sourceFile,
     source: target.source,
+    externalIdentity: target.externalIdentity,
+    hash: target.hash,
     deps: [],
     runtimeDeps: [],
     typeDeps: [],
@@ -353,7 +356,21 @@ function promotedActionsForTarget(target, packageScopeInput) {
   });
 }
 
-function promotedArtifactsForTarget(target) {
+function promotedArtifactCacheKey(target, kind, scopeInputs) {
+  return hashParts([
+    "promoted-package-view-artifact",
+    kind,
+    target.label,
+    target.sourceFile,
+    target.source,
+    target.externalIdentity,
+    target.hash,
+    ...uniqueSorted(scopeInputs)
+  ]);
+}
+
+function promotedArtifactsForTarget(target, packageScopeInput) {
+  const scopeInputs = Array.isArray(packageScopeInput) ? packageScopeInput : [packageScopeInput];
   return target.actions.map((id) => {
     const kind = id.endsWith("%compile") ? "compile" : "feedback";
     const artifactId = `${target.label}.${kind === "compile" ? "compile" : "piece"}.json`;
@@ -361,9 +378,14 @@ function promotedArtifactsForTarget(target) {
       id: artifactId,
       target: target.label,
       kind: defaultArtifactKind(kind),
-      path: `${sanitizeModulePart(artifactId)}`
+      path: `${sanitizeModulePart(artifactId)}`,
+      cacheKey: promotedArtifactCacheKey(target, kind, scopeInputs)
     };
   });
+}
+
+function scopeInputsForModel(model) {
+  return model.scopeInputs ?? [model.packageScopeInput ?? model.sourceSetScopeInput].filter(Boolean);
 }
 
 function isTypeLikeTarget(target) {
@@ -428,6 +450,7 @@ function createSelectedPackageView(piecePackage, model) {
   }
   const promotedTargets = model.promotedTargets.map((target) => promotedPackageTarget(target, model.language));
   const promotedTargetsByLabel = new Map(promotedTargets.map((target) => [target.label, target]));
+  const scopeInputs = scopeInputsForModel(model);
   return {
     ...piecePackage,
     rules: packageViewRules(piecePackage, promotedTargets),
@@ -439,11 +462,9 @@ function createSelectedPackageView(piecePackage, model) {
     ],
     actions: [
       ...piecePackage.actions.map((action) => applyPromotedDepsToAction(action, promotedEdgesByTarget)),
-      ...promotedTargets.flatMap((target) =>
-        promotedActionsForTarget(target, model.scopeInputs ?? [model.packageScopeInput ?? model.sourceSetScopeInput].filter(Boolean))
-      )
+      ...promotedTargets.flatMap((target) => promotedActionsForTarget(target, scopeInputs))
     ],
-    artifacts: [...piecePackage.artifacts, ...promotedTargets.flatMap(promotedArtifactsForTarget)]
+    artifacts: [...piecePackage.artifacts, ...promotedTargets.flatMap((target) => promotedArtifactsForTarget(target, scopeInputs))]
   };
 }
 

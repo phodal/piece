@@ -700,6 +700,50 @@ export function Other() {
     expect(
       sourceSetScope.packageView.actions.find((action) => action.id === `${promotedUser.label}%compile`)?.inputs
     ).toContain("source-set:source-set-scope-hash");
+    const promotedCompileArtifact = sourceSetScope.packageView.artifacts.find(
+      (artifact) => artifact.id === `${promotedUser.label}.compile.json`
+    );
+    const promotedFeedbackArtifact = sourceSetScope.packageView.artifacts.find(
+      (artifact) => artifact.id === `${promotedUser.label}.piece.json`
+    );
+    expect(promotedCompileArtifact).toMatchObject({
+      target: promotedUser.label,
+      kind: "piece-compile",
+      cacheKey: expect.any(String)
+    });
+    expect(promotedFeedbackArtifact).toMatchObject({
+      target: promotedUser.label,
+      kind: "piece-feedback",
+      cacheKey: expect.any(String)
+    });
+    expect(promotedCompileArtifact.cacheKey).not.toBe(promotedFeedbackArtifact.cacheKey);
+
+    const changedScopeManifest = {
+      ...manifest,
+      projectModel: {
+        ...manifest.projectModel,
+        analysisScope: {
+          ...manifest.projectModel.analysisScope,
+          hashes: {
+            ...manifest.projectModel.analysisScope.hashes,
+            scopeHash: "source-set-scope-hash-next"
+          }
+        }
+      }
+    };
+    const changedSourceSetScope = createSourceSetScopeTargetModel({
+      filePath: renderPath,
+      manifest: changedScopeManifest,
+      graph,
+      piecePackage,
+      feedbackScope: { level: "source-set", fallbackRequired: false },
+      selection: "safe"
+    });
+    const changedPromotedUser = changedSourceSetScope.promotedTargets.find((target) => target.name === "User");
+    const changedPromotedCompileArtifact = changedSourceSetScope.packageView.artifacts.find(
+      (artifact) => artifact.id === `${changedPromotedUser.label}.compile.json`
+    );
+    expect(changedPromotedCompileArtifact.cacheKey).not.toBe(promotedCompileArtifact.cacheKey);
   });
 
   it("keeps source-set package views behind fallback gates", () => {
