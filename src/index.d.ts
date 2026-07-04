@@ -739,6 +739,14 @@ export interface PieceCompileActionCacheRecord {
   readonly outputs: readonly string[];
 }
 
+export interface PieceCompileActionCachePersistence {
+  readonly status: "stored" | "skipped" | "error" | (string & {});
+  readonly path?: string;
+  readonly recordKey?: string;
+  readonly reason?: string;
+  readonly message?: string;
+}
+
 export interface PieceCompileActionCacheStatus {
   readonly version: 1;
   readonly mode: "status-only" | "bypass" | (string & {});
@@ -746,6 +754,7 @@ export interface PieceCompileActionCacheStatus {
   readonly record?: PieceCompileActionCacheRecord;
   readonly matchedRecordKey?: string;
   readonly reasons: readonly PieceActionCacheReason[];
+  readonly persistence?: PieceCompileActionCachePersistence;
   readonly execution: {
     readonly skipped: boolean;
     readonly reason: string;

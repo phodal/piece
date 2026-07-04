@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { analyzePieceFile, compileGoPieceFile, compilePieceAction, compilePieceApp } from "../src/node.js";
@@ -155,69 +155,84 @@ if (JSON.stringify(goResult.pieceAction) !== JSON.stringify({
 })) {
   throw new Error(`Go compile did not resolve Piece action identity from actionPackage: ${JSON.stringify(goResult.pieceAction)}`);
 }
-const goAppStatus = await compilePieceApp({
-  filePath: "/repo/src/Pricing.go",
-  source: goSource,
-  target: "RenderGreeting",
-  compileAction: true,
-  actionPackage: goActionPackage
-});
-assertSuccess(goAppStatus.compileAction, "Go app-level Piece action");
-if (
-  goAppStatus.compileAction.actionCache?.status !== "miss" ||
-  !goAppStatus.compileAction.actionCache.record?.key ||
-  goAppStatus.compileAction.actionCache.execution?.skipped !== false ||
-  goAppStatus.compileActionSelection?.actionCache?.record?.key !== goAppStatus.compileAction.actionCache.record.key
-) {
-  throw new Error(`compilePieceApp did not expose status-only action cache metadata: ${JSON.stringify({
-    compileActionCache: goAppStatus.compileAction.actionCache,
-    selectionActionCache: goAppStatus.compileActionSelection?.actionCache
-  })}`);
-}
-if (JSON.stringify(goAppStatus.compileAction?.pieceAction) !== JSON.stringify(goResult.pieceAction)) {
-  throw new Error(`compilePieceApp did not retain app-level Piece action identity: ${JSON.stringify(goAppStatus.compileAction?.pieceAction)}`);
-}
-if (
-  goAppStatus.compileActionSelection?.actionPackageSource !== "explicit" ||
-  goAppStatus.compileActionSelection.feedbackScope.fallbackRequired !== false
-) {
-  throw new Error(`compilePieceApp did not expose app-level compile selection metadata: ${JSON.stringify(goAppStatus.compileActionSelection)}`);
-}
-const badGoAppStatus = await compilePieceApp({
-  filePath: "/repo/src/Pricing.go",
-  source: goSource,
-  target: "RenderGreeting",
-  compileAction: true,
-  actionPackage: goActionPackage,
-  pieceTarget: "MissingTarget"
-});
-if (badGoAppStatus.compileAction) {
-  throw new Error(`compilePieceApp should not attach a compile action for an invalid target: ${JSON.stringify(badGoAppStatus.compileAction)}`);
-}
-if (badGoAppStatus.compileActionDiagnostics?.[0]?.code !== "piece-compile-action-dispatch-failed") {
-  throw new Error(`compilePieceApp did not return a structured compile-action diagnostic: ${JSON.stringify(badGoAppStatus.compileActionDiagnostics)}`);
-}
-if (badGoAppStatus.compileActionSelection?.actionPackageSource !== "explicit") {
-  throw new Error(`compilePieceApp did not retain selection metadata on dispatch failure: ${JSON.stringify(badGoAppStatus.compileActionSelection)}`);
-}
-if ((badGoAppStatus.diagnostics?.issueCount ?? 0) <= (goAppStatus.diagnostics?.issueCount ?? 0)) {
-  throw new Error(`compilePieceApp did not count the compile-action diagnostic: ${JSON.stringify(badGoAppStatus.diagnostics)}`);
-}
-const goActionCacheHit = await compilePieceAction({
-  filePath: "/repo/src/Pricing.go",
-  source: goSource,
-  analysis: goAppStatus.analysis,
-  actionPackage: goActionPackage,
-  actionCacheRecords: [goAppStatus.compileAction.actionCache.record]
-});
-assertSuccess(goActionCacheHit, "Go status-only action-cache hit");
-if (
-  goActionCacheHit.actionCache?.status !== "hit" ||
-  goActionCacheHit.actionCache.matchedRecordKey !== goAppStatus.compileAction.actionCache.record.key ||
-  goActionCacheHit.actionCache.execution?.skipped !== false ||
-  goActionCacheHit.commands.length === 0
-) {
-  throw new Error(`compilePieceAction did not report a non-skipping local cache hit: ${JSON.stringify(goActionCacheHit.actionCache)}`);
+const goActionCacheRoot = await mkdtemp(join(tmpdir(), "piece-go-action-cache-"));
+const goActionCacheStorePath = join(goActionCacheRoot, "action-cache.json");
+try {
+  const goAppStatus = await compilePieceApp({
+    filePath: "/repo/src/Pricing.go",
+    source: goSource,
+    target: "RenderGreeting",
+    compileAction: true,
+    actionPackage: goActionPackage,
+    actionCacheStorePath: goActionCacheStorePath
+  });
+  assertSuccess(goAppStatus.compileAction, "Go app-level Piece action");
+  if (
+    goAppStatus.compileAction.actionCache?.status !== "miss" ||
+    !goAppStatus.compileAction.actionCache.record?.key ||
+    goAppStatus.compileAction.actionCache.execution?.skipped !== false ||
+    goAppStatus.compileAction.actionCache.persistence?.status !== "stored" ||
+    goAppStatus.compileActionSelection?.actionCache?.record?.key !== goAppStatus.compileAction.actionCache.record.key ||
+    goAppStatus.compileActionSelection.actionCache.persistence?.status !== "stored"
+  ) {
+    throw new Error(`compilePieceApp did not expose persisted status-only action cache metadata: ${JSON.stringify({
+      compileActionCache: goAppStatus.compileAction.actionCache,
+      selectionActionCache: goAppStatus.compileActionSelection?.actionCache
+    })}`);
+  }
+  const goActionCacheStore = JSON.parse(await readFile(goActionCacheStorePath, "utf8"));
+  const storedRecord = goActionCacheStore.records?.[goAppStatus.compileAction.actionCache.record.key];
+  if (storedRecord?.kind !== "piece-action-cache-record" || storedRecord.result?.status !== "success") {
+    throw new Error(`compilePieceApp did not persist a usable action-cache record: ${JSON.stringify(goActionCacheStore)}`);
+  }
+  if (JSON.stringify(goAppStatus.compileAction?.pieceAction) !== JSON.stringify(goResult.pieceAction)) {
+    throw new Error(`compilePieceApp did not retain app-level Piece action identity: ${JSON.stringify(goAppStatus.compileAction?.pieceAction)}`);
+  }
+  if (
+    goAppStatus.compileActionSelection?.actionPackageSource !== "explicit" ||
+    goAppStatus.compileActionSelection.feedbackScope.fallbackRequired !== false
+  ) {
+    throw new Error(`compilePieceApp did not expose app-level compile selection metadata: ${JSON.stringify(goAppStatus.compileActionSelection)}`);
+  }
+  const badGoAppStatus = await compilePieceApp({
+    filePath: "/repo/src/Pricing.go",
+    source: goSource,
+    target: "RenderGreeting",
+    compileAction: true,
+    actionPackage: goActionPackage,
+    pieceTarget: "MissingTarget"
+  });
+  if (badGoAppStatus.compileAction) {
+    throw new Error(`compilePieceApp should not attach a compile action for an invalid target: ${JSON.stringify(badGoAppStatus.compileAction)}`);
+  }
+  if (badGoAppStatus.compileActionDiagnostics?.[0]?.code !== "piece-compile-action-dispatch-failed") {
+    throw new Error(`compilePieceApp did not return a structured compile-action diagnostic: ${JSON.stringify(badGoAppStatus.compileActionDiagnostics)}`);
+  }
+  if (badGoAppStatus.compileActionSelection?.actionPackageSource !== "explicit") {
+    throw new Error(`compilePieceApp did not retain selection metadata on dispatch failure: ${JSON.stringify(badGoAppStatus.compileActionSelection)}`);
+  }
+  if ((badGoAppStatus.diagnostics?.issueCount ?? 0) <= (goAppStatus.diagnostics?.issueCount ?? 0)) {
+    throw new Error(`compilePieceApp did not count the compile-action diagnostic: ${JSON.stringify(badGoAppStatus.diagnostics)}`);
+  }
+  const goActionCacheHit = await compilePieceAction({
+    filePath: "/repo/src/Pricing.go",
+    source: goSource,
+    analysis: goAppStatus.analysis,
+    actionPackage: goActionPackage,
+    actionCacheStorePath: goActionCacheStorePath
+  });
+  assertSuccess(goActionCacheHit, "Go status-only action-cache hit");
+  if (
+    goActionCacheHit.actionCache?.status !== "hit" ||
+    goActionCacheHit.actionCache.matchedRecordKey !== goAppStatus.compileAction.actionCache.record.key ||
+    goActionCacheHit.actionCache.execution?.skipped !== false ||
+    goActionCacheHit.actionCache.persistence?.status !== "stored" ||
+    goActionCacheHit.commands.length === 0
+  ) {
+    throw new Error(`compilePieceAction did not report a non-skipping persisted local cache hit: ${JSON.stringify(goActionCacheHit.actionCache)}`);
+  }
+} finally {
+  await rm(goActionCacheRoot, { recursive: true, force: true });
 }
 if (!goResult.commands.some((command) => command.command === "go" && command.args.join(" ") === "list -json ./...")) {
   throw new Error(`Go compile did not run go list before build/test: ${JSON.stringify(goResult.commands)}`);

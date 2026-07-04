@@ -345,7 +345,7 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should move beyond the shipped Phase 1-6 feedback loop:
 
-1. Persist local action-cache records after successful `compilePieceAction()` runs, while still keeping cache hits status-only and non-skipping.
+1. Add explicit opt-in cached artifact reuse for trusted local action-cache hits, guarded by artifact file validation and the existing unsafe/miss gates. The default must remain status-only and non-skipping.
 
 ### Phase 7: Distributed Action Cache and Runtime
 
@@ -373,6 +373,17 @@ The local action-cache status slice is now implemented:
 4. `compilePieceApp({ compileAction: true })` exposes the same status through `compileActionSelection.actionCache`.
 5. Unsafe feedback/project/scope states force `unsafe`; missing local records and missing artifact cache keys force explainable misses.
 6. `npm test` covers the pure record/status contract, and `npm run language:compile:smoke` verifies real non-skipping miss/hit behavior.
+
+## Completed Phase 7 Local Action Cache Persistence Slice
+
+The local action-cache persistence slice is now implemented:
+
+1. Node hosts can pass `actionCacheStorePath` to `compilePieceAction()` or `compilePieceApp({ compileAction: true })`.
+2. `compilePieceAction()` reads existing local store records before explaining hit/miss/bypass/unsafe status.
+3. Successful, safe compile action runs persist a `piece-action-cache-record` plus reviewed result metadata into a JSON `piece-action-cache-store`.
+4. Store hits remain status-only: the language backend still executes and `actionCache.execution.skipped` remains `false`.
+5. Store paths stay outside generated `.pic` metadata, keeping browser/Wasm hosts protocol-only and machine-local paths out of the DSL.
+6. `npm run language:compile:smoke` verifies a persisted Go action-cache miss followed by a non-skipping persisted hit.
 
 ## Completed Roadmap Completion Audit Slice
 

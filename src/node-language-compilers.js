@@ -792,6 +792,200 @@ async function readJsonFile(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
+function actionCacheStoreReason(code, severity, message, extra = {}) {
+  return {
+    code,
+    severity,
+    message,
+    ...extra
+  };
+}
+
+function normalizeNodeActionCacheRecords(records) {
+  if (!records || records === false) {
+    return [];
+  }
+  if (records instanceof Map) {
+    return [...records.entries()]
+      .map(([key, record]) => (record?.key ? record : { ...record, key: String(key) }))
+      .filter((record) => record?.key);
+  }
+  if (Array.isArray(records)) {
+    return records.filter((record) => record?.key);
+  }
+  return Object.entries(records)
+    .map(([key, record]) => (record?.key ? record : { ...record, key }))
+    .filter((record) => record?.key);
+}
+
+function localActionCacheStorePath(options = {}) {
+  if (!options.actionCacheStorePath) {
+    return undefined;
+  }
+  return resolveHostPath(String(options.actionCacheStorePath), options.cwd ?? process.cwd());
+}
+
+function actionCacheRecordsFromStore(store) {
+  const records = store?.records;
+  return normalizeNodeActionCacheRecords(Array.isArray(records) ? records : records ?? {});
+}
+
+async function readLocalActionCacheStoreRecords(storePath) {
+  if (!storePath || !(await pathExists(storePath))) {
+    return {
+      records: []
+    };
+  }
+  try {
+    return {
+      records: actionCacheRecordsFromStore(await readJsonFile(storePath))
+    };
+  } catch (error) {
+    return {
+      records: [],
+      reason: actionCacheStoreReason(
+        "action-cache-store-read-failed",
+        "warning",
+        "The local action-cache store could not be read, so Piece treated the lookup as a miss.",
+        {
+          path: storePath,
+          error: error?.message ?? String(error)
+        }
+      )
+    };
+  }
+}
+
+function actionCacheLookupRecords(options = {}, storeRecords = []) {
+  if (options.actionCacheRecords === false) {
+    return false;
+  }
+  const explicitRecords = normalizeNodeActionCacheRecords(options.actionCacheRecords);
+  if (storeRecords.length === 0 && explicitRecords.length === 0) {
+    return options.actionCacheRecords;
+  }
+  return [...storeRecords, ...explicitRecords];
+}
+
+function appendActionCacheReasons(actionCache, reasons = []) {
+  if (!actionCache || reasons.length === 0) {
+    return actionCache;
+  }
+  return {
+    ...actionCache,
+    reasons: [...(actionCache.reasons ?? []), ...reasons]
+  };
+}
+
+function actionCacheStoreRecordForResult(record, result) {
+  return {
+    ...record,
+    result: {
+      status: result.status,
+      language: result.language,
+      backend: result.backend,
+      filePath: result.filePath,
+      target: result.target,
+      outputFiles: result.outputFiles ?? [],
+      commandCount: result.commands?.length ?? 0,
+      updatedAt: new Date().toISOString()
+    }
+  };
+}
+
+async function persistLocalActionCacheRecord(storePath, record, result, actionCache) {
+  if (!storePath) {
+    return undefined;
+  }
+  if (!record?.key) {
+    return {
+      status: "skipped",
+      path: storePath,
+      reason: "record-missing"
+    };
+  }
+  if (result.status !== "success") {
+    return {
+      status: "skipped",
+      path: storePath,
+      recordKey: record.key,
+      reason: "compile-failed"
+    };
+  }
+  if (actionCache?.status === "unsafe") {
+    return {
+      status: "skipped",
+      path: storePath,
+      recordKey: record.key,
+      reason: "unsafe"
+    };
+  }
+  if (actionCache?.status === "bypass") {
+    return {
+      status: "skipped",
+      path: storePath,
+      recordKey: record.key,
+      reason: "bypass"
+    };
+  }
+  const incompleteIdentityReason = (actionCache?.reasons ?? []).find((reason) =>
+    reason?.code === "artifact-id-missing" || reason?.code === "artifact-cache-key-missing"
+  );
+  if (incompleteIdentityReason) {
+    return {
+      status: "skipped",
+      path: storePath,
+      recordKey: record.key,
+      reason: incompleteIdentityReason.code
+    };
+  }
+
+  try {
+    let existingRecords = {};
+    if (await pathExists(storePath)) {
+      try {
+        const existingStore = await readJsonFile(storePath);
+        existingRecords = Object.fromEntries(actionCacheRecordsFromStore(existingStore).map((candidate) => [candidate.key, candidate]));
+      } catch {
+        existingRecords = {};
+      }
+    }
+    const recordForResult = actionCacheStoreRecordForResult(record, result);
+    const records = {
+      ...existingRecords,
+      [record.key]: recordForResult
+    };
+    await mkdir(dirname(storePath), { recursive: true });
+    await writeFile(
+      storePath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          kind: "piece-action-cache-store",
+          updatedAt: recordForResult.result.updatedAt,
+          records
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    return {
+      status: "stored",
+      path: storePath,
+      recordKey: record.key
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      path: storePath,
+      recordKey: record.key,
+      reason: "write-failed",
+      message: error?.message ?? String(error)
+    };
+  }
+}
+
 function inferKotlinSourceSetFromProjectFile(projectRoot, filePath, cwd) {
   if (!projectRoot || !filePath) return undefined;
   const sourcePath = resolveHostPath(String(filePath), cwd);
@@ -1675,14 +1869,22 @@ export async function compilePieceAction(options = {}) {
     filePath,
     source
   });
-  const actionCache = explainPieceActionCacheStatus({
-    record: actionCacheRecord,
-    records: options.actionCacheRecords,
-    mode: options.actionCacheMode,
-    analysis: options.analysis,
-    actionPackage,
-    artifact: actionDetails.artifact
-  });
+  const storePath = localActionCacheStorePath(options);
+  const storeLookup =
+    storePath && options.actionCacheMode !== "bypass" && options.actionCacheRecords !== false
+      ? await readLocalActionCacheStoreRecords(storePath)
+      : { records: [] };
+  let actionCache = appendActionCacheReasons(
+    explainPieceActionCacheStatus({
+      record: actionCacheRecord,
+      records: actionCacheLookupRecords(options, storeLookup.records),
+      mode: options.actionCacheMode,
+      analysis: options.analysis,
+      actionPackage,
+      artifact: actionDetails.artifact
+    }),
+    storeLookup.reason ? [storeLookup.reason] : []
+  );
   let result;
   if (language === "go") {
     result = await compileGoPieceFile(compileOptions);
@@ -1690,6 +1892,13 @@ export async function compilePieceAction(options = {}) {
     result = await compileKotlinPieceFile(compileOptions);
   } else {
     throw new Error(`Unsupported Piece compile action language: ${language}.`);
+  }
+  const persistence = await persistLocalActionCacheRecord(storePath, actionCacheRecord, result, actionCache);
+  if (persistence) {
+    actionCache = {
+      ...actionCache,
+      persistence
+    };
   }
   return {
     ...result,

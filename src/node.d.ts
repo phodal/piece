@@ -145,6 +145,7 @@ export interface NodeCompilePieceAppOptions extends CompilePieceAppOptions {
     | Record<string, PieceCompileActionCacheRecord>
     | readonly PieceCompileActionCacheRecord[];
   readonly actionCacheMode?: "status-only" | "bypass" | (string & {});
+  readonly actionCacheStorePath?: string;
 }
 
 export interface NodeBuildPiecePreviewOptions extends BuildPiecePreviewOptions {
@@ -323,6 +324,7 @@ export interface CompilePieceActionOptions extends CompileKotlinPieceFileOptions
     | Record<string, PieceCompileActionCacheRecord>
     | readonly PieceCompileActionCacheRecord[];
   readonly actionCacheMode?: "status-only" | "bypass" | (string & {});
+  readonly actionCacheStorePath?: string;
 }
 
 export interface AnalyzeKotlinPieceFileOptions {
