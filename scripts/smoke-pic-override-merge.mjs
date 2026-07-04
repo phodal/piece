@@ -97,6 +97,49 @@ const analysis = await analyzePieceFile({
   source
 });
 
+const analysisWithOverride = await analyzePieceFile({
+  filePath: "/repo/src/DashboardPage.tsx",
+  source,
+  overrideFilePath: "/repo/src/DashboardPage.override.pic",
+  overrideSource: override
+});
+assert(
+  analysisWithOverride.pieceDslSource === "current-file-override",
+  `Expected analysis-level override to mark current-file override .pic source: ${analysisWithOverride.pieceDslSource}`
+);
+assert(analysisWithOverride.pieceDslMerge?.piecePackage, `Expected analysis-level override merge result: ${JSON.stringify(analysisWithOverride.pieceDslMerge)}`);
+assert(
+  !analysisWithOverride.pieceDslMerge.diagnostics.some((diagnostic) => diagnostic.severity === "error" || diagnostic.severity === "warning"),
+  `Unexpected analysis-level override diagnostics: ${JSON.stringify(analysisWithOverride.pieceDslMerge.diagnostics)}`
+);
+assert(
+  analysisWithOverride.pieceDsl.includes('label "//repo/src:dashboard_user_card"'),
+  `Expected analysis-level .pic to include label override:\n${analysisWithOverride.pieceDsl}`
+);
+assert(
+  analysisWithOverride.pieceDsl.includes('"fixtures/user-card.json"'),
+  `Expected analysis-level .pic to include fixture input:\n${analysisWithOverride.pieceDsl}`
+);
+
+const analysisWithBrokenOverride = await analyzePieceFile({
+  filePath: "/repo/src/DashboardPage.tsx",
+  source,
+  overrideFilePath: "/repo/src/DashboardPage.broken.pic",
+  overrideSource: `package "//repo/src:DashboardPage.tsx" { language typescript source "/repo/src/DashboardPage.tsx" target function "UserCard" {`
+});
+assert(
+  analysisWithBrokenOverride.pieceDslSource === "current-file",
+  `Expected broken override to keep generated .pic source: ${analysisWithBrokenOverride.pieceDslSource}`
+);
+assert(
+  analysisWithBrokenOverride.pieceDsl === analysis.pieceDsl,
+  `Expected broken override to keep generated .pic output:\n${analysisWithBrokenOverride.pieceDsl}`
+);
+assert(
+  analysisWithBrokenOverride.pieceDslMerge?.diagnostics.some((diagnostic) => diagnostic.severity === "error"),
+  `Expected broken override diagnostics: ${JSON.stringify(analysisWithBrokenOverride.pieceDslMerge)}`
+);
+
 const merged = await mergePieceDslFiles({
   generatedFilePath: "/repo/src/DashboardPage.generated.pic",
   generatedSource: analysis.pieceDsl,
@@ -159,6 +202,37 @@ assert(
   `Expected Go package analysis to expose selected package view .pic output: ${selectedGoAnalysis.pieceDslSource}`
 );
 assert(selectedGoAnalysis.packageScope?.packageView, `Expected selected package view: ${JSON.stringify(selectedGoAnalysis.packageScope)}`);
+
+const selectedGoAnalysisWithOverride = await analyzePieceFile({
+  filePath: "/repo/src/Pricing.go",
+  source: goSource,
+  sourceFiles: [
+    {
+      filePath: "/repo/src/Discount.go",
+      source: goCompanionSource
+    }
+  ],
+  packageScopeSelection: "safe",
+  overrideFilePath: "/repo/src/Pricing.package.override.pic",
+  overrideSource: packageViewOverride
+});
+assert(
+  selectedGoAnalysisWithOverride.pieceDslSource === "selected-package-view-override",
+  `Expected analysis-level package view override .pic source: ${selectedGoAnalysisWithOverride.pieceDslSource}`
+);
+assert(
+  selectedGoAnalysisWithOverride.pieceDslMerge?.piecePackage,
+  `Expected analysis-level package view override merge result: ${JSON.stringify(selectedGoAnalysisWithOverride.pieceDslMerge)}`
+);
+assert(
+  !selectedGoAnalysisWithOverride.pieceDslMerge.diagnostics.some((diagnostic) => diagnostic.severity === "error" || diagnostic.severity === "warning"),
+  `Unexpected analysis-level package view override diagnostics: ${JSON.stringify(selectedGoAnalysisWithOverride.pieceDslMerge.diagnostics)}`
+);
+assert(
+  selectedGoAnalysisWithOverride.pieceDsl.includes('source "//repo/src:Discount.go"') &&
+    selectedGoAnalysisWithOverride.pieceDsl.includes('"fixtures/discount.json"'),
+  `Expected analysis-level selected package-view .pic to preserve source and include fixture input:\n${selectedGoAnalysisWithOverride.pieceDsl}`
+);
 
 const mergedPackageView = await mergePieceDslFiles({
   generatedFilePath: "/repo/src/Pricing.package.generated.pic",

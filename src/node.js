@@ -13,7 +13,7 @@ import {
   rebuildAffectedPiecePreviews as rebuildCoreAffectedPiecePreviews,
   selectPiecePreviewTarget
 } from "./index.js";
-import { createNodeGoDeclarationExtractor, createNodeKotlinPsiDeclarationExtractor } from "./node-language-compilers.js";
+import { createNodeGoDeclarationExtractor, createNodeKotlinPsiDeclarationExtractor, mergePieceDslFiles } from "./node-language-compilers.js";
 
 const SOURCE_FILE_PATTERN = /\.(tsx?|jsx?|kts?|go)$/;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "coverage"]);
@@ -59,8 +59,50 @@ function withNodeDeclarationExtractor(options = {}) {
   return options;
 }
 
-export function analyzePieceFile(options = {}) {
-  return analyzeCorePieceFile(withNodeDeclarationExtractor(options));
+function hasPieceDslOverride(options = {}) {
+  return options.overrideSource !== undefined || options.overrideFilePath !== undefined;
+}
+
+function primaryGeneratedPackageForAnalysis(analysis) {
+  if (analysis.pieceDslSource === "selected-package-view" && analysis.packageScope?.packageView) {
+    return analysis.packageScope.packageView;
+  }
+  return analysis.piecePackage;
+}
+
+function overridePieceDslSource(source) {
+  return source === "selected-package-view" ? "selected-package-view-override" : "current-file-override";
+}
+
+async function applyPieceDslOverride(analysis, options = {}) {
+  if (!hasPieceDslOverride(options)) {
+    return analysis;
+  }
+  const merged = await mergePieceDslFiles({
+    generatedFilePath: options.generatedFilePath ?? options.filePath?.replace(/\.[^.]+$/, ".generated.pic"),
+    generatedPackage: primaryGeneratedPackageForAnalysis(analysis),
+    overrideFilePath: options.overrideFilePath,
+    overrideSource: options.overrideSource,
+    cwd: options.cwd ?? options.fileSystem?.cwd,
+    env: options.env
+  });
+  if (!merged.piecePackage) {
+    return {
+      ...analysis,
+      pieceDslMerge: merged
+    };
+  }
+  return {
+    ...analysis,
+    pieceDsl: merged.pieceDsl,
+    pieceDslSource: overridePieceDslSource(analysis.pieceDslSource),
+    pieceDslMerge: merged
+  };
+}
+
+export async function analyzePieceFile(options = {}) {
+  const analysis = await analyzeCorePieceFile(withNodeDeclarationExtractor(options));
+  return applyPieceDslOverride(analysis, options);
 }
 
 export function compilePieceApp(options = {}) {

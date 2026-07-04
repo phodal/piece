@@ -1,9 +1,11 @@
 export * from "./index.js";
 import type {
+  AnalyzePieceFileOptions,
   KotlinAnalysisBackendKind,
   PieceAnalysisBackendMetadata,
   PieceBuildEngine,
   PieceDeclarationExtractor,
+  PieceFileAnalysis,
   PieceFileManifest,
   PieceGoListMetadata,
   SingleFilePiecePackage,
@@ -105,6 +107,16 @@ export interface MergePieceDslFilesOptions {
   readonly overrideSource?: string;
   readonly cwd?: string;
   readonly env?: Record<string, string | undefined>;
+}
+
+export interface NodeAnalyzePieceFileOptions extends AnalyzePieceFileOptions {
+  readonly generatedFilePath?: string;
+  readonly overrideFilePath?: string;
+  readonly overrideSource?: string;
+}
+
+export interface NodePieceFileAnalysis extends PieceFileAnalysis {
+  readonly pieceDslMerge?: PieceDslMergeResult;
 }
 
 export interface KotlinPieceDslGenerationResult {
@@ -240,6 +252,7 @@ export interface GoPieceCompileResult extends PieceLanguageCompileResult {
 
 export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise<GoPieceCompileResult>;
 export function compileKotlinPieceFile(options?: CompileKotlinPieceFileOptions): Promise<KotlinPieceCompileResult>;
+export function analyzePieceFile(options?: NodeAnalyzePieceFileOptions): Promise<NodePieceFileAnalysis>;
 export function analyzeKotlinPieceFile(options?: AnalyzeKotlinPieceFileOptions): Promise<PieceFileManifest>;
 export function parsePieceDslFile(options?: ParsePieceDslFileOptions): Promise<PieceDslParseResult>;
 export function mergePieceDslFiles(options?: MergePieceDslFilesOptions): Promise<PieceDslMergeResult>;

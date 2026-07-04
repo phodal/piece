@@ -23,6 +23,7 @@ The repository already has:
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
 - Safe selected Go package-scope package views can become the primary generated `.pic` output while default analysis keeps the current-file `.pic` output.
 - User override `.pic` merging can use a selected package-scope package view as its generated merge base.
+- `piece-compiler/node` analysis can accept override `.pic` input and return merged primary `.pic` output plus merge diagnostics.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -335,8 +336,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Add an analysis-level override path so callers can pass override `.pic` input to `analyzePieceFile()` and receive merged primary `.pic` output from the current-file or selected package-view base.
+1. Decide whether merged override packages should remain metadata-only or feed selected action/snapshot package views through an explicit mode.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 2/6 Analysis-Level Override Slice
+
+The analysis-level override slice is now implemented:
+
+1. `piece-compiler/node` `analyzePieceFile()` accepts `overrideSource` and `overrideFilePath`.
+2. The Node wrapper uses the current primary `.pic` base: current-file package by default or selected package view when `packageScopeSelection: "safe"` passes.
+3. Successful merges replace `analysis.pieceDsl`, attach `analysis.pieceDslMerge`, and mark `pieceDslSource` as `current-file-override` or `selected-package-view-override`.
+4. Failed override parses or merges keep the generated `.pic` output and expose diagnostics through `analysis.pieceDslMerge`.
+5. `npm run pic:override:smoke` verifies both current-file and selected package-view analysis-level overrides.
 
 ## Completed Phase 2/6 Package View Override Merge Slice
 
