@@ -1,5 +1,5 @@
 export * from "./index.js";
-import type { PieceBuildEngine, VirtualFileSystem } from "./index.js";
+import type { PieceBuildEngine, PieceDeclarationExtractor, PieceFileManifest, VirtualFileSystem } from "./index.js";
 export function createNodeEsbuildBuildEngine(options?: {
   readonly name?: string;
   readonly buildOptions?: Record<string, unknown>;
@@ -69,6 +69,18 @@ export interface CompileKotlinPieceFileOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
+export interface AnalyzeKotlinPieceFileOptions {
+  readonly filePath?: string;
+  readonly source?: string;
+  readonly parserName?: string;
+  readonly env?: Record<string, string | undefined>;
+}
+
+export interface NodeKotlinPsiDeclarationExtractorOptions {
+  readonly name?: string;
+  readonly env?: Record<string, string | undefined>;
+}
+
 export interface KotlinPieceCompileResult extends PieceLanguageCompileResult {
   readonly language: "kotlin";
   readonly backend: "kotlin-jvm";
@@ -83,3 +95,5 @@ export interface GoPieceCompileResult extends PieceLanguageCompileResult {
 
 export function compileGoPieceFile(options?: CompileGoPieceFileOptions): Promise<GoPieceCompileResult>;
 export function compileKotlinPieceFile(options?: CompileKotlinPieceFileOptions): Promise<KotlinPieceCompileResult>;
+export function analyzeKotlinPieceFile(options?: AnalyzeKotlinPieceFileOptions): Promise<PieceFileManifest>;
+export function createNodeKotlinPsiDeclarationExtractor(options?: NodeKotlinPsiDeclarationExtractorOptions): PieceDeclarationExtractor;

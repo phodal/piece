@@ -62,3 +62,26 @@ tasks.register<JavaExec>("runKotlinCompileBackend") {
         setArgs(cliArgs)
     }
 }
+
+tasks.register<JavaExec>("runKotlinPsiAnalysisBackend") {
+    dependsOn("jvmMainClasses")
+
+    val jvmCompilation = kotlin.targets.getByName("jvm").compilations.getByName("main")
+    mainClass.set("piece.kotlin.KotlinPsiAnalysisBackendCliKt")
+    classpath = files(jvmCompilation.output.allOutputs, jvmCompilation.runtimeDependencyFiles)
+
+    doFirst {
+        val sourceFile = providers.gradleProperty("pieceAnalysis.sourceFile").orNull
+            ?: error("Missing -PpieceAnalysis.sourceFile=<path>")
+        val outputReport = providers.gradleProperty("pieceAnalysis.outputReport").orNull
+            ?: error("Missing -PpieceAnalysis.outputReport=<path>")
+        setArgs(
+            listOf(
+                "--filePath=${providers.gradleProperty("pieceAnalysis.filePath").orNull ?: "Main.kt"}",
+                "--sourceFile=$sourceFile",
+                "--outputReport=$outputReport",
+                "--parserName=${providers.gradleProperty("pieceAnalysis.parserName").orNull ?: "kotlin-psi-declaration-extractor"}",
+            ),
+        )
+    }
+}

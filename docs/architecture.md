@@ -69,6 +69,8 @@ piece-core/
       PieceReconciler.kt
     jvmMain/kotlin/piece/kotlin/
       KotlinPsiDeclarationExtractor.kt
+      KotlinPsiAnalysisBackend.kt
+      KotlinPsiAnalysisBackendCli.kt
       KotlinCompileBackend.kt
       KotlinCompileBackendCli.kt
     jsMain/kotlin/piece/bridge/
@@ -81,7 +83,7 @@ The common source set owns the DSL, graph model, and snapshot/reconcile primitiv
 
 This follows Kotlin Multiplatform's expect/actual shape: common code exposes the stable API; platform source sets provide platform-specific implementations.
 
-Current JVM status: `KotlinPsiDeclarationExtractor` uses Kotlin compiler PSI to parse a single Kotlin file and emit the same `PiecePackage` shape as the npm-side adapters. `KotlinCompileBackend` is also JVM-side Kotlin code: the npm API invokes it through the `runKotlinCompileBackend` Gradle task, and it owns generated MPP Gradle projects, compile tasks, output discovery, and compile reports. The extractor is still syntax-oriented; Analysis API resolution is the next semantic step for overloads, imported declarations, and cross-file symbols.
+Current JVM status: `KotlinPsiDeclarationExtractor` uses Kotlin compiler PSI to parse a single Kotlin file and emit the same `PiecePackage` shape as the npm-side adapters. `KotlinPsiAnalysisBackend` exposes that PSI path as a Node-callable manifest backend through `runKotlinPsiAnalysisBackend`, so npm hosts can opt into Kotlin-implemented analysis without making the browser bundle depend on Gradle. `KotlinCompileBackend` is also JVM-side Kotlin code: the npm API invokes it through the `runKotlinCompileBackend` Gradle task, and it owns generated MPP Gradle projects, compile tasks, output discovery, and compile reports. The extractor is still syntax-oriented; Analysis API resolution is the next semantic step for overloads, imported declarations, and cross-file symbols.
 
 Current JS bridge status: `piece-core` exports JSON bridge functions from `jsMain`, and the npm package exposes `createKotlinCoreBridge()` so a JavaScript host can call the Kotlin core and receive normal JavaScript `PiecePackage` and `PieceGraph` objects. The bridge accepts generated target specs; it is not intended as a user-authored DSL.
 
@@ -114,10 +116,10 @@ The current repository has not fully moved to this layout yet. Today:
 - TypeScript-family extraction lives in `src/core/typescript-declaration-extractor.js`.
 - `src/languages/typescript/declaration-extractor.js` exposes the TypeScript extractor through the language directory.
 - `src/languages/go/declaration-extractor.js` is the first Go single-file adapter; it emits the same manifest and Bazel-like `PiecePackage` shape without making Go a core dependency.
-- `src/node-language-compilers.js` owns Node host compiler entrypoints. Go compilation is still a Node backend that shells out to `go build`/`go test`; Kotlin compilation delegates to the `piece-core` Kotlin/JVM backend.
+- `src/node-language-compilers.js` owns Node host language-tool entrypoints. Go compilation is still a Node backend that shells out to `go build`/`go test`; Kotlin compilation delegates to the `piece-core` Kotlin/JVM backend. Node hosts can also call `analyzeKotlinPieceFile()` or `createNodeKotlinPsiDeclarationExtractor()` to run Kotlin PSI analysis on the JVM.
 - React preview entry generation lives in `src/core/virtual-modules.js`.
 - `src/adapters/react/virtual-modules.js` exposes the React virtual-module adapter through the adapter directory.
-- Kotlin extraction in `src/languages/kotlin/declaration-extractor.js` is a runnable npm-side adapter for single-file experiments.
+- Kotlin extraction in `src/languages/kotlin/declaration-extractor.js` remains a runnable npm-side adapter for single-file experiments and browser-safe fallback. Node-side Kotlin PSI analysis lives in `piece-core` and is exposed through `piece-compiler/node`.
 - `src/core/piece-package.js` exposes the Bazel-like single-file package view.
 - `piece-core/` contains the Kotlin MPP model/DSL/graph/reconcile scaffold for the second phase.
 
@@ -160,6 +162,7 @@ PieceTarget
 The current host backends follow that shape:
 
 - `compileGoPieceFile()` creates a temporary Go module, writes the single `.go` file, runs `go build`, and can run `go test`.
+- `analyzeKotlinPieceFile()` is the npm entrypoint for Node-side Kotlin PSI analysis. It writes the source to a temporary host file, invokes `piece-core`'s JVM backend, and returns a normal `PieceFileManifest`.
 - `compileKotlinPieceFile()` is the npm entrypoint, but the compile implementation lives in Kotlin/JVM under `piece-core`. It creates a temporary Kotlin Multiplatform project, writes the single `.kt` file into the selected source set, and runs Gradle tasks for `jvm`, `js`, `wasmJs`, or `all`.
 - `piece-core` DSL has `go()` and `compile()` so language-specific implementations can be represented in the same generated DSL:
 

@@ -50,6 +50,9 @@ jobs:
       - name: Core check
         run: npm run core:check
 
+      - name: Language analysis smoke
+        run: npm run language:analysis:smoke
+
       - name: Language compile smoke
         run: npm run language:compile:smoke
 

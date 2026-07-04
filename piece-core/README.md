@@ -7,7 +7,7 @@ The first npm package remains the runnable host for editors and React preview. T
 Current scope:
 
 - `commonMain`: model, DSL, graph, snapshot/reconcile contracts.
-- `jvmMain`: Kotlin compiler PSI extractor that maps a single `.kt` file into a `PiecePackage`, plus the Kotlin/JVM compile backend used by the npm host.
+- `jvmMain`: Kotlin compiler PSI extractor that maps a single `.kt` file into a `PiecePackage`, the Node-callable PSI analysis backend, and the Kotlin/JVM compile backend used by the npm host.
 - `jsMain`: bridge boundary for npm-facing integration.
 
 Use the checked-in Gradle wrapper for local validation:
@@ -19,4 +19,4 @@ Use the checked-in Gradle wrapper for local validation:
 From the repository root, the same Gradle project is available through the
 delegating `./gradlew` script.
 
-The current JVM extractor is syntax-oriented. The compile backend already runs on the JVM side and uses Gradle/Kotlin MPP as the actual toolchain. A later semantic slice should add Kotlin Analysis API resolution for overloads, imports, and cross-file symbols.
+The current JVM extractor is syntax-oriented. The PSI analysis backend already returns an npm-compatible `PieceFileManifest`, and the compile backend runs on the JVM side using Gradle/Kotlin MPP as the actual toolchain. A later semantic slice should add Kotlin Analysis API resolution for overloads, imports, and cross-file symbols.

@@ -1,0 +1,41 @@
+package piece.kotlin
+
+import java.nio.file.Path
+import kotlin.io.path.createDirectories
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
+import kotlin.system.exitProcess
+
+fun main(args: Array<String>) {
+    val options = args.mapNotNull { arg ->
+        if (!arg.startsWith("--")) return@mapNotNull null
+        val index = arg.indexOf('=')
+        if (index < 0) return@mapNotNull arg.drop(2) to ""
+        arg.substring(2, index) to arg.substring(index + 1)
+    }.toMap()
+
+    val sourceFile = options.required("sourceFile")
+    val outputReport = Path.of(options.required("outputReport"))
+    val source = Path.of(sourceFile).readText()
+    val request = KotlinPsiAnalysisRequest(
+        filePath = options["filePath"]?.takeIf { it.isNotBlank() } ?: "Main.kt",
+        source = source,
+        parserName = options["parserName"]?.takeIf { it.isNotBlank() } ?: "kotlin-psi-declaration-extractor",
+    )
+
+    val result = try {
+        KotlinPsiAnalysisBackend().analyze(request)
+    } catch (error: Throwable) {
+        errorKotlinPsiManifest(request, error)
+    }
+
+    outputReport.parent?.createDirectories()
+    outputReport.writeText(result.toJson() + "\n")
+    if (result.diagnostics.any { it.severity == "error" }) {
+        exitProcess(1)
+    }
+}
+
+private fun Map<String, String>.required(name: String): String {
+    return this[name]?.takeIf { it.isNotBlank() } ?: error("Missing --$name=<value>")
+}

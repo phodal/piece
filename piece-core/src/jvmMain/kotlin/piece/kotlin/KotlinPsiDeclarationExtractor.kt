@@ -89,7 +89,7 @@ class KotlinPsiDeclarationExtractor : DeclarationExtractor {
     }
 }
 
-private data class KotlinPieceDeclaration(
+internal data class KotlinPieceDeclaration(
     val name: String,
     val kind: PieceTargetKind,
     val range: PieceSourceRange,
@@ -131,7 +131,7 @@ private fun KotlinPieceDeclaration.toTarget(
     )
 }
 
-private fun KtDeclaration.toPieceDeclaration(file: SourceFile): KotlinPieceDeclaration? {
+internal fun KtDeclaration.toPieceDeclaration(file: SourceFile): KotlinPieceDeclaration? {
     val name = name ?: return null
     val kind = when (this) {
         is KtClass -> if (isInterface()) PieceTargetKind.Type else PieceTargetKind.Class
@@ -201,7 +201,7 @@ private fun KtNameReferenceExpression.isQualifiedSelector(): Boolean {
     return selector.textRange.contains(textRange)
 }
 
-private fun sourceRange(source: String, startByte: Int, endByte: Int): PieceSourceRange {
+internal fun sourceRange(source: String, startByte: Int, endByte: Int): PieceSourceRange {
     return PieceSourceRange(
         startByte = startByte,
         endByte = endByte,
@@ -210,11 +210,11 @@ private fun sourceRange(source: String, startByte: Int, endByte: Int): PieceSour
     )
 }
 
-private fun lineNumberAt(source: String, offset: Int): Int {
+internal fun lineNumberAt(source: String, offset: Int): Int {
     return source.take(offset.coerceIn(0, source.length)).count { it == '\n' } + 1
 }
 
-private inline fun <T> withKtFile(file: SourceFile, block: (KtFile) -> T): T {
+internal inline fun <T> withKtFile(file: SourceFile, block: (KtFile) -> T): T {
     val disposable = Disposer.newDisposable()
     try {
         val configuration = CompilerConfiguration().apply {

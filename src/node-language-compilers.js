@@ -145,6 +145,21 @@ async function readJsonFile(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
+function errorKotlinPsiManifest({ filePath, source, parserName, commands }) {
+  return {
+    version: 1,
+    filePath,
+    source,
+    parser: parserName,
+    slices: [],
+    headers: [],
+    effects: [],
+    importBindings: [],
+    hasTopLevelEffect: false,
+    diagnostics: diagnosticsFromCommands(commands)
+  };
+}
+
 export async function compileGoPieceFile(options = {}) {
   const filePath = options.filePath ?? "Main.go";
   const source = options.source ?? "";
@@ -244,4 +259,51 @@ export async function compileKotlinPieceFile(options = {}) {
   } finally {
     await cleanupWorkspace(hostWorkspace, false);
   }
+}
+
+export async function analyzeKotlinPieceFile(options = {}) {
+  const filePath = options.filePath ?? "Main.kt";
+  const source = options.source ?? "";
+  const parserName = options.parserName ?? "kotlin-psi-declaration-extractor";
+  const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-analysis-host-");
+  const hostWorkspace = hostWorkspaceInfo.path;
+  const sourceFile = join(hostWorkspace, sourceBasename(filePath, "Main.kt"));
+  const outputReport = join(hostWorkspace, "analysis-report.json");
+
+  try {
+    await writeFile(sourceFile, source, "utf8");
+    const args = [
+      "-p",
+      join(PACKAGE_ROOT, "piece-core"),
+      "runKotlinPsiAnalysisBackend",
+      "--quiet",
+      `-PpieceAnalysis.filePath=${filePath}`,
+      `-PpieceAnalysis.sourceFile=${sourceFile}`,
+      `-PpieceAnalysis.outputReport=${outputReport}`,
+      `-PpieceAnalysis.parserName=${parserName}`
+    ];
+
+    const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
+    if (await pathExists(outputReport)) {
+      return readJsonFile(outputReport);
+    }
+    return errorKotlinPsiManifest({ filePath, source, parserName, commands: [backendCommand] });
+  } finally {
+    await cleanupWorkspace(hostWorkspace, false);
+  }
+}
+
+export function createNodeKotlinPsiDeclarationExtractor(options = {}) {
+  const name = options.name ?? "kotlin-psi-declaration-extractor";
+  return {
+    name,
+    extract({ filePath, source }) {
+      return analyzeKotlinPieceFile({
+        filePath,
+        source,
+        parserName: name,
+        env: options.env
+      });
+    }
+  };
 }
