@@ -64,6 +64,7 @@ async function assertRoundTrip({ filePath, source, language, expectedSnippets, a
   const analysis = await analyzePieceFile({ filePath, source, ...analysisOptions });
   assert(analysis.piecePackage.language === language, `Expected ${language} package, got ${analysis.piecePackage.language}`);
   assert(analysis.pieceDsl === piecePackageToPicDsl(analysis.piecePackage), `Expected analysis.pieceDsl to match package writer for ${filePath}`);
+  assert(analysis.pieceDslSource === "current-file", `Expected default .pic source to stay current-file for ${filePath}: ${analysis.pieceDslSource}`);
 
   for (const snippet of expectedSnippets) {
     assert(analysis.pieceDsl.includes(snippet), `Expected generated .pic to include ${snippet}:\n${analysis.pieceDsl}`);
@@ -154,6 +155,18 @@ const selectedGoAnalysis = await analyzePieceFile({
   ],
   packageScopeSelection: "safe"
 });
+assert(
+  selectedGoAnalysis.pieceDslSource === "selected-package-view",
+  `Expected safe package-scope selection to make selected package view the primary .pic source: ${selectedGoAnalysis.pieceDslSource}`
+);
+assert(
+  selectedGoAnalysis.pieceDsl === piecePackageToPicDsl(selectedGoAnalysis.packageScope.packageView),
+  `Expected safe package-scope selection to emit packageView as primary .pic:\n${selectedGoAnalysis.pieceDsl}`
+);
+assert(
+  selectedGoAnalysis.pieceDsl !== piecePackageToPicDsl(selectedGoAnalysis.piecePackage),
+  `Expected selected package-scope .pic to differ from default current-file package .pic.`
+);
 assert(goAnalysis.manifest.parser === "go-ast-declaration-extractor", `Expected Node Go analysis to use Go AST backend: ${goAnalysis.manifest.parser}`);
 assert(goAnalysis.manifest.analysisBackend?.actual === "go-ast", `Expected Go-owned analysis backend metadata: ${JSON.stringify(goAnalysis.manifest.analysisBackend)}`);
 assert(goAnalysis.manifest.toolchain?.kind === "go-list", `Expected Go analysis to include go-list metadata: ${JSON.stringify(goAnalysis.manifest.toolchain)}`);
@@ -245,7 +258,7 @@ assert(
     !selectedGreetingTarget?.externalDeps.includes("/repo/src/Discount.go#Discount"),
   `Expected selected Go package view to replace Discount external dep with promoted target dep: ${JSON.stringify(selectedGreetingTarget)}`
 );
-const selectedPackageViewPic = piecePackageToPicDsl(selectedGoAnalysis.packageScope.packageView);
+const selectedPackageViewPic = selectedGoAnalysis.pieceDsl;
 assert(
   selectedPackageViewPic.includes('source "//repo/src:Discount.go"'),
   `Expected selected package view .pic to retain promoted target source label:\n${selectedPackageViewPic}`

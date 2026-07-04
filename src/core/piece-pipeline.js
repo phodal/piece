@@ -89,6 +89,19 @@ function createAnalysisActionCache(options, manifest) {
   });
 }
 
+function primaryPicPackage(piecePackage, packageScope) {
+  if (packageScope?.status === "selected" && packageScope?.promotion?.appliedToPackageView && packageScope?.packageView) {
+    return {
+      piecePackage: packageScope.packageView,
+      source: "selected-package-view"
+    };
+  }
+  return {
+    piecePackage,
+    source: "current-file"
+  };
+}
+
 export async function analyzePieceFile(options) {
   const startedAt = nowMs();
   const extractor = options.declarationExtractor ?? (await resolveDefaultDeclarationExtractor(options.filePath));
@@ -118,6 +131,7 @@ export async function analyzePieceFile(options) {
     feedbackScope,
     selection: options.packageScopeSelection
   });
+  const primaryPic = primaryPicPackage(piecePackage, packageScope);
 
   const analysis = {
     version: 1,
@@ -128,7 +142,8 @@ export async function analyzePieceFile(options) {
     actionCache,
     piecePackage,
     ...(packageScope ? { packageScope } : {}),
-    pieceDsl: piecePackageToPicDsl(piecePackage),
+    pieceDsl: piecePackageToPicDsl(primaryPic.piecePackage),
+    pieceDslSource: primaryPic.source,
     previewTargets,
     metrics: {
       totalMs: roundMs(nowMs() - startedAt),
@@ -316,6 +331,7 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     feedbackScope,
     selection: options.packageScopeSelection
   });
+  const primaryPic = primaryPicPackage(piecePackage, packageScope);
 
   const analysis = {
     version: 1,
@@ -326,7 +342,8 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     actionCache,
     piecePackage,
     ...(packageScope ? { packageScope } : {}),
-    pieceDsl: piecePackageToPicDsl(piecePackage),
+    pieceDsl: piecePackageToPicDsl(primaryPic.piecePackage),
+    pieceDslSource: primaryPic.source,
     previewTargets,
     metrics: {
       totalMs: graphResult.ms,

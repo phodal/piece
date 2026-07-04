@@ -21,6 +21,7 @@ The repository already has:
 - An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain`, target-level source preservation, and a Node smoke entrypoint.
 - A Kotlin PSI `.pic` generator that emits deterministic package text and verifies the generated file by parsing it back through the same ANTLR backend.
 - Go and TypeScript `.pic` generation through `analyzePieceFile().pieceDsl`, with ANTLR round-trip smoke coverage for package parity.
+- Safe selected Go package-scope package views can become the primary generated `.pic` output while default analysis keeps the current-file `.pic` output.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -333,8 +334,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Decide when selected package-scope `packageView` should become the primary generated `.pic` output instead of an auxiliary view.
+1. Add a package-view-aware merge path so user override `.pic` files can patch selected package-scope outputs without falling back to the current-file package.
 2. Keep the existing current-file fast path as the default unless the package/source-set model proves a safe wider boundary.
+
+## Completed Phase 5/6 Primary Package View `.pic` Slice
+
+The seventh Phase 6 scope slice is now implemented:
+
+1. `analyzePieceFile()` keeps current-file `.pic` output by default.
+2. When `packageScopeSelection: "safe"` passes the selection gate, `analysis.pieceDsl` is generated from the selected `packageScope.packageView`.
+3. `analysis.pieceDslSource` records whether primary `.pic` output came from `current-file` or `selected-package-view`.
+4. The default `analysis.piecePackage` remains the current-file package so preview and snapshot inner loops do not silently widen.
+5. `npm run pic:source:smoke` verifies default `.pic` output remains current-file and safe Go package-scope selection emits a round-trippable selected package view.
 
 ## Completed Phase 2/6 Target Source Round-Trip Slice
 

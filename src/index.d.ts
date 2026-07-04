@@ -168,6 +168,7 @@ export type PieceEdgeKind = "runtime" | "type" | "external" | "unknown";
 export type PieceFallbackMode = "none" | "include-effect-segment" | "whole-file";
 export type PieceFeedbackScopeLevel = "piece" | "file" | "source-set" | "project";
 export type PiecePackageScopeSelection = "current-file" | "safe" | (string & {});
+export type PieceDslSource = "current-file" | "selected-package-view" | (string & {});
 
 export interface PieceRule {
   readonly name: string;
@@ -747,6 +748,7 @@ export interface PieceFileAnalysis {
   readonly piecePackage: SingleFilePiecePackage;
   readonly packageScope?: PiecePackageScopeTargetModel;
   readonly pieceDsl: string;
+  readonly pieceDslSource: PieceDslSource;
   readonly previewTargets: readonly string[];
   readonly metrics: PieceFileAnalysisMetrics;
   readonly snapshot: PieceSnapshot;

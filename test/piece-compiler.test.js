@@ -145,6 +145,7 @@ describe("piece compiler", () => {
     expect(analysis.pieceDsl).toContain("language typescript");
     expect(analysis.pieceDsl).toContain('target function "UserCard"');
     expect(analysis.pieceDsl).toContain('externalDeps "antd#Tag"');
+    expect(analysis.pieceDslSource).toBe("current-file");
     expect(analysis.feedbackScope).toMatchObject({
       level: "piece",
       fallbackRequired: false
@@ -826,6 +827,7 @@ export function UserCard() {
     expect(analysis.pieceDsl).toContain("language go");
     expect(analysis.pieceDsl).toContain('target function "RenderGreeting"');
     expect(analysis.pieceDsl).toContain('action compile {');
+    expect(analysis.pieceDslSource).toBe("current-file");
   });
 
   it("rebuilds Go affected targets with full reanalysis", async () => {
