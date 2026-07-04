@@ -102,6 +102,7 @@ function actionPackageSource(options = {}, analysis) {
   if (analysis?.actionPackage) return "analysis-action-package";
   if (analysis?.snapshot?.actionPackage) return "snapshot-action-package";
   if (analysis?.packageScope?.status === "selected" && analysis.packageScope.packageView) return "selected-package-view";
+  if (analysis?.sourceSetScope?.status === "selected" && analysis.sourceSetScope.packageView) return "selected-source-set-view";
   if (analysis?.piecePackage) return "analysis-piece-package";
   return "missing";
 }
@@ -175,6 +176,9 @@ function selectedPackageViewActionPackageForSnapshot(options = {}, analysis) {
   }
   if (analysis?.packageScope?.status === "selected" && analysis.packageScope.packageView) {
     return analysis.packageScope.packageView;
+  }
+  if (analysis?.sourceSetScope?.status === "selected" && analysis.sourceSetScope.packageView) {
+    return analysis.sourceSetScope.packageView;
   }
   return undefined;
 }

@@ -127,6 +127,7 @@ function actionPackageForCompileAction(options = {}) {
     options.analysis?.actionPackage ??
     options.analysis?.snapshot?.actionPackage ??
     (options.analysis?.packageScope?.status === "selected" ? options.analysis.packageScope.packageView : undefined) ??
+    (options.analysis?.sourceSetScope?.status === "selected" ? options.analysis.sourceSetScope.packageView : undefined) ??
     options.analysis?.piecePackage
   );
 }

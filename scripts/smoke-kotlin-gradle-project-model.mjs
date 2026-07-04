@@ -490,6 +490,10 @@ fun detached(): String = "detached"
     `Expected app-level compile action dispatch to return diagnostics for missing target: ${JSON.stringify(appStatus)}`
   );
   assert(
+    appStatus.compileActionSelection?.actionPackageSource === "selected-source-set-view",
+    `Expected app-level compile action selection to use the selected source-set package view: ${JSON.stringify(appStatus.compileActionSelection)}`
+  );
+  assert(
     appStatus.compileActionSelection?.sourceSet?.status === "selected" &&
       appStatus.compileActionSelection.sourceSet.projectPath === ":app" &&
       JSON.stringify(appStatus.compileActionSelection.sourceSet.projectPaths) === JSON.stringify([":app", ":domain"]) &&
@@ -502,6 +506,14 @@ fun detached(): String = "detached"
       appStatus.compileActionSelection.sourceSet.projectDependencyCount >= 1 &&
       appStatus.compileActionSelection.sourceSet.targetVariantCount >= 2,
     `App-level compile action selection did not expose source-set proof metadata: ${JSON.stringify(appStatus.compileActionSelection)}`
+  );
+  assert(
+    !appStatus.analysis?.actionPackage &&
+      appStatus.analysis?.snapshot?.actionPackage?.targets.some((target) => target.label === promotedUserTarget.label),
+    `App-level compile status did not retain the selected source-set package view snapshot: ${JSON.stringify({
+      actionPackage: appStatus.analysis?.actionPackage,
+      snapshotActionPackage: appStatus.analysis?.snapshot?.actionPackage
+    })}`
   );
   assert(
     Object.values(analysis.snapshot.artifacts).every((artifact) => artifact.cacheKey),

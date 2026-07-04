@@ -32,6 +32,7 @@ The repository already has:
 - `compilePieceApp({ compileAction: true })` can attach an opt-in language compile report to app status.
 - App-level compile action dispatch failures return structured diagnostics without discarding app status.
 - App-level compile action status exposes action package source, feedback-scope blockers, package-scope selection state, and source-set scope metadata.
+- App-level compile action status can carry selected source-set package views into action package selection and snapshots without changing preview target selection.
 - Generated `.pic` plus user override `.pic` merging, including selected target labels, per-target source labels, visibility, fixture inputs, and explicit action config.
 - A Kotlin analysis backend selector exposed through Node and JVM options, with manifest metadata that records requested and actual semantic engines.
 - A language-neutral `feedbackScope` explanation that reports piece, file, source-set, or project handling level, carries selected Kotlin Gradle/KMP source-set scope inputs, records Go package-scope fast-path policy, and feeds fallback-scope plus structured fallback-reason identity into generated actions, snapshots, and preview runtime cache hashes.
@@ -344,7 +345,17 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Carry explicit source-set package views into app-level compile action package selection and snapshots without changing default preview graph behavior.
+1. Allow selected source-set package views to participate in `.pic` override merge bases behind an explicit mode, while keeping metadata-only defaults.
+
+## Completed Phase 5/6 App-Level Source-Set Action Package Slice
+
+The app-level source-set action package slice is now implemented:
+
+1. `compilePieceAction()` can use `analysis.sourceSetScope.packageView` as its action package when source-set scope status is `selected`.
+2. Explicit `actionPackage`, `analysis.actionPackage`, and `snapshot.actionPackage` still take precedence over selected source-set package views.
+3. `compilePieceApp({ compileAction: true })` reports `compileActionSelection.actionPackageSource: "selected-source-set-view"` for selected source-set package view dispatch.
+4. App-level compile status snapshots can retain the selected source-set package view as `analysis.snapshot.actionPackage` without setting `analysis.actionPackage`.
+5. `npm run language:project-model:smoke` verifies selected `:app` `jvmMain` source-set package view selection and snapshot retention while preserving app status on dispatch diagnostics.
 
 ## Completed Phase 5/6 Source-Set Package View Slice
 

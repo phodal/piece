@@ -165,6 +165,7 @@ export interface NodeCompileActionSelection {
     | "analysis-action-package"
     | "snapshot-action-package"
     | "selected-package-view"
+    | "selected-source-set-view"
     | "analysis-piece-package"
     | "missing"
     | (string & {});
