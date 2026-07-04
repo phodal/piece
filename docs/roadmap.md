@@ -15,7 +15,7 @@ The repository already has:
 
 - A language-neutral manifest, graph, closure, package, and reconcile pipeline in `src/core/`.
 - TypeScript-family extraction and React preview as one feedback adapter, not the core abstraction.
-- A Go single-file adapter plus a Node-hosted Go AST analyzer, package-scoped Go action metadata, and `compileGoPieceFile()` using `go list -json`, `go build`, and `go test`.
+- A Go single-file adapter plus a Node-hosted Go AST analyzer, package-local companion graph edges, package-scoped Go action metadata, and `compileGoPieceFile()` using `go list -json`, `go build`, and `go test`.
 - `piece-core` as a Kotlin Multiplatform core with model, builder DSL, graph, and reconcile contracts in `commonMain`.
 - Kotlin/JVM PSI extraction, compiler diagnostics, BindingContext-backed symbol refinement, source-set companion files, host-provided classpath entries, Gradle/KMP `projectRoot` analysis input discovery, dependency coordinates, project dependencies, target variants, source-set-scoped project model inputs, stable project model hashes in action/cache identities, and a Gradle/KMP compile backend.
 - An ANTLR-backed JVM parser for `.pic` files, with AST and model conversion in `commonMain` and a Node smoke entrypoint.
@@ -33,7 +33,7 @@ The important gaps are:
 - Kotlin semantic analysis can explicitly request PSI, FE10 `BindingContext`, or Analysis API. Analysis API is guarded by an opt-in Gradle configuration and now covers same-file shadowing, companion source-set external bindings, imported aliases, simple jar-backed classpath classes, Kotlin constructors, Kotlin top-level jar functions, Kotlin extension jar functions, owner-qualified member properties, callable signatures for overload and generic fixtures, and signature-qualified graph edges when one declaration calls multiple overloads of the same imported function.
 - Kotlin project discovery has a JVM Gradle Tooling API path for analysis and compile inputs. `projectRoot` can discover KMP source roots, compile classpaths, dependency coordinates, project dependencies, and target variants; saved-file compile can run an inferred real project variant; source-set-scoped project model hashes now feed action/cache identities; and unsafe or incomplete project discovery produces explicit scope fallback diagnostics.
 - Kotlin compile actions are real and owned by the JVM backend, with real-project `projectRoot` compile for saved files and generated temporary MPP projects for unsaved single-file buffers. The final shape should keep making Kotlin/JVM the rule owner and Node only the invoker.
-- Go extraction now has a Node-hosted Go AST analyzer with a JavaScript fallback for root/browser use. Go action identity can include same-package companion files through `go list` metadata and package source hashes, but the declaration graph is still focused on the edited file. The long-term Go rule should expand toward full package/source-set graph scope using `go list`, `go test`, and `go build` as source-of-truth boundaries.
+- Go extraction now has a Node-hosted Go AST analyzer with a JavaScript fallback for root/browser use. Go action identity can include same-package companion files through `go list` metadata and package source hashes, and current-file graphs can resolve companion declarations as package-local external edges. The long-term Go rule should expand toward full package/source-set targets using `go list`, `go test`, and `go build` as source-of-truth boundaries.
 - The root/browser-safe Kotlin extractor remains a lightweight fallback. Production Kotlin semantics should be routed through `piece-compiler/node` or a service/local agent.
 - Cache keys, artifact reuse, and fallback policy now include source, dependency, project-model, fallback-scope, source-set, Go toolchain/package-source scope, compiler-options, and dependency-artifact identity for single-file feedback, but they are not yet a complete multi-language action cache.
 
@@ -156,6 +156,7 @@ Definition of done: a Kotlin file inside a real Gradle/KMP project can be analyz
 - Done: make Node Go analysis attach `go list -json ./...` metadata to the manifest and generated Piece action-cache inputs.
 - Done: add a Go-owned AST analyzer behind the Node host contract, with JavaScript fallback for browser-safe extraction.
 - Done: let Node Go analysis include companion `sourceFiles` / `sourceRoots` in `go list` package metadata and `go-package-scope:<hash>` action-cache inputs.
+- Done: resolve Go companion declarations into package-local external graph edges without turning companion files into current-file targets.
 - Keep JS/TS support first-class, but as one language rule family, not the core architecture.
 
 Definition of done: Piece defines targets/actions/artifacts, while each language backend owns the rule implementation through official tooling.
@@ -328,8 +329,18 @@ The third Phase 6 slice is now implemented:
 
 The next implementation slice should keep moving through Phase 5 and Phase 6:
 
-1. Extend Go from package-scoped action identity into package-scoped declaration graph edges.
+1. Decide whether Go companion declarations should become package-level targets or stay external bindings until a multi-file package model exists.
 2. Preserve single-file speed by keeping current-file graph extraction as the default fast path when package scope is unsafe or too expensive.
+
+## Completed Phase 5 Go Package Graph Edge Slice
+
+The fifth Phase 5 Go ownership slice is now implemented:
+
+1. Companion `.go` files are parsed through the same Go-owned AST analyzer as the primary file.
+2. Companion top-level declarations become package-local `PieceImportBinding` records on the current manifest.
+3. The existing slice graph builder turns current-file references to companion declarations into external graph edges such as `/repo/src/Discount.go#Discount`.
+4. Generated `.pic` package text carries those companion declarations as external deps, without minting current-file targets for companion files.
+5. `npm run pic:source:smoke` verifies the companion binding, external graph edge, generated `.pic` external dep, `go list` metadata, package scope action input, and ANTLR round trip.
 
 ## Completed Phase 5 Go Package Scope Action Slice
 

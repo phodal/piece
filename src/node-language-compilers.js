@@ -216,6 +216,36 @@ function goAnalyzerFallbackBackend(reason) {
   };
 }
 
+function compareGoImportBindings(left, right) {
+  return `${left.local}:${left.imported}:${left.source}:${left.kind}`.localeCompare(
+    `${right.local}:${right.imported}:${right.source}:${right.kind}`
+  );
+}
+
+function uniqueGoImportBindings(bindings) {
+  const seen = new Set();
+  return bindings
+    .filter((binding) => {
+      const key = `${binding.local}:${binding.imported}:${binding.source}:${binding.kind}:${binding.isTypeOnly}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort(compareGoImportBindings);
+}
+
+function goCompanionBindingFromSlice(slice) {
+  const name = slice?.exportName ?? slice?.name;
+  if (!name || !slice?.filePath) return undefined;
+  return {
+    local: name,
+    imported: name,
+    source: slice.filePath,
+    kind: "named",
+    isTypeOnly: slice.kind === "type"
+  };
+}
+
 async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env }) {
   const workspaceInfo = await prepareWorkspace("piece-go-analyzer-");
   const workspace = workspaceInfo.path;
@@ -240,6 +270,47 @@ async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env }) {
       await cleanupWorkspace(workspace, false);
     }
   }
+}
+
+async function collectGoCompanionBindings({ companions = [], goCommand = "go", env }) {
+  const bindings = [];
+  const diagnostics = [];
+  for (const companion of companions) {
+    const analyzerResult = await runGoAstAnalyzer({
+      filePath: companion.filePath,
+      source: companion.source ?? "",
+      goCommand,
+      env
+    });
+    if (!analyzerResult.manifest) {
+      diagnostics.push(
+        goAnalyzerFallbackDiagnostic(
+          analyzerResult.command,
+          analyzerResult.error
+            ? `Go AST analyzer returned invalid JSON for companion ${companion.filePath}: ${analyzerResult.error.message}`
+            : `Go AST analyzer was unavailable for companion ${companion.filePath}`
+        )
+      );
+      continue;
+    }
+    bindings.push(...(analyzerResult.manifest.slices ?? []).map(goCompanionBindingFromSlice).filter(Boolean));
+    diagnostics.push(...(analyzerResult.manifest.diagnostics ?? []));
+  }
+  return {
+    bindings: uniqueGoImportBindings(bindings),
+    diagnostics
+  };
+}
+
+function attachGoCompanionBindings(manifest, companionBindings, companionDiagnostics) {
+  if (companionBindings.length === 0 && companionDiagnostics.length === 0) {
+    return manifest;
+  }
+  return {
+    ...manifest,
+    importBindings: uniqueGoImportBindings([...(manifest.importBindings ?? []), ...companionBindings]),
+    diagnostics: [...(manifest.diagnostics ?? []), ...companionDiagnostics]
+  };
 }
 
 function goWorkspaceRelativePath(filePath, primaryFilePath, cwd) {
@@ -1235,6 +1306,18 @@ export function createNodeGoDeclarationExtractor(options = {}) {
             diagnostics: [...(fallbackManifest.diagnostics ?? []), diagnostic]
           };
         }
+      }
+      if (options.goAnalyzer !== false && options.backend !== "javascript" && companionSources.length > 0) {
+        const companionBindingResult = await collectGoCompanionBindings({
+          companions: companionSources,
+          goCommand: options.goCommand ?? "go",
+          env: options.env
+        });
+        manifest = attachGoCompanionBindings(
+          manifest,
+          companionBindingResult.bindings,
+          companionBindingResult.diagnostics
+        );
       }
       if (options.goList === false) {
         return manifest;

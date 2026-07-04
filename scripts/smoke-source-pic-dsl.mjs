@@ -36,6 +36,7 @@ type User struct {
 
 type Greeting struct {
   Message string
+  Discount Discount
 }
 
 const prefix = "Hello"
@@ -135,6 +136,7 @@ const goAnalysis = await assertRoundTrip({
     "language go",
     "go-list:",
     "go-package-scope:",
+    'externalDeps "/repo/src/Discount.go#Discount"',
     'runtimeDeps "//repo/src:Pricing.go__value_prefix"',
     'typeDeps "//repo/src:Pricing.go__type_Greeting", "//repo/src:Pricing.go__type_User"',
     'externalDeps "fmt#fmt"',
@@ -152,6 +154,16 @@ assert(
 assert(
   goAnalysis.manifest.toolchain?.packageScope?.files?.some((file) => file.filePath === "/repo/src/Discount.go"),
   `Expected Go package scope to include companion source file: ${JSON.stringify(goAnalysis.manifest.toolchain?.packageScope)}`
+);
+assert(
+  goAnalysis.manifest.importBindings.some((binding) => binding.local === "Discount" && binding.source === "/repo/src/Discount.go"),
+  `Expected Go companion declaration binding: ${JSON.stringify(goAnalysis.manifest.importBindings)}`
+);
+assert(
+  goAnalysis.graph.edges.some(
+    (edge) => edge.kind === "external" && edge.to === "/repo/src/Discount.go#Discount" && edge.symbols.includes("Discount")
+  ),
+  `Expected Go companion declaration to become package-scoped graph edge: ${JSON.stringify(goAnalysis.graph.edges)}`
 );
 assert(
   goAnalysis.actionCache.toolchainInputs.includes(`go-list:${goAnalysis.manifest.toolchain.goList.packageHash}`),
