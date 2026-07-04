@@ -469,10 +469,27 @@ export function Other() {
           visibility: ["//visibility:private"]
         }
       ],
-      actions: [],
+      actions: [
+        {
+          id: "//repo/src:Pricing.go__type_Greeting%feedback",
+          target: "//repo/src:Pricing.go__type_Greeting",
+          kind: "feedback",
+          mnemonic: "PieceFeedback",
+          inputs: ["//repo/src:Pricing.go", "/repo/src/Discount.go#Discount"],
+          outputs: ["//repo/src:Pricing.go__type_Greeting.piece.json"]
+        }
+      ],
       artifacts: []
     };
     const packageScope = createPackageScopeTargetModel({ filePath: manifest.filePath, manifest, graph, piecePackage });
+    const selectedPackageScope = createPackageScopeTargetModel({
+      filePath: manifest.filePath,
+      manifest,
+      graph,
+      piecePackage,
+      feedbackScope: { level: "piece", fallbackRequired: false },
+      selection: "safe"
+    });
 
     expect(packageScope).toMatchObject({
       kind: "package-scope-target-model",
@@ -496,6 +513,30 @@ export function Other() {
         symbols: ["Discount"]
       })
     );
+    expect(selectedPackageScope).toMatchObject({
+      status: "selected",
+      promotion: {
+        requested: "safe",
+        appliedToDefaultPackage: false,
+        appliedToPackageView: true
+      }
+    });
+    expect(selectedPackageScope.packageView.targets).toContainEqual(
+      expect.objectContaining({
+        label: "//repo/src:Discount.go__type_Discount",
+        source: "//repo/src:Discount.go"
+      })
+    );
+    expect(selectedPackageScope.packageView.targets.find((target) => target.label === "//repo/src:Pricing.go__type_Greeting")).toMatchObject({
+      deps: ["//repo/src:Discount.go__type_Discount"],
+      externalDeps: []
+    });
+    expect(
+      selectedPackageScope.packageView.actions.find((action) => action.id === "//repo/src:Pricing.go__type_Greeting%feedback")?.inputs
+    ).toContain("//repo/src:Discount.go__type_Discount");
+    expect(
+      selectedPackageScope.packageView.actions.find((action) => action.id === "//repo/src:Discount.go__type_Discount%compile")?.inputs
+    ).toContain("go-package-scope:package-scope-hash");
   });
 
   it("compiles virtual closure modules with node esbuild", async () => {

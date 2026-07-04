@@ -143,6 +143,17 @@ const goAnalysis = await assertRoundTrip({
     'action compile {'
   ]
 });
+const selectedGoAnalysis = await analyzePieceFile({
+  filePath: "/repo/src/Pricing.go",
+  source: goSource,
+  sourceFiles: [
+    {
+      filePath: "/repo/src/Discount.go",
+      source: goCompanionSource
+    }
+  ],
+  packageScopeSelection: "safe"
+});
 assert(goAnalysis.manifest.parser === "go-ast-declaration-extractor", `Expected Node Go analysis to use Go AST backend: ${goAnalysis.manifest.parser}`);
 assert(goAnalysis.manifest.analysisBackend?.actual === "go-ast", `Expected Go-owned analysis backend metadata: ${JSON.stringify(goAnalysis.manifest.analysisBackend)}`);
 assert(goAnalysis.manifest.toolchain?.kind === "go-list", `Expected Go analysis to include go-list metadata: ${JSON.stringify(goAnalysis.manifest.toolchain)}`);
@@ -212,6 +223,27 @@ assert(
       edge.symbols.includes("Discount")
   ),
   `Expected Go package-scope model to remap the companion external edge: ${JSON.stringify(goAnalysis.packageScope?.promotedEdges)}`
+);
+assert(
+  selectedGoAnalysis.packageScope?.status === "selected" &&
+    selectedGoAnalysis.packageScope?.promotion?.requested === "safe" &&
+    selectedGoAnalysis.packageScope?.promotion?.appliedToPackageView === true,
+  `Expected safe Go package-scope selection to pass: ${JSON.stringify(selectedGoAnalysis.packageScope)}`
+);
+const selectedDiscountTarget = selectedGoAnalysis.packageScope?.packageView?.targets.find(
+  (target) => target.label === "//repo/src:Discount.go__type_Discount"
+);
+assert(
+  selectedDiscountTarget?.source === "//repo/src:Discount.go",
+  `Expected selected Go package view to include promoted Discount target: ${JSON.stringify(selectedGoAnalysis.packageScope?.packageView?.targets)}`
+);
+const selectedGreetingTarget = selectedGoAnalysis.packageScope?.packageView?.targets.find(
+  (target) => target.label === "//repo/src:Pricing.go__type_Greeting"
+);
+assert(
+  selectedGreetingTarget?.deps.includes("//repo/src:Discount.go__type_Discount") &&
+    !selectedGreetingTarget?.externalDeps.includes("/repo/src/Discount.go#Discount"),
+  `Expected selected Go package view to replace Discount external dep with promoted target dep: ${JSON.stringify(selectedGreetingTarget)}`
 );
 assert(
   goAnalysis.actionCache.toolchainInputs.includes(`go-list:${goAnalysis.manifest.toolchain.goList.packageHash}`),

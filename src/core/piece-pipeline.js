@@ -114,7 +114,9 @@ export async function analyzePieceFile(options) {
     filePath: options.filePath,
     manifest: manifestResult.value,
     graph: graphResult.value,
-    piecePackage
+    piecePackage,
+    feedbackScope,
+    selection: options.packageScopeSelection
   });
 
   const analysis = {
@@ -310,7 +312,9 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
     filePath: options.filePath,
     manifest,
     graph: graphResult.value,
-    piecePackage
+    piecePackage,
+    feedbackScope,
+    selection: options.packageScopeSelection
   });
 
   const analysis = {

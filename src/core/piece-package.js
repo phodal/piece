@@ -301,7 +301,195 @@ function compareByLabel(left, right) {
   return left.label.localeCompare(right.label);
 }
 
-export function createPackageScopeTargetModel({ filePath, manifest, graph, piecePackage }) {
+function actionKindForLanguage(language) {
+  return supportsCompileAction(language) ? ["feedback", "compile"] : ["feedback"];
+}
+
+function defaultArtifactKind(kind) {
+  return kind === "compile" ? "piece-compile" : "piece-feedback";
+}
+
+function promotedPackageTarget(target, language) {
+  const actionKinds = actionKindForLanguage(language);
+  return {
+    id: target.id,
+    label: target.label,
+    name: target.name,
+    kind: target.kind,
+    rule: target.rule,
+    source: target.source,
+    deps: [],
+    runtimeDeps: [],
+    typeDeps: [],
+    externalDeps: [],
+    actions: actionKinds.map((kind) => `${target.label}%${kind}`),
+    artifacts: actionKinds.map((kind) => `${target.label}.${kind === "compile" ? "compile" : "piece"}.json`),
+    visibility: ["//visibility:private"]
+  };
+}
+
+function promotedActionsForTarget(target, packageScopeInput) {
+  return target.actions.map((id) => {
+    const kind = id.endsWith("%compile") ? "compile" : "feedback";
+    return {
+      id,
+      target: target.label,
+      kind,
+      mnemonic: kind === "compile" ? "PieceCompile" : "PieceFeedback",
+      inputs: uniquePreserveOrder([target.source, packageScopeInput]),
+      outputs: [`${target.label}.${kind === "compile" ? "compile" : "piece"}.json`]
+    };
+  });
+}
+
+function promotedArtifactsForTarget(target) {
+  return target.actions.map((id) => {
+    const kind = id.endsWith("%compile") ? "compile" : "feedback";
+    const artifactId = `${target.label}.${kind === "compile" ? "compile" : "piece"}.json`;
+    return {
+      id: artifactId,
+      target: target.label,
+      kind: defaultArtifactKind(kind),
+      path: `${sanitizeModulePart(artifactId)}`
+    };
+  });
+}
+
+function applyPromotedDepsToTarget(target, promotedEdges) {
+  if (promotedEdges.length === 0) {
+    return target;
+  }
+  const promotedByExternal = new Map(promotedEdges.map((edge) => [edge.externalIdentity, edge.to]));
+  return {
+    ...target,
+    deps: uniqueSorted([...target.deps, ...promotedEdges.map((edge) => edge.to)]),
+    externalDeps: target.externalDeps.filter((dep) => !promotedByExternal.has(dep))
+  };
+}
+
+function applyPromotedDepsToAction(action, promotedEdgesByTarget) {
+  const promotedEdges = promotedEdgesByTarget.get(action.target) ?? [];
+  if (promotedEdges.length === 0) {
+    return action;
+  }
+  const promotedByExternal = new Map(promotedEdges.map((edge) => [edge.externalIdentity, edge.to]));
+  return {
+    ...action,
+    inputs: uniquePreserveOrder(action.inputs.map((input) => promotedByExternal.get(input) ?? input))
+  };
+}
+
+function packageViewRules(piecePackage, promotedTargets) {
+  const rules = new Map((piecePackage.rules ?? []).map((rule) => [rule.name, rule]));
+  for (const target of promotedTargets) {
+    if (!rules.has(target.rule)) {
+      rules.set(target.rule, {
+        name: target.rule,
+        language: piecePackage.language,
+        targetKind: target.kind,
+        actionKind: supportsCompileAction(piecePackage.language) ? "compile" : "feedback",
+        implementation: `${piecePackage.language || "generic"}.${target.kind}.${supportsCompileAction(piecePackage.language) ? "compile" : "feedback"}`
+      });
+    }
+  }
+  return [...rules.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function createSelectedPackageView(piecePackage, model) {
+  const promotedEdgesByTarget = new Map();
+  for (const edge of model.promotedEdges) {
+    if (!promotedEdgesByTarget.has(edge.from)) {
+      promotedEdgesByTarget.set(edge.from, []);
+    }
+    promotedEdgesByTarget.get(edge.from).push(edge);
+  }
+  const promotedTargets = model.promotedTargets.map((target) => promotedPackageTarget(target, model.language));
+  return {
+    ...piecePackage,
+    rules: packageViewRules(piecePackage, promotedTargets),
+    targets: [...piecePackage.targets.map((target) => applyPromotedDepsToTarget(target, promotedEdgesByTarget.get(target.label) ?? [])), ...promotedTargets],
+    actions: [
+      ...piecePackage.actions.map((action) => applyPromotedDepsToAction(action, promotedEdgesByTarget)),
+      ...promotedTargets.flatMap((target) => promotedActionsForTarget(target, model.packageScopeInput))
+    ],
+    artifacts: [...piecePackage.artifacts, ...promotedTargets.flatMap(promotedArtifactsForTarget)]
+  };
+}
+
+function packageScopeSelectionStatus({ selection, feedbackScope, targets, promotedEdges, currentTargets, packageScope }) {
+  const requested = selection ?? "current-file";
+  const blockedReasons = [];
+  const currentLabels = new Set(currentTargets.map((target) => target.label));
+  const promotedLabels = new Set();
+
+  for (const target of targets) {
+    if (currentLabels.has(target.label)) {
+      blockedReasons.push({
+        code: "package-scope-target-label-conflict",
+        severity: "warning",
+        message: `Package-scope target ${target.label} conflicts with an existing current-file target.`
+      });
+    }
+    if (promotedLabels.has(target.label)) {
+      blockedReasons.push({
+        code: "package-scope-target-duplicate",
+        severity: "warning",
+        message: `Package-scope target ${target.label} was produced more than once.`
+      });
+    }
+    promotedLabels.add(target.label);
+  }
+
+  for (const edge of promotedEdges) {
+    if (edge.fromResolved === false) {
+      blockedReasons.push({
+        code: "package-scope-edge-unmapped-source",
+        severity: "warning",
+        message: `Package-scope edge from ${edge.from} could not be mapped back to a generated current-file target.`
+      });
+    }
+  }
+
+  if (targets.length === 0) {
+    blockedReasons.push({
+      code: "package-scope-no-promoted-targets",
+      severity: "info",
+      message: "No package-scope companion targets are available for selection."
+    });
+  }
+
+  if (feedbackScope?.fallbackRequired) {
+    blockedReasons.push({
+      code: "package-scope-feedback-fallback",
+      severity: "warning",
+      message: "Package-scope selection is disabled while feedback scope already requires file or project fallback."
+    });
+  }
+
+  if (packageScope?.status !== "selected") {
+    blockedReasons.push({
+      code: "package-scope-not-selected",
+      severity: "warning",
+      message: "Package-scope selection requires a selected toolchain package scope."
+    });
+  }
+
+  const canSelect = requested === "safe" && targets.length > 0 && blockedReasons.every((reason) => reason.severity === "info");
+  return {
+    requested,
+    status: canSelect ? "selected" : targets.length > 0 ? "candidate" : "file",
+    appliedToDefaultPackage: false,
+    appliedToPackageView: canSelect,
+    blockedReasons,
+    reason: canSelect
+      ? "Package-scope targets passed the safe selection gate and are available in packageView."
+      : targets.length > 0
+        ? "Package-scope targets are available as a candidate model while the default feedback package keeps the current-file fast path."
+        : "No package-scope companion targets are available for promotion."
+  };
+}
+
+export function createPackageScopeTargetModel({ filePath, manifest, graph, piecePackage, feedbackScope, selection }) {
   const packageScope = packageScopeFromManifest(manifest);
   if (!packageScope) {
     return undefined;
@@ -352,30 +540,33 @@ export function createPackageScopeTargetModel({ filePath, manifest, graph, piece
       to: label,
       kind: edge.kind,
       symbols: edge.symbols ?? [],
-      externalIdentity: externalDependencyId(edge)
+      externalIdentity: externalDependencyId(edge),
+      fromResolved: currentTargetsBySliceId.has(edge.from)
     });
   }
 
   const targets = [...promotedTargets.values()].sort(compareByLabel);
-  const status = targets.length > 0 ? "candidate" : "file";
-  return {
+  const promotion = packageScopeSelectionStatus({
+    selection,
+    feedbackScope,
+    targets,
+    promotedEdges,
+    currentTargets,
+    packageScope
+  });
+  const model = {
     version: 1,
     kind: "package-scope-target-model",
-    status,
+    status: promotion.status,
     language: languageForManifest(manifest),
     packageName: bazelPackageName(filePath),
     label: `//${bazelPackageName(filePath)}:__package_scope`,
     filePath,
     sourceFile: sourceLabel(filePath),
+    packageScopeHash: packageScope.hash,
+    packageScopeInput: packageScope.input,
     targetPolicy: packageScope.targetPolicy,
-    promotion: {
-      status,
-      appliedToDefaultPackage: false,
-      reason:
-        targets.length > 0
-          ? "Package-scope targets are available as a candidate model while the default feedback package keeps the current-file fast path."
-          : "No package-scope companion targets are available for promotion."
-    },
+    promotion,
     sourceFiles: sourceFilesForPackageScope(packageScope, filePath),
     currentTargets,
     promotedTargets: targets,
@@ -383,4 +574,10 @@ export function createPackageScopeTargetModel({ filePath, manifest, graph, piece
       `${left.from}:${left.to}:${left.kind}:${left.symbols.join(",")}`.localeCompare(`${right.from}:${right.to}:${right.kind}:${right.symbols.join(",")}`)
     )
   };
+  return promotion.appliedToPackageView
+    ? {
+        ...model,
+        packageView: createSelectedPackageView(currentPackage, model)
+      }
+    : model;
 }
