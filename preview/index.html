@@ -3,16 +3,22 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Piece Compiler Preview</title>
+    <title>Piece Build Feedback Demo</title>
     <link rel="stylesheet" href="./preview.css" />
   </head>
   <body>
     <main class="shell">
-      <section class="pane editor-pane" aria-label="TSX editor">
+      <section class="pane editor-pane" aria-label="Piece preview workbench">
         <header class="toolbar">
           <div>
-            <h1>Piece Compiler</h1>
-            <p>Declaration-level TSX pieces</p>
+            <h1>Piece</h1>
+            <p>Browser preview adapter over the shared piece/action/artifact model</p>
+            <div class="runtime-rail" aria-label="Runtime coverage">
+              <span><b>Browser</b> TSX preview</span>
+              <span><b>Node</b> JS/TS, Go</span>
+              <span><b>JVM</b> Kotlin/KMP</span>
+              <span><b>.pic</b> ANTLR metadata</span>
+            </div>
           </div>
           <div class="actions">
             <button id="run-benchmark" type="button">Run Benchmark</button>
@@ -30,12 +36,23 @@
       <section class="pane preview-pane" aria-label="Compiled HTML preview">
         <header class="toolbar">
           <div>
-            <h2>Compiled HTML</h2>
+            <h2>Piece Feedback</h2>
             <p id="status">Initializing compiler...</p>
           </div>
           <div class="target-chip" id="target">target: UserCard</div>
         </header>
         <iframe id="preview" title="Compiled piece preview" sandbox="allow-scripts allow-same-origin"></iframe>
+        <section class="runtime-status" aria-label="Local backend status">
+          <div>
+            <b>Hosted demo</b>
+            <span>Browser-safe preview and metrics</span>
+          </div>
+          <div>
+            <b>Local host</b>
+            <span>Go, Kotlin, JS/TS compile actions and action cache</span>
+          </div>
+          <a href="./wasm/">Kotlin/Wasm smoke</a>
+        </section>
         <section class="metrics" aria-label="Compile metrics">
           <h3>Metrics</h3>
           <div id="metrics-grid" class="metrics-grid"></div>

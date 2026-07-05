@@ -15,7 +15,7 @@ Try the live demo: [phodal.github.io/piece](https://phodal.github.io/piece/)
 
 ## The Idea
 
-Traditional build systems think in files, targets, actions, and artifacts. That model is still useful, but agent edits are usually smaller than a file.
+Traditional build systems think in files, targets, actions, and artifacts. That model is still useful, but agent edits are usually smaller than a file. Piece keeps the Bazel-style discipline and moves the inner-loop target boundary down to the semantic piece.
 
 ```text
 source file
@@ -61,16 +61,22 @@ The core vocabulary is intentionally small:
 
 ## What Works Today
 
-- JavaScript, TypeScript, JSX, and TSX piece extraction.
-- React preview feedback with virtual modules and incremental rebuild metrics.
-- Go extraction through a Node-hosted Go AST analyzer, package-local companion graph edges, explicit current-file target policy for companion declarations, candidate package-scope target models with a safe opt-in selection gate, selected package-view `.pic` and compile action output, package-scoped `go list -json` action identity, and same-package `go build` / `go test` feedback for supplied companion sources.
-- Kotlin PSI analysis through the JVM backend, with optional compiler diagnostics and project-model scoped fallback.
-- Kotlin compile feedback through Gradle-backed JVM tooling.
-- Generated `.pic` metadata, Node-side analysis-level override merging, explicit action/snapshot override mode, package-view-aware override bases, helper-level action package propagation, language compile action selection and dispatch, app-level opt-in compile actions with structured diagnostics and selection metadata, and an ANTLR-backed JVM parser for the same package, target, action, artifact, and per-target source model.
-- Action cache identity that includes target source, dependency edges, fallback scope, structured fallback reasons, selected Kotlin source sets, Go `go list` package metadata, Go package source hashes, host compiler options, and dependency artifact hashes.
+- A language-neutral package, target, action, artifact, graph, fallback, and cache model in `src/core/`.
+- JavaScript, TypeScript, JSX, and TSX extraction, plus browser preview feedback with virtual modules and incremental rebuild metrics.
+- JS/TS compile actions through a Node-hosted esbuild language rule, so React and TSX are adapters, not the product boundary.
+- Go extraction through a Node-hosted Go AST analyzer, package-local companion graph edges, safe package-scope selection, package-view `.pic` output, `go list -json` identity, and same-package `go build` / `go test` feedback.
+- Kotlin analysis through the JVM backend, with PSI, guarded Analysis API coverage, Gradle/KMP project-model discovery, source-set fallback metadata, and Gradle-backed JVM compile feedback.
+- Generated and override `.pic` metadata parsed by an ANTLR-backed JVM parser for the same package, target, action, artifact, source, and cacheKey model.
+- Local action-cache records for Go, Kotlin, JavaScript, and TypeScript compile actions, exposed through `compilePieceAction()` and `compilePieceApp({ compileAction: true })`.
+- Opt-in `actionCacheMode: "reuse-local"` artifact reuse from a content-addressed local artifact store, with SHA-256 content hashes and filesystem validation before any backend is skipped.
+- Safety gates for feedback fallback, Gradle project-model fallback, unsafe package/source-set promotion, missing artifact ids, missing cache keys, missing cached files, and mismatched cached file metadata.
 - Snapshot reconciliation for changed pieces, dirty propagation, reused artifacts, and invalidated artifacts.
 
 React is just one adapter. JS/TS, Go, Kotlin, and `.pic` metadata share the same manifest, graph, action, and artifact model.
+
+## GitHub Pages Demo
+
+The hosted demo runs the browser-safe path: TSX piece extraction, piece preview bundling with `esbuild-wasm`, incremental closure metrics, and a Kotlin/Wasm core smoke page. Local compile actions, action-cache stores, Go tooling, and Kotlin/JVM or Gradle execution stay in the Node/JVM host path and are verified by the local smoke commands.
 
 ## Try It Locally
 
@@ -80,6 +86,12 @@ npm run preview
 ```
 
 Open `http://127.0.0.1:8797` and use `Sample Edit` to watch a piece-level update rebuild only the affected preview path.
+
+To exercise the local compile and action-cache path across Go, Kotlin, and JS/TS:
+
+```sh
+npm run language:compile:smoke
+```
 
 ## Install
 
@@ -96,12 +108,17 @@ src/
   core/                 manifest, graph, closure, reconcile, package model
   languages/            JS/TS, Kotlin, and Go extractors
   adapters/react/       React preview adapter
+  node-language-compilers.js
+                        Go, Kotlin, JS/TS compile action dispatch
 
 piece-core/
   src/commonMain/       Kotlin MPP model, DSL, graph, reconcile contracts
   src/jvmMain/          Kotlin PSI, diagnostics, Gradle project model, compile backend
   src/jsMain/           npm-facing bridge
   src/wasmJsMain/       browser smoke bridge
+
+grammar/
+  Piece.g4              .pic grammar consumed by the JVM ANTLR backend
 
 docs/
   architecture.md       design model and single-file Bazel mapping

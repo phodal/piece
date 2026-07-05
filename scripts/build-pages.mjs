@@ -20,14 +20,15 @@ await writeFile(
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Piece Core WASM Smoke</title>
+    <title>Piece Kotlin/Wasm Smoke</title>
     <style>
       body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 2rem; line-height: 1.5; }
       code { background: #f4f4f5; padding: 0.2rem 0.35rem; border-radius: 4px; }
     </style>
   </head>
   <body>
-    <h1>Piece Core WASM Smoke</h1>
+    <h1>Piece Kotlin/Wasm Smoke</h1>
+    <p>Browser hosts can load the shared model and graph code. Kotlin/Go compiler execution stays in the local Node/JVM backend.</p>
     <p id="status">Loading Kotlin/Wasm bundle...</p>
     <script src="./piece-core.js"></script>
     <script>
