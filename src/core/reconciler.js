@@ -34,18 +34,42 @@ function slicePublicShapeSource(slice) {
   return source;
 }
 
-function createDeclarationRecord(slice, graph) {
-  const dependencies = graph.edges.filter((edge) => edge.from === slice.id).map((edge) => edge.to);
-  const publicShapeHash = stableTextHash(
-    [
-      slice.kind,
-      slice.name ?? "",
-      slice.exportName ?? "",
-      slice.isDefaultExport ? "default" : "",
-      slice.preview.previewable ? "previewable" : "",
-      slicePublicShapeSource(slice)
-    ].join("\u001f")
-  );
+function indexEdgesBySource(graph) {
+  const index = new Map();
+  for (const edge of graph.edges) {
+    const list = index.get(edge.from);
+    if (list) {
+      list.push(edge);
+    } else {
+      index.set(edge.from, [edge]);
+    }
+  }
+  return index;
+}
+
+function createDeclarationRecord(slice, edgesBySource, previousDeclaration) {
+  const outgoingEdges = edgesBySource.get(slice.id) ?? [];
+  const dependencies = outgoingEdges.map((edge) => edge.to);
+  const runtimeDependencies = outgoingEdges.filter((edge) => edge.kind === "runtime").map((edge) => edge.to);
+  const typeDependencies = outgoingEdges.filter((edge) => edge.kind === "type").map((edge) => edge.to);
+
+  // The public shape hash is a pure function of the slice's own text (kind, name, export
+  // metadata, and the signature-only source below). If the slice body hash is unchanged from
+  // the previous declaration, the shape hash cannot have changed either, so reuse it instead of
+  // re-hashing the (trimmed) source on every reconcile.
+  const canReusePublicShapeHash = previousDeclaration && previousDeclaration.textHash === slice.hashes.bodyHash;
+  const publicShapeHash = canReusePublicShapeHash
+    ? previousDeclaration.publicShapeHash
+    : stableTextHash(
+        [
+          slice.kind,
+          slice.name ?? "",
+          slice.exportName ?? "",
+          slice.isDefaultExport ? "default" : "",
+          slice.preview.previewable ? "previewable" : "",
+          slicePublicShapeSource(slice)
+        ].join("\u001f")
+      );
 
   return {
     id: slice.id,
@@ -58,8 +82,8 @@ function createDeclarationRecord(slice, graph) {
     publicShapeHash,
     deps: sortStrings(dependencies),
     dependencyIds: sortStrings(dependencies),
-    directRuntimeDependencyIds: sortStrings(graph.edges.filter((edge) => edge.from === slice.id && edge.kind === "runtime").map((edge) => edge.to)),
-    directTypeDependencyIds: sortStrings(graph.edges.filter((edge) => edge.from === slice.id && edge.kind === "type").map((edge) => edge.to))
+    directRuntimeDependencyIds: sortStrings(runtimeDependencies),
+    directTypeDependencyIds: sortStrings(typeDependencies)
   };
 }
 
@@ -136,13 +160,12 @@ function touchedPiecesForRanges(declarations, ranges = []) {
   return [...touched].sort();
 }
 
-function reverseDependents(graph, seedIds) {
-  const reverse = reversePieceGraph(graph);
+function reverseDependents(reverseGraph, seedIds) {
   const affected = new Set();
   const queue = [...seedIds];
   while (queue.length > 0) {
     const current = queue.shift();
-    for (const edge of reverse.get(current) ?? []) {
+    for (const edge of reverseGraph.get(current) ?? []) {
       if (!affected.has(edge.from)) {
         affected.add(edge.from);
         queue.push(edge.from);
@@ -160,13 +183,13 @@ function changedEffectHash(manifest) {
   return hashParts(manifest.effects.map((effect) => `${effect.id}:${effect.hashes.bodyHash}`));
 }
 
-function previewTargetsAffectedByDirtyPieces(graph, previewTargets, dirtyPieces) {
-  const dependents = reverseDependents(graph, dirtyPieces);
+function previewTargetsAffectedByDirtyPieces(reverseGraph, previewTargets, dirtyPieces) {
+  const dependents = reverseDependents(reverseGraph, dirtyPieces);
   const candidates = new Set([...dirtyPieces, ...dependents]);
   return previewTargets.filter((target) => candidates.has(target)).sort();
 }
 
-export function createPieceSnapshot({ analysis, artifacts, version = 1, compilerOptionsHash = "", compilerOptions, dependencyArtifacts, actionCache }) {
+export function createPieceSnapshot({ analysis, artifacts, version = 1, compilerOptionsHash = "", compilerOptions, dependencyArtifacts, actionCache, previousDeclarations }) {
   const projectModelHash = analysis.manifest.projectModel?.analysisScope?.hashes?.scopeHash ?? analysis.manifest.projectModel?.hashes?.modelHash ?? "";
   const feedbackScope = analysis.feedbackScope ?? explainPieceFeedbackScope({ manifest: analysis.manifest, graph: analysis.graph });
   const resolvedActionCache =
@@ -178,7 +201,10 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
     projectModelHash,
     feedbackScope.hashes.fallbackScopeHash
   ];
-  const declarations = withDependencyHashes(analysis.manifest.slices.map((slice) => createDeclarationRecord(slice, analysis.graph))).map((declaration) => ({
+  const edgesBySource = indexEdgesBySource(analysis.graph);
+  const declarations = withDependencyHashes(
+    analysis.manifest.slices.map((slice) => createDeclarationRecord(slice, edgesBySource, previousDeclarations?.[slice.id]))
+  ).map((declaration) => ({
     ...declaration,
     artifactCacheKey: hashParts([declaration.artifactCacheKey, ...cacheKeySalt])
   }));
@@ -206,6 +232,7 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
 
 export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRanges = [], artifacts, compilerOptionsHash = "", compilerOptions, dependencyArtifacts, actionCache }) {
   const previous = previousSnapshot;
+  const previousDeclarations = previous?.declarations ?? {};
   const nextSnapshot = createPieceSnapshot({
     analysis,
     artifacts,
@@ -213,7 +240,8 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
     compilerOptionsHash,
     compilerOptions,
     dependencyArtifacts,
-    actionCache
+    actionCache,
+    previousDeclarations
   });
 
   if (!previous) {
@@ -235,7 +263,6 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
     };
   }
 
-  const previousDeclarations = previous.declarations ?? {};
   const nextDeclarations = nextSnapshot.declarations;
   const allDeclarationIds = sortStrings([...Object.keys(previousDeclarations), ...Object.keys(nextDeclarations)]);
   const touchedPieces = sortStrings([...touchedPiecesForRanges(previousDeclarations, changedRanges), ...touchedPiecesForRanges(nextDeclarations, changedRanges)]);
@@ -255,8 +282,11 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
 
   const changedHeaders = previous.headerHash !== nextSnapshot.headerHash;
   const changedEffects = previous.effectHash !== nextSnapshot.effectHash;
+  // Build the reverse dependency graph once and reuse it for both the public-shape dirty
+  // propagation below and the preview-target lookup further down, instead of rebuilding it twice.
+  const reverseGraph = reversePieceGraph(analysis.graph);
   const dirtyPieces = new Set(changedPieces);
-  for (const id of reverseDependents(analysis.graph, publicShapeChangedPieces)) {
+  for (const id of reverseDependents(reverseGraph, publicShapeChangedPieces)) {
     dirtyPieces.add(id);
   }
   if (changedHeaders || changedEffects) {
@@ -286,7 +316,7 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
     changedPieces: [...changedPieces].sort(),
     publicShapeChangedPieces: [...publicShapeChangedPieces].sort(),
     dirtyPieces: [...dirtyPieces].sort(),
-    affectedTargets: changedHeaders || changedEffects ? [...analysis.previewTargets] : previewTargetsAffectedByDirtyPieces(analysis.graph, analysis.previewTargets, dirtyPieces),
+    affectedTargets: changedHeaders || changedEffects ? [...analysis.previewTargets] : previewTargetsAffectedByDirtyPieces(reverseGraph, analysis.previewTargets, dirtyPieces),
     reusedArtifactIds: reusedArtifactIds.sort(),
     invalidatedArtifactIds: invalidatedArtifactIds.sort(),
     changedHeaders,
