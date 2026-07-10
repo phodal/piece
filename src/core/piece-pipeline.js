@@ -14,7 +14,7 @@ import { stableTextHash } from "./hash.js";
 import { collectIdentifierReferences, createSourceRange } from "./source-utils.js";
 
 const KOTLIN_MANIFEST_PARSERS = new Set(["kotlin-declaration-extractor", "kotlin-psi-declaration-extractor"]);
-const INCREMENTAL_MANIFEST_PARSERS = new Set(["typescript-declaration-extractor", ...KOTLIN_MANIFEST_PARSERS]);
+const INCREMENTAL_MANIFEST_PARSERS = new Set(["typescript-declaration-extractor", "fallback-declaration-extractor", ...KOTLIN_MANIFEST_PARSERS]);
 
 const KOTLIN_INCREMENTAL_EXCLUDED = [
   "abstract",

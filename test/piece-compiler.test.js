@@ -8,6 +8,7 @@ import {
   createPieceCompiler,
   createPieceActionCacheRecord,
   createPieceSnapshot,
+  createFallbackDeclarationExtractor,
   createSourceSetScopeTargetModel,
   explainPieceActionCacheStatus,
   explainPieceFeedbackScope,
@@ -1662,6 +1663,28 @@ export function UserCard() {
     expect(editResult.affectedTargets.map((id) => id.split("#")[1])).toEqual(["function:UserCard"]);
     expect(editResult.analysis.snapshot).toBe(editResult.reconciliation.snapshot);
     expect(editResult.analysis.snapshot.revision).toBe(previousAnalysis.snapshot.revision + 1);
+  });
+
+  it("uses incremental analysis with the browser-safe fallback extractor", async () => {
+    const compiler = createPieceCompiler();
+    const declarationExtractor = createFallbackDeclarationExtractor();
+    const previousSource = sampleSource();
+    const previousAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: previousSource,
+      declarationExtractor
+    });
+    const nextSource = previousSource.replace("props.user.id", "props.user.ID");
+    const editResult = await compiler.applyEdit({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: nextSource,
+      previousAnalysis,
+      declarationExtractor,
+      changedRanges: [changedRange(previousSource, nextSource)]
+    });
+
+    expect(editResult.analysis.metrics.incremental).toBe(true);
+    expect(editResult.edit.changedSlices.map((id) => id.split("#")[1])).toEqual(["function:UserCard"]);
   });
 
   it("reuses unchanged declaration records when an equal-length incremental edit keeps their ranges stable", async () => {
