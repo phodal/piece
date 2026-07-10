@@ -492,6 +492,26 @@ export type PieceWorkspaceLanguage = "auto" | "javascript" | "typescript" | "go"
 /** Deliberately opaque until a caller turns the workspace plan into a strict fallback policy. */
 export type PieceWorkspaceFallbackConfig = Readonly<Record<string, unknown>>;
 
+/** JSON-like data accepted as non-executable per-project analysis input. */
+export type PieceWorkspaceAnalysisOptionValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly PieceWorkspaceAnalysisOptionValue[]
+  | Readonly<{ readonly [key: string]: PieceWorkspaceAnalysisOptionValue }>;
+
+/**
+ * The workspace API deliberately accepts only data that cannot replace a
+ * language tool, declaration extractor, action runner, or environment.
+ */
+export interface PieceWorkspaceProjectAnalysisOptions {
+  readonly globals?: readonly string[];
+  readonly packageScopeSelection?: "current-file" | "safe";
+  readonly sourceSetScopeSelection?: "current-file" | "safe";
+  readonly compilerOptions?: Readonly<Record<string, PieceWorkspaceAnalysisOptionValue>>;
+}
+
 export interface PieceWorkspaceProjectOptions {
   readonly id: string;
   readonly root?: string;
@@ -499,8 +519,8 @@ export interface PieceWorkspaceProjectOptions {
   readonly files?: readonly string[];
   readonly dependsOn?: readonly string[];
   readonly fallback?: PieceWorkspaceFallbackConfig;
-  /** Per-project fields forwarded to the selected file analyzer. */
-  readonly analysisOptions?: Readonly<Record<string, unknown>>;
+  /** Validated, cloned non-executable fields forwarded to the file analyzer. */
+  readonly analysisOptions?: PieceWorkspaceProjectAnalysisOptions;
   readonly language?: PieceWorkspaceLanguage;
 }
 
@@ -534,6 +554,8 @@ export interface PieceWorkspaceReason {
 export interface PieceWorkspaceAnalyzedFile {
   readonly filePath: string;
   readonly language: Exclude<PieceWorkspaceLanguage, "auto">;
+  /** SHA-256 of the UTF-8 text read for this snapshot. */
+  readonly sourceHash: string;
   readonly status: "analyzed";
   readonly analysis: PieceFileAnalysis;
   readonly diagnostics: readonly [];
@@ -542,6 +564,8 @@ export interface PieceWorkspaceAnalyzedFile {
 export interface PieceWorkspaceFailedFile {
   readonly filePath: string;
   readonly language: Exclude<PieceWorkspaceLanguage, "auto">;
+  /** Present when source text was read before a later analysis failure. */
+  readonly sourceHash?: string;
   readonly status: "error";
   readonly diagnostics: readonly PieceWorkspaceReason[];
 }

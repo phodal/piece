@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { realpath, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { analyzePieceFile } from "./node.js";
@@ -5,6 +7,14 @@ import { analyzePieceFile } from "./node.js";
 const SOURCE_FILE_PATTERN = /\.(?:[cm]?[jt]sx?|go|kts?)$/i;
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".go", ".kt", ".kts"];
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "coverage", ".piece"]);
+// Project ids become action ids and SCC component keys, so keep them in a
+// compact label alphabet rather than embedding arbitrary config strings in
+// delimiter-based identities.
+const WORKSPACE_PROJECT_ID = /^[A-Za-z][A-Za-z0-9._-]*$/;
+const WORKSPACE_ANALYSIS_OPTION_FIELDS = new Set(["compilerOptions", "globals", "packageScopeSelection", "sourceSetScopeSelection"]);
+const WORKSPACE_SCOPE_SELECTIONS = new Set(["current-file", "safe"]);
+const MAX_WORKSPACE_ANALYSIS_OPTION_DEPTH = 32;
+const MAX_WORKSPACE_ANALYSIS_OPTION_ENTRIES = 10_000;
 
 /** A configuration or containment error raised before workspace analysis begins. */
 export class PieceWorkspaceError extends Error {
@@ -39,8 +49,136 @@ function stringList(value, label) {
   return [...value];
 }
 
+function workspaceAnalysisOptionsError(index, message) {
+  throw new PieceWorkspaceError("invalid-workspace-analysis-options", `projects[${index}].analysisOptions ${message}`);
+}
+
+function ownEnumerableDataProperties(value, index, label) {
+  let keys;
+  let descriptors;
+  try {
+    keys = Object.keys(value);
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch {
+    workspaceAnalysisOptionsError(index, `${label} must be plain data without proxy or accessor behavior.`);
+  }
+  if (keys.length > MAX_WORKSPACE_ANALYSIS_OPTION_ENTRIES) {
+    workspaceAnalysisOptionsError(index, `${label} exceeds the maximum of ${MAX_WORKSPACE_ANALYSIS_OPTION_ENTRIES} entries.`);
+  }
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(descriptors[key] ?? {}, "value")) {
+      workspaceAnalysisOptionsError(index, `${label}.${key} must not be an accessor property.`);
+    }
+  }
+  return { keys, descriptors };
+}
+
+function isPlainDataObject(value) {
+  if (!isPlainObject(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  } catch {
+    return false;
+  }
+}
+
+function cloneWorkspaceAnalysisData(value, index, label, ancestors = new Set(), budget = { entries: 0 }, depth = 0) {
+  budget.entries += 1;
+  if (budget.entries > MAX_WORKSPACE_ANALYSIS_OPTION_ENTRIES) {
+    workspaceAnalysisOptionsError(index, `${label} exceeds the maximum of ${MAX_WORKSPACE_ANALYSIS_OPTION_ENTRIES} total values.`);
+  }
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "object" || depth >= MAX_WORKSPACE_ANALYSIS_OPTION_DEPTH) {
+    workspaceAnalysisOptionsError(
+      index,
+      `${label} must contain only finite JSON-compatible values no deeper than ${MAX_WORKSPACE_ANALYSIS_OPTION_DEPTH} levels.`
+    );
+  }
+  if (ancestors.has(value)) {
+    workspaceAnalysisOptionsError(index, `${label} must not contain circular data.`);
+  }
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      if (value.length > MAX_WORKSPACE_ANALYSIS_OPTION_ENTRIES) {
+        workspaceAnalysisOptionsError(index, `${label} exceeds the maximum of ${MAX_WORKSPACE_ANALYSIS_OPTION_ENTRIES} entries.`);
+      }
+      const { keys, descriptors } = ownEnumerableDataProperties(value, index, label);
+      if (keys.some((key) => !/^(?:0|[1-9]\d*)$/.test(key))) {
+        workspaceAnalysisOptionsError(index, `${label} arrays must not define named properties.`);
+      }
+      const copy = [];
+      for (let position = 0; position < value.length; position += 1) {
+        const descriptor = descriptors[String(position)];
+        if (!Object.prototype.hasOwnProperty.call(descriptor ?? {}, "value")) {
+          workspaceAnalysisOptionsError(index, `${label} arrays must not be sparse or use accessors.`);
+        }
+        copy.push(cloneWorkspaceAnalysisData(descriptor.value, index, `${label}[${position}]`, ancestors, budget, depth + 1));
+      }
+      return copy;
+    }
+    if (!isPlainDataObject(value)) {
+      workspaceAnalysisOptionsError(index, `${label} must be a plain JSON object.`);
+    }
+    const { keys, descriptors } = ownEnumerableDataProperties(value, index, label);
+    const copy = {};
+    for (const key of keys) {
+      if (key === "__proto__" || key === "constructor" || key === "prototype") {
+        workspaceAnalysisOptionsError(index, `${label}.${key} is not allowed.`);
+      }
+      copy[key] = cloneWorkspaceAnalysisData(descriptors[key].value, index, `${label}.${key}`, ancestors, budget, depth + 1);
+    }
+    return copy;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function normalizeWorkspaceAnalysisOptions(value, index) {
+  if (value === undefined) return {};
+  if (!isPlainDataObject(value)) {
+    workspaceAnalysisOptionsError(index, "must be a plain object when provided.");
+  }
+  const { keys, descriptors } = ownEnumerableDataProperties(value, index, "analysisOptions");
+  const extras = keys.filter((key) => !WORKSPACE_ANALYSIS_OPTION_FIELDS.has(key));
+  if (extras.length > 0) {
+    workspaceAnalysisOptionsError(index, `contains unsupported field(s): ${extras.join(", ")}.`);
+  }
+  const normalized = {};
+  const dataBudget = { entries: 0 };
+  if (Object.prototype.hasOwnProperty.call(descriptors, "globals")) {
+    const globals = cloneWorkspaceAnalysisData(descriptors.globals.value, index, "globals", new Set(), dataBudget);
+    if (!Array.isArray(globals) || globals.some((entry) => typeof entry !== "string" || entry.length === 0)) {
+      workspaceAnalysisOptionsError(index, "globals must be an array of non-empty strings.");
+    }
+    normalized.globals = globals;
+  }
+  for (const field of ["packageScopeSelection", "sourceSetScopeSelection"]) {
+    if (!Object.prototype.hasOwnProperty.call(descriptors, field)) continue;
+    const selection = descriptors[field].value;
+    if (typeof selection !== "string" || !WORKSPACE_SCOPE_SELECTIONS.has(selection)) {
+      workspaceAnalysisOptionsError(index, `${field} must be 'current-file' or 'safe'.`);
+    }
+    normalized[field] = selection;
+  }
+  if (Object.prototype.hasOwnProperty.call(descriptors, "compilerOptions")) {
+    const compilerOptions = cloneWorkspaceAnalysisData(descriptors.compilerOptions.value, index, "compilerOptions", new Set(), dataBudget);
+    if (!isPlainDataObject(compilerOptions)) {
+      workspaceAnalysisOptionsError(index, "compilerOptions must be a plain JSON object.");
+    }
+    normalized.compilerOptions = compilerOptions;
+  }
+  return normalized;
+}
+
 function sortedUnique(values) {
   return [...new Set(values)].sort((left, right) => String(left).localeCompare(String(right)));
+}
+
+function tupleKey(values) {
+  return JSON.stringify(values);
 }
 
 function languageForFile(filePath) {
@@ -48,6 +186,10 @@ function languageForFile(filePath) {
   if (/\.(?:kt|kts)$/i.test(filePath)) return "kotlin";
   if (/\.(?:ts|tsx|mts|cts)$/i.test(filePath)) return "typescript";
   return "javascript";
+}
+
+function sourceTextHash(source) {
+  return createHash("sha256").update(source, "utf8").digest("hex");
 }
 
 async function existingPath(path, label) {
@@ -132,6 +274,12 @@ function normalizeProject(project, index) {
     throw new PieceWorkspaceError("invalid-workspace-config", `projects[${index}] must be an object.`);
   }
   const id = nonEmptyString(project.id, `projects[${index}].id`);
+  if (!WORKSPACE_PROJECT_ID.test(id)) {
+    throw new PieceWorkspaceError(
+      "invalid-workspace-project-id",
+      `projects[${index}].id must match ${WORKSPACE_PROJECT_ID.toString()}.`
+    );
+  }
   const root = project.root ?? ".";
   nonEmptyString(root, `projects[${index}].root`);
   const sourceRoots = project.sourceRoots === undefined ? ["."] : stringList(project.sourceRoots, `projects[${index}].sourceRoots`);
@@ -140,9 +288,10 @@ function normalizeProject(project, index) {
   if (project.fallback !== undefined && !isPlainObject(project.fallback)) {
     throw new PieceWorkspaceError("invalid-workspace-config", `projects[${index}].fallback must be an object when provided.`);
   }
-  if (project.analysisOptions !== undefined && !isPlainObject(project.analysisOptions)) {
-    throw new PieceWorkspaceError("invalid-workspace-config", `projects[${index}].analysisOptions must be an object when provided.`);
-  }
+  const analysisOptions = normalizeWorkspaceAnalysisOptions(
+    Object.prototype.hasOwnProperty.call(project, "analysisOptions") ? project.analysisOptions : undefined,
+    index
+  );
   return {
     id,
     root,
@@ -150,7 +299,7 @@ function normalizeProject(project, index) {
     files,
     dependsOn: sortedUnique(dependsOn),
     fallback: project.fallback,
-    analysisOptions: project.analysisOptions ?? {},
+    analysisOptions,
     language: project.language ?? "auto"
   };
 }
@@ -250,7 +399,7 @@ function buildWorkspaceProjectGraph(workspaceRoot, projects) {
   }
 
   function addEdge(edge) {
-    const key = [edge.from, edge.to, edge.kind, edge.sourceFile ?? "", edge.targetFile ?? ""].join("\u001f");
+    const key = tupleKey([edge.from, edge.to, edge.kind, edge.sourceFile ?? null, edge.targetFile ?? null]);
     if (!edgeKeys.has(key)) {
       edgeKeys.add(key);
       edges.push(edge);
@@ -388,8 +537,10 @@ export async function analyzePieceWorkspace(options = {}) {
     const fallbackReasons = [];
     for (const filePath of sourceFiles) {
       let source;
+      let sourceHash;
       try {
         source = await readFile(filePath, "utf8");
+        sourceHash = sourceTextHash(source);
       } catch (error) {
         const diagnostic = analysisDiagnostic(error, filePath);
         files.push({ filePath, language: languageForFile(filePath), status: "error", diagnostics: [diagnostic] });
@@ -406,10 +557,10 @@ export async function analyzePieceWorkspace(options = {}) {
           filePath,
           source
         });
-        files.push({ filePath, language, status: "analyzed", analysis, diagnostics: [] });
+        files.push({ filePath, language, sourceHash, status: "analyzed", analysis, diagnostics: [] });
       } catch (error) {
         const diagnostic = analysisDiagnostic(error, filePath);
-        files.push({ filePath, language, status: "error", diagnostics: [diagnostic] });
+        files.push({ filePath, language, sourceHash, status: "error", diagnostics: [diagnostic] });
         fallbackReasons.push(fallbackReason("workspace-file-analysis-failed", diagnostic.message, { filePath }));
       }
     }
@@ -566,7 +717,7 @@ function scheduleComponentBatches(projectIds, edges) {
   const componentByProject = new Map();
   const metadata = new Map();
   for (const members of components) {
-    const id = members.join("\u001f");
+    const id = tupleKey(members);
     const selfCycle = members.length === 1 && edges.some((edge) => edge.from === members[0] && edge.to === members[0]);
     metadata.set(id, { id, members, cycle: members.length > 1 || selfCycle, dependencies: new Set(), dependents: new Set() });
     for (const projectId of members) componentByProject.set(projectId, id);
@@ -601,6 +752,85 @@ function actionIdForProject(projectId) {
   return `//workspace:${projectId}%project-fallback`;
 }
 
+function changedWorkspaceSource(workspace, changedFile, ownerByFile) {
+  if (typeof changedFile !== "string" || changedFile.trim().length === 0) {
+    return { filePath: "", reason: "invalid-changed-file" };
+  }
+  let path;
+  try {
+    path = resolve(workspace.workspaceRoot, changedFile);
+  } catch {
+    return { filePath: changedFile, reason: "invalid-changed-file" };
+  }
+  const directOwner = ownerByFile.get(path);
+  if (directOwner) {
+    return { filePath: path, sourceFilePath: path, projectId: directOwner };
+  }
+  for (const rootAlias of workspace.workspaceRootAliases ?? [workspace.workspaceRoot]) {
+    if (!isPathInside(rootAlias, path)) continue;
+    const sourceFilePath = resolve(workspace.workspaceRoot, relative(rootAlias, path));
+    const projectId = ownerByFile.get(sourceFilePath);
+    if (projectId) {
+      return { filePath: path, sourceFilePath, projectId };
+    }
+  }
+  return { filePath: path, reason: "not-owned" };
+}
+
+function sourceHashesByFile(workspace) {
+  const hashes = new Map();
+  for (const project of workspace.projects ?? []) {
+    for (const file of project.files ?? []) {
+      if (typeof file?.filePath !== "string" || typeof file?.sourceHash !== "string") continue;
+      hashes.set(file.filePath, file.sourceHash);
+    }
+  }
+  return hashes;
+}
+
+function markWorkspaceSnapshotStale(reasonsByProject, projects, filePath, snapshotState) {
+  for (const project of projects.values()) {
+    appendReason(
+      reasonsByProject,
+      project.id,
+      fallbackReason("workspace-snapshot-stale", "A changed file no longer matches the workspace analysis snapshot, so every project requires fallback planning.", {
+        filePath,
+        snapshotState
+      })
+    );
+  }
+}
+
+function changedFilesMatchWorkspaceSnapshot(workspace, changedFiles, projects, reasonsByProject) {
+  if (!Array.isArray(changedFiles) || changedFiles.length === 0) return true;
+  const ownerByFile = new Map((workspace.projectGraph?.sourceOwners ?? []).map((entry) => [entry.filePath, entry.projectId]));
+  const hashes = sourceHashesByFile(workspace);
+  for (const changedFile of changedFiles) {
+    const resolved = changedWorkspaceSource(workspace, changedFile, ownerByFile);
+    if (!resolved.projectId || !resolved.sourceFilePath) {
+      markWorkspaceSnapshotStale(reasonsByProject, projects, resolved.filePath, resolved.reason ?? "not-owned");
+      return false;
+    }
+    const sourceHash = hashes.get(resolved.sourceFilePath);
+    if (!sourceHash) {
+      markWorkspaceSnapshotStale(reasonsByProject, projects, resolved.filePath, "source-hash-missing");
+      return false;
+    }
+    let source;
+    try {
+      source = readFileSync(resolved.sourceFilePath, "utf8");
+    } catch {
+      markWorkspaceSnapshotStale(reasonsByProject, projects, resolved.filePath, "source-unreadable");
+      return false;
+    }
+    if (sourceTextHash(source) !== sourceHash) {
+      markWorkspaceSnapshotStale(reasonsByProject, projects, resolved.filePath, "content-changed");
+      return false;
+    }
+  }
+  return true;
+}
+
 function selectPlannedProjects(workspace, options, graphEdges, reasonsByProject) {
   const projects = projectMap(workspace);
   const all = new Set(projects.keys());
@@ -620,27 +850,20 @@ function selectPlannedProjects(workspace, options, graphEdges, reasonsByProject)
   const ownerByFile = new Map((workspace.projectGraph?.sourceOwners ?? []).map((entry) => [entry.filePath, entry.projectId]));
   const changedProjects = new Set();
   for (const changedFile of options.changedFiles) {
-    const path = resolve(workspace.workspaceRoot, nonEmptyString(changedFile, "changedFiles entry"));
-    let owner = ownerByFile.get(path);
-    if (!owner) {
-      for (const rootAlias of workspace.workspaceRootAliases ?? [workspace.workspaceRoot]) {
-        if (!isPathInside(rootAlias, path)) continue;
-        const canonicalPath = resolve(workspace.workspaceRoot, relative(rootAlias, path));
-        owner = ownerByFile.get(canonicalPath);
-        if (owner) break;
-      }
-    }
-    if (!owner) {
+    const resolved = changedWorkspaceSource(workspace, changedFile, ownerByFile);
+    if (!resolved.projectId) {
       for (const project of projects.values()) {
         appendReason(
           reasonsByProject,
           project.id,
-          fallbackReason("workspace-change-not-owned", "A changed file is not owned by an analyzed project, so the workspace must use fallback planning.", { filePath: path })
+          fallbackReason("workspace-change-not-owned", "A changed file is not owned by an analyzed project, so the workspace must use fallback planning.", {
+            filePath: resolved.filePath
+          })
         );
       }
       return all;
     }
-    changedProjects.add(owner);
+    changedProjects.add(resolved.projectId);
   }
   return dependencyClosure(reverseDependencyClosure(changedProjects, graphEdges), graphEdges);
 }
@@ -660,7 +883,9 @@ export function planPieceWorkspaceBuild(workspace, options = {}) {
   );
   let selected = new Set(projects.keys());
   let graphEdges = validProjectEdges(workspace, selected, reasonsByProject);
-  selected = selectPlannedProjects(workspace, options, graphEdges, reasonsByProject);
+  selected = changedFilesMatchWorkspaceSnapshot(workspace, options.changedFiles, projects, reasonsByProject)
+    ? selectPlannedProjects(workspace, options, graphEdges, reasonsByProject)
+    : new Set(projects.keys());
   graphEdges = validProjectEdges(workspace, selected, reasonsByProject);
   selected = dependencyClosure(selected, graphEdges);
   graphEdges = validProjectEdges(workspace, selected, reasonsByProject);
