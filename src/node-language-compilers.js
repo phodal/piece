@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -14,6 +14,11 @@ import { createGoDeclarationExtractor } from "./languages/go/declaration-extract
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const GO_ANALYZER_PATH = join(PACKAGE_ROOT, "go-backend", "analyzer", "main.go");
+const LOCAL_ACTION_CACHE_SCHEMA_VERSION = 2;
+const LOCAL_ACTION_CACHE_KEY_ALGORITHM = "sha256";
+const ACTION_CACHE_LOCK_TIMEOUT_MS = 15_000;
+const ACTION_CACHE_LOCK_RETRY_MS = 25;
+const ACTION_CACHE_LOCK_STALE_MS = 60_000;
 
 function durationSince(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
@@ -832,6 +837,246 @@ function normalizeNodeActionCacheRecords(records) {
     .filter((record) => record?.key);
 }
 
+function sha256Text(value) {
+  return createHash(LOCAL_ACTION_CACHE_KEY_ALGORITHM).update(String(value ?? "")).digest("hex");
+}
+
+function isSha256Digest(value) {
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
+}
+
+function canonicalCacheValue(value, ancestors = new Set()) {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return `string:${JSON.stringify(value)}`;
+  if (typeof value === "boolean") return `boolean:${value}`;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError("Local action-cache identity cannot contain a non-finite number.");
+    }
+    return `number:${value}`;
+  }
+  if (typeof value === "bigint" || typeof value === "function" || typeof value === "symbol") {
+    throw new TypeError(`Local action-cache identity cannot contain ${typeof value} values.`);
+  }
+  if (Array.isArray(value)) {
+    if (ancestors.has(value)) {
+      throw new TypeError("Local action-cache identity cannot contain circular arrays.");
+    }
+    ancestors.add(value);
+    try {
+      return `array:[${value.map((entry) => canonicalCacheValue(entry, ancestors)).join(",")}]`;
+    } finally {
+      ancestors.delete(value);
+    }
+  }
+  if (typeof value === "object") {
+    if (ancestors.has(value)) {
+      throw new TypeError("Local action-cache identity cannot contain circular objects.");
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError("Local action-cache identity only supports plain objects and arrays.");
+    }
+    ancestors.add(value);
+    try {
+      return `object:{${Object.keys(value)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${canonicalCacheValue(value[key], ancestors)}`)
+        .join(",")}}`;
+    } finally {
+      ancestors.delete(value);
+    }
+  }
+  throw new TypeError(`Unsupported local action-cache identity value: ${typeof value}.`);
+}
+
+function localActionCacheIdentityReason(code, message, extra = {}) {
+  return actionCacheStoreReason(code, "warning", message, extra);
+}
+
+async function sourceForLocalActionCache(options, source, filePath) {
+  if (source !== undefined) {
+    return { source: String(source) };
+  }
+  const cwd = resolve(options.cwd ?? process.cwd());
+  try {
+    return { source: await readFile(resolveHostPath(filePath, cwd), "utf8") };
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      // This matches the Node language rules, which compile a missing optional
+      // source path as an empty source when no explicit source was supplied.
+      return { source: "" };
+    }
+    return {
+      reason: localActionCacheIdentityReason(
+        "local-action-cache-source-unavailable",
+        "Piece could not read the source needed to construct a cryptographic local action-cache identity.",
+        { filePath, error: error?.message ?? String(error) }
+      )
+    };
+  }
+}
+
+function secureLocalActionCacheIdentity(baseRecord, options, source) {
+  const analysis = options.analysis;
+  const actionCache = analysis?.actionCache ?? {};
+  const compilerOptions = options.compilerOptions;
+  if (actionCache.compilerOptionsHash && compilerOptions === undefined) {
+    return {
+      reason: localActionCacheIdentityReason(
+        "local-action-cache-compiler-options-unavailable",
+        "Piece cannot safely reuse a local action-cache entry because the raw compiler options behind the analysis hash were not supplied."
+      )
+    };
+  }
+
+  const dependencyArtifacts = options.dependencyArtifacts ?? actionCache.dependencyArtifacts;
+  if (actionCache.dependencyArtifactsHash && dependencyArtifacts === undefined) {
+    return {
+      reason: localActionCacheIdentityReason(
+        "local-action-cache-dependency-artifacts-unavailable",
+        "Piece cannot safely reuse a local action-cache entry because the raw dependency-artifact identity is unavailable."
+      )
+    };
+  }
+
+  const toolchainInputs = options.toolchainInputs ?? actionCache.toolchainInputs;
+  if (actionCache.toolchainInputsHash && toolchainInputs === undefined) {
+    return {
+      reason: localActionCacheIdentityReason(
+        "local-action-cache-toolchain-inputs-unavailable",
+        "Piece cannot safely reuse a local action-cache entry because the raw toolchain inputs are unavailable."
+      )
+    };
+  }
+
+  const projectModel = analysis?.manifest?.projectModel;
+  if (baseRecord.identity.projectModelHash && !projectModel) {
+    return {
+      reason: localActionCacheIdentityReason(
+        "local-action-cache-project-model-unavailable",
+        "Piece cannot safely reuse a local action-cache entry because the project-model data behind its hash is unavailable."
+      )
+    };
+  }
+
+  const feedbackScope = analysis?.feedbackScope;
+  if (baseRecord.identity.feedbackScopeHash && !feedbackScope) {
+    return {
+      reason: localActionCacheIdentityReason(
+        "local-action-cache-feedback-scope-unavailable",
+        "Piece cannot safely reuse a local action-cache entry because the feedback-scope data behind its hash is unavailable."
+      )
+    };
+  }
+
+  try {
+    return {
+      payload: {
+        schema: "piece-local-action-cache",
+        schemaVersion: LOCAL_ACTION_CACHE_SCHEMA_VERSION,
+        keyAlgorithm: LOCAL_ACTION_CACHE_KEY_ALGORITHM,
+        action: baseRecord.action,
+        artifact: baseRecord.artifact,
+        identity: {
+          language: baseRecord.identity.language,
+          filePath: baseRecord.identity.filePath,
+          packageLabel: baseRecord.identity.packageLabel,
+          packageFilePath: baseRecord.identity.packageFilePath,
+          targetLabel: baseRecord.identity.targetLabel,
+          targetSource: baseRecord.identity.targetSource,
+          actionId: baseRecord.identity.actionId,
+          actionKind: baseRecord.identity.actionKind
+        },
+        inputs: baseRecord.inputs,
+        outputs: baseRecord.outputs,
+        sourceSha256: sha256Text(source),
+        compilerOptions: compilerOptions ?? null,
+        dependencyArtifacts: dependencyArtifacts ?? [],
+        toolchainInputs: toolchainInputs ?? [],
+        projectModel: projectModel ?? null,
+        feedbackScope: feedbackScope ?? null,
+        execution: {
+          target: options.target,
+          languageTarget: options.languageTarget,
+          kotlinTarget: options.kotlinTarget,
+          platform: options.platform,
+          format: options.format,
+          bundle: options.bundle,
+          sourcemap: options.sourcemap,
+          runTests: options.runTests,
+          modulePath: options.modulePath,
+          goModulePath: options.goModulePath,
+          goCommand: options.goCommand,
+          sourceSet: options.sourceSet,
+          projectRoot: options.projectRoot,
+          gradleProjectRoot: options.gradleProjectRoot,
+          gradleCommand: options.gradleCommand,
+          gradleVersion: options.gradleVersion,
+          kotlinPluginVersion: options.kotlinPluginVersion,
+          tasks: options.tasks ?? [],
+          classpath: options.classpath ?? [],
+          env: options.env ?? {}
+        }
+      }
+    };
+  } catch (error) {
+    return {
+      reason: localActionCacheIdentityReason(
+        "local-action-cache-identity-not-canonical",
+        "Piece could not canonicalize all action inputs, so it will not reuse or persist this local action-cache entry.",
+        { error: error?.message ?? String(error) }
+      )
+    };
+  }
+}
+
+function createSecureLocalActionCacheRecord(baseRecord, options, source) {
+  const secureIdentity = secureLocalActionCacheIdentity(baseRecord, options, source);
+  if (!secureIdentity.payload) {
+    return { reason: secureIdentity.reason };
+  }
+  try {
+    const key = sha256Text(canonicalCacheValue(secureIdentity.payload));
+    return {
+      record: {
+        ...baseRecord,
+        version: LOCAL_ACTION_CACHE_SCHEMA_VERSION,
+        key,
+        cacheSchemaVersion: LOCAL_ACTION_CACHE_SCHEMA_VERSION,
+        keyAlgorithm: LOCAL_ACTION_CACHE_KEY_ALGORITHM,
+        legacyKey: baseRecord.key
+      }
+    };
+  } catch (error) {
+    return {
+      reason: localActionCacheIdentityReason(
+        "local-action-cache-identity-not-canonical",
+        "Piece could not canonicalize all action inputs, so it will not reuse or persist this local action-cache entry.",
+        { error: error?.message ?? String(error) }
+      )
+    };
+  }
+}
+
+function isCurrentLocalActionCacheRecord(record) {
+  return (
+    record?.version === LOCAL_ACTION_CACHE_SCHEMA_VERSION &&
+    record?.cacheSchemaVersion === LOCAL_ACTION_CACHE_SCHEMA_VERSION &&
+    record?.keyAlgorithm === LOCAL_ACTION_CACHE_KEY_ALGORITHM &&
+    isSha256Digest(record?.key)
+  );
+}
+
+function isCurrentLocalActionCacheStore(store) {
+  return (
+    store?.version === LOCAL_ACTION_CACHE_SCHEMA_VERSION &&
+    store?.schemaVersion === LOCAL_ACTION_CACHE_SCHEMA_VERSION &&
+    store?.keyAlgorithm === LOCAL_ACTION_CACHE_KEY_ALGORITHM
+  );
+}
+
 function localActionCacheStorePath(options = {}) {
   if (!options.actionCacheStorePath) {
     return undefined;
@@ -858,8 +1103,31 @@ async function readLocalActionCacheStoreRecords(storePath) {
     };
   }
   try {
+    const store = await readJsonFile(storePath);
+    if (!isCurrentLocalActionCacheStore(store)) {
+      return {
+        records: [],
+        reason: actionCacheStoreReason(
+          "action-cache-store-schema-miss",
+          "info",
+          "The local action-cache store uses an unsupported schema, so Piece treated it as a cache miss instead of reusing it.",
+          { path: storePath, expectedSchemaVersion: LOCAL_ACTION_CACHE_SCHEMA_VERSION }
+        )
+      };
+    }
+    const records = actionCacheRecordsFromStore(store).filter(isCurrentLocalActionCacheRecord);
     return {
-      records: actionCacheRecordsFromStore(await readJsonFile(storePath))
+      records,
+      ...(records.length !== actionCacheRecordsFromStore(store).length
+        ? {
+            reason: actionCacheStoreReason(
+              "action-cache-record-schema-miss",
+              "info",
+              "Some local action-cache records use an unsupported schema and were treated as misses.",
+              { path: storePath, expectedSchemaVersion: LOCAL_ACTION_CACHE_SCHEMA_VERSION }
+            )
+          }
+        : {})
     };
   } catch (error) {
     return {
@@ -881,11 +1149,11 @@ function actionCacheLookupRecords(options = {}, storeRecords = []) {
   if (options.actionCacheRecords === false) {
     return false;
   }
-  const explicitRecords = normalizeNodeActionCacheRecords(options.actionCacheRecords);
+  const explicitRecords = normalizeNodeActionCacheRecords(options.actionCacheRecords).filter(isCurrentLocalActionCacheRecord);
   if (storeRecords.length === 0 && explicitRecords.length === 0) {
-    return options.actionCacheRecords;
+    return options.actionCacheRecords === undefined ? undefined : [];
   }
-  return [...storeRecords, ...explicitRecords];
+  return [...storeRecords, ...explicitRecords].filter(isCurrentLocalActionCacheRecord);
 }
 
 function appendActionCacheReasons(actionCache, reasons = []) {
@@ -903,26 +1171,110 @@ function artifactStoreRootFor(storePath) {
 }
 
 async function contentHashForFile(path) {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return sha256Text(await readFile(path));
+}
+
+function actionCacheStoreError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+async function resolveActionCacheArtifactRoot(storePath, record, { create = false } = {}) {
+  if (!storePath || !isCurrentLocalActionCacheRecord(record)) {
+    throw actionCacheStoreError("action-cache-record-schema-invalid", "The local action-cache record does not use the current secure schema.");
+  }
+
+  const storeDirectory = dirname(storePath);
+  if (create) {
+    await mkdir(storeDirectory, { recursive: true });
+  }
+  const storeDirectoryRealPath = await realpath(storeDirectory);
+  const artifactStoreRoot = artifactStoreRootFor(storePath);
+  if (create) {
+    await mkdir(artifactStoreRoot, { recursive: true });
+  }
+  const artifactStoreRootRealPath = await realpath(artifactStoreRoot);
+  if (!isPathInside(storeDirectoryRealPath, artifactStoreRootRealPath)) {
+    throw actionCacheStoreError(
+      "action-cache-artifact-store-escaped",
+      "The local action-cache artifact root resolves outside the cache-store directory."
+    );
+  }
+
+  const artifactRoot = join(artifactStoreRoot, record.key);
+  if (create) {
+    await mkdir(artifactRoot, { recursive: true });
+  }
+  const artifactRootRealPath = await realpath(artifactRoot);
+  if (!isPathInside(artifactStoreRootRealPath, artifactRootRealPath)) {
+    throw actionCacheStoreError(
+      "action-cache-artifact-record-root-escaped",
+      "The local action-cache artifact record root resolves outside the artifact store."
+    );
+  }
+
+  return {
+    artifactStoreRoot,
+    artifactStoreRootRealPath,
+    artifactRoot,
+    artifactRootRealPath
+  };
 }
 
 async function promoteActionCacheOutputFiles(storePath, record, outputFiles = []) {
   if (!storePath || !record?.key || outputFiles.length === 0) {
     return outputFiles;
   }
-  const artifactRoot = join(artifactStoreRootFor(storePath), record.key);
-  await mkdir(artifactRoot, { recursive: true });
+  const { artifactRoot, artifactRootRealPath } = await resolveActionCacheArtifactRoot(storePath, record, { create: true });
   const promoted = [];
   for (const [index, outputFile] of outputFiles.entries()) {
     const outputPath = outputFile?.path;
     if (!outputPath) continue;
-    const info = await stat(outputPath);
-    if (!info.isFile()) continue;
+    if (!isAbsolute(outputPath)) {
+      throw actionCacheStoreError("action-cache-output-path-relative", "Piece only promotes absolute output paths into the local action-cache store.");
+    }
+    const info = await lstat(outputPath);
+    if (info.isSymbolicLink() || !info.isFile()) {
+      throw actionCacheStoreError("action-cache-output-not-regular-file", "Piece only promotes regular output files into the local action-cache store.");
+    }
     const contentHash = await contentHashForFile(outputPath);
     const artifactName = `${index}-${contentHash.slice(0, 16)}-${sanitizeProjectName(basename(outputPath))}`;
     const artifactPath = join(artifactRoot, artifactName);
     if (resolve(outputPath) !== resolve(artifactPath)) {
-      await copyFile(outputPath, artifactPath);
+      let existing;
+      try {
+        existing = await lstat(artifactPath);
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+      if (existing) {
+        if (existing.isSymbolicLink() || !existing.isFile()) {
+          throw actionCacheStoreError("action-cache-artifact-not-regular-file", "A local action-cache artifact destination is not a regular file.");
+        }
+        const existingRealPath = await realpath(artifactPath);
+        if (!isPathInside(artifactRootRealPath, existingRealPath)) {
+          throw actionCacheStoreError("action-cache-artifact-escaped", "A local action-cache artifact destination resolves outside its record root.");
+        }
+        if (existing.size !== info.size || (await contentHashForFile(existingRealPath)) !== contentHash) {
+          throw actionCacheStoreError("action-cache-artifact-content-conflict", "A local action-cache artifact path already exists with different content.");
+        }
+      } else {
+        const temporaryArtifactPath = join(artifactRoot, `.${artifactName}.${process.pid}.${randomUUID()}.tmp`);
+        try {
+          await copyFile(outputPath, temporaryArtifactPath);
+          const temporaryInfo = await lstat(temporaryArtifactPath);
+          if (temporaryInfo.isSymbolicLink() || !temporaryInfo.isFile() || temporaryInfo.size !== info.size) {
+            throw actionCacheStoreError("action-cache-artifact-copy-invalid", "Piece could not safely copy an output into the local action-cache store.");
+          }
+          if ((await contentHashForFile(temporaryArtifactPath)) !== contentHash) {
+            throw actionCacheStoreError("action-cache-artifact-copy-hash-mismatch", "A copied local action-cache artifact did not match its source content hash.");
+          }
+          await rename(temporaryArtifactPath, artifactPath);
+        } finally {
+          await rm(temporaryArtifactPath, { force: true });
+        }
+      }
     }
     promoted.push({
       path: artifactPath,
@@ -962,14 +1314,29 @@ function matchedActionCacheRecord(records, key) {
   if (!key || records === false) {
     return undefined;
   }
-  return normalizeNodeActionCacheRecords(records).find((record) => record.key === key);
+  return normalizeNodeActionCacheRecords(records).find((record) => isCurrentLocalActionCacheRecord(record) && record.key === key);
 }
 
 function cachedArtifactReason(code, message, extra = {}) {
   return actionCacheStoreReason(code, "warning", message, extra);
 }
 
-async function validateCachedActionArtifacts(record) {
+async function validateCachedActionArtifacts(record, storePath) {
+  if (!isCurrentLocalActionCacheRecord(record)) {
+    return {
+      status: "miss",
+      reason: cachedArtifactReason("cached-record-schema-miss", "The cached action record does not use the current secure local-cache schema.")
+    };
+  }
+  if (!storePath) {
+    return {
+      status: "miss",
+      reason: cachedArtifactReason(
+        "cached-artifact-store-path-missing",
+        "Piece only reuses artifacts whose local action-cache store root can be verified."
+      )
+    };
+  }
   if (record?.result?.status !== "success") {
     return {
       status: "miss",
@@ -985,6 +1352,19 @@ async function validateCachedActionArtifacts(record) {
     };
   }
 
+  let artifactRoot;
+  try {
+    artifactRoot = await resolveActionCacheArtifactRoot(storePath, record);
+  } catch (error) {
+    return {
+      status: "miss",
+      reason: cachedArtifactReason(
+        error?.code ?? "cached-artifact-store-root-invalid",
+        error?.message ?? "Piece could not verify the cached artifact-store root."
+      )
+    };
+  }
+
   const validatedOutputFiles = [];
   for (const outputFile of outputFiles) {
     const outputPath = outputFile?.path;
@@ -994,9 +1374,15 @@ async function validateCachedActionArtifacts(record) {
         reason: cachedArtifactReason("cached-artifact-path-missing", "A cached output artifact is missing its file path.")
       };
     }
+    if (!isAbsolute(outputPath)) {
+      return {
+        status: "miss",
+        reason: cachedArtifactReason("cached-artifact-path-relative", "A cached output artifact path must be absolute.", { path: outputPath })
+      };
+    }
     let info;
     try {
-      info = await stat(outputPath);
+      info = await lstat(outputPath);
     } catch {
       return {
         status: "miss",
@@ -1005,10 +1391,37 @@ async function validateCachedActionArtifacts(record) {
         })
       };
     }
+    if (info.isSymbolicLink()) {
+      return {
+        status: "miss",
+        reason: cachedArtifactReason("cached-artifact-symlink", "A cached output artifact must not be a symbolic link.", {
+          path: outputPath
+        })
+      };
+    }
     if (!info.isFile()) {
       return {
         status: "miss",
         reason: cachedArtifactReason("cached-artifact-not-file", "A cached output artifact path is not a regular file.", {
+          path: outputPath
+        })
+      };
+    }
+    let outputRealPath;
+    try {
+      outputRealPath = await realpath(outputPath);
+    } catch {
+      return {
+        status: "miss",
+        reason: cachedArtifactReason("cached-artifact-realpath-failed", "Piece could not resolve a cached output artifact safely.", {
+          path: outputPath
+        })
+      };
+    }
+    if (!isPathInside(artifactRoot.artifactRootRealPath, outputRealPath)) {
+      return {
+        status: "miss",
+        reason: cachedArtifactReason("cached-artifact-outside-store", "A cached output artifact resolves outside its local action-cache record root.", {
           path: outputPath
         })
       };
@@ -1023,9 +1436,26 @@ async function validateCachedActionArtifacts(record) {
         })
       };
     }
+    if (!isSha256Digest(outputFile.contentHash)) {
+      return {
+        status: "miss",
+        reason: cachedArtifactReason("cached-artifact-content-hash-missing", "A cached output artifact is missing its SHA-256 content hash.", {
+          path: outputPath
+        })
+      };
+    }
+    if ((await contentHashForFile(outputRealPath)) !== outputFile.contentHash.toLowerCase()) {
+      return {
+        status: "miss",
+        reason: cachedArtifactReason("cached-artifact-content-hash-mismatch", "A cached output artifact no longer matches its recorded SHA-256 content hash.", {
+          path: outputPath
+        })
+      };
+    }
     validatedOutputFiles.push({
-      path: outputPath,
-      sizeBytes: info.size
+      path: outputRealPath,
+      sizeBytes: info.size,
+      contentHash: outputFile.contentHash.toLowerCase()
     });
   }
 
@@ -1084,6 +1514,122 @@ function cachedActionCompileResult({ record, actionCache, validation, language, 
   };
 }
 
+function actionCacheLockPathFor(storePath) {
+  return `${storePath}.lock`;
+}
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== "ESRCH";
+  }
+}
+
+async function actionCacheLockIsStale(lockPath) {
+  try {
+    const owner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8"));
+    if (Number.isSafeInteger(owner?.pid) && owner.pid > 0) {
+      return !isProcessAlive(owner.pid);
+    }
+  } catch {
+    // A process can terminate between mkdir() and owner metadata creation.
+  }
+  try {
+    const info = await lstat(lockPath);
+    return Date.now() - info.mtimeMs > ACTION_CACHE_LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function waitForActionCacheLock(ms) {
+  return new Promise((resolveWait) => setTimeout(resolveWait, ms));
+}
+
+async function acquireActionCacheStoreLock(storePath) {
+  const lockPath = actionCacheLockPathFor(storePath);
+  const deadline = Date.now() + ACTION_CACHE_LOCK_TIMEOUT_MS;
+  await mkdir(dirname(lockPath), { recursive: true });
+  while (true) {
+    const token = randomUUID();
+    try {
+      await mkdir(lockPath);
+      try {
+        await writeFile(join(lockPath, "owner.json"), `${JSON.stringify({ pid: process.pid, token, createdAt: new Date().toISOString() })}\n`, {
+          encoding: "utf8",
+          flag: "wx"
+        });
+      } catch (error) {
+        await rm(lockPath, { recursive: true, force: true });
+        throw error;
+      }
+      return {
+        acquired: true,
+        lockPath,
+        async release() {
+          try {
+            const owner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8"));
+            if (owner?.token === token) {
+              await rm(lockPath, { recursive: true, force: true });
+            }
+          } catch {
+            // A stale-lock recovery or process cleanup already removed the lock.
+          }
+        }
+      };
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        throw error;
+      }
+      if (await actionCacheLockIsStale(lockPath)) {
+        await rm(lockPath, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        return { acquired: false, lockPath, reason: "action-cache-store-lock-timeout" };
+      }
+      await waitForActionCacheLock(Math.min(ACTION_CACHE_LOCK_RETRY_MS, Math.max(1, deadline - Date.now())));
+    }
+  }
+}
+
+async function syncDirectory(directory) {
+  try {
+    const directoryHandle = await open(directory, "r");
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+  } catch {
+    // Directory fsync is not available on every supported filesystem. The
+    // preceding same-directory rename still preserves atomic visibility.
+  }
+}
+
+async function writeLocalActionCacheStoreAtomically(storePath, store) {
+  const directory = dirname(storePath);
+  await mkdir(directory, { recursive: true });
+  const temporaryPath = join(directory, `.${basename(storePath)}.${process.pid}.${randomUUID()}.tmp`);
+  let fileHandle;
+  try {
+    fileHandle = await open(temporaryPath, "wx", 0o600);
+    await fileHandle.writeFile(`${JSON.stringify(store, null, 2)}\n`, "utf8");
+    await fileHandle.sync();
+    await fileHandle.close();
+    fileHandle = undefined;
+    await rename(temporaryPath, storePath);
+    await syncDirectory(directory);
+  } finally {
+    if (fileHandle) {
+      await fileHandle.close();
+    }
+    await rm(temporaryPath, { force: true });
+  }
+}
+
 async function persistLocalActionCacheRecord(storePath, record, result, actionCache) {
   if (!storePath) {
     return undefined;
@@ -1131,13 +1677,30 @@ async function persistLocalActionCacheRecord(storePath, record, result, actionCa
     };
   }
 
+  let lock;
   try {
+    lock = await acquireActionCacheStoreLock(storePath);
+    if (!lock.acquired) {
+      return {
+        status: "skipped",
+        path: storePath,
+        recordKey: record.key,
+        reason: lock.reason
+      };
+    }
     let existingRecords = {};
     if (await pathExists(storePath)) {
       try {
         const existingStore = await readJsonFile(storePath);
-        existingRecords = Object.fromEntries(actionCacheRecordsFromStore(existingStore).map((candidate) => [candidate.key, candidate]));
+        if (isCurrentLocalActionCacheStore(existingStore)) {
+          existingRecords = Object.fromEntries(
+            actionCacheRecordsFromStore(existingStore)
+              .filter(isCurrentLocalActionCacheRecord)
+              .map((candidate) => [candidate.key, candidate])
+          );
+        }
       } catch {
+        // A malformed or legacy store is deliberately migrated as a cache miss.
         existingRecords = {};
       }
     }
@@ -1146,21 +1709,14 @@ async function persistLocalActionCacheRecord(storePath, record, result, actionCa
       ...existingRecords,
       [record.key]: recordForResult
     };
-    await mkdir(dirname(storePath), { recursive: true });
-    await writeFile(
-      storePath,
-      `${JSON.stringify(
-        {
-          version: 1,
-          kind: "piece-action-cache-store",
-          updatedAt: recordForResult.result.updatedAt,
-          records
-        },
-        null,
-        2
-      )}\n`,
-      "utf8"
-    );
+    await writeLocalActionCacheStoreAtomically(storePath, {
+      version: LOCAL_ACTION_CACHE_SCHEMA_VERSION,
+      schemaVersion: LOCAL_ACTION_CACHE_SCHEMA_VERSION,
+      keyAlgorithm: LOCAL_ACTION_CACHE_KEY_ALGORITHM,
+      kind: "piece-action-cache-store",
+      updatedAt: recordForResult.result.updatedAt,
+      records
+    });
     return {
       status: "stored",
       path: storePath,
@@ -1171,9 +1727,11 @@ async function persistLocalActionCacheRecord(storePath, record, result, actionCa
       status: "error",
       path: storePath,
       recordKey: record.key,
-      reason: "write-failed",
+      reason: error?.code ?? "write-failed",
       message: error?.message ?? String(error)
     };
+  } finally {
+    await lock?.release?.();
   }
 }
 
@@ -2162,7 +2720,7 @@ export async function compilePieceAction(options = {}) {
   const language = languageForCompileAction(options, actionPackage, filePath);
   const actionDetails = selectCompileActionDetails(actionPackage, options);
   compileOptions.pieceAction = actionDetails.pieceAction;
-  const actionCacheRecord = createPieceActionCacheRecord({
+  const baseActionCacheRecord = createPieceActionCacheRecord({
     actionPackage,
     target: actionDetails.target,
     action: actionDetails.action,
@@ -2173,6 +2731,11 @@ export async function compilePieceAction(options = {}) {
     filePath,
     source
   });
+  const actionCacheSource = await sourceForLocalActionCache(options, source, filePath);
+  const secureActionCacheRecord = actionCacheSource.source === undefined
+    ? { reason: actionCacheSource.reason }
+    : createSecureLocalActionCacheRecord(baseActionCacheRecord, options, actionCacheSource.source);
+  const actionCacheRecord = secureActionCacheRecord.record;
   const storePath = localActionCacheStorePath(options);
   const storeLookup =
     storePath && options.actionCacheMode !== "bypass" && options.actionCacheRecords !== false
@@ -2188,11 +2751,11 @@ export async function compilePieceAction(options = {}) {
       actionPackage,
       artifact: actionDetails.artifact
     }),
-    storeLookup.reason ? [storeLookup.reason] : []
+    [storeLookup.reason, actionCacheSource.reason, secureActionCacheRecord.reason].filter(Boolean)
   );
   if (actionCacheReuseRequested(options) && actionCache.status === "hit") {
     const matchedRecord = matchedActionCacheRecord(lookupRecords, actionCache.matchedRecordKey);
-    const validation = await validateCachedActionArtifacts(matchedRecord);
+    const validation = await validateCachedActionArtifacts(matchedRecord, storePath);
     if (validation.status === "ready") {
       return cachedActionCompileResult({
         record: matchedRecord,

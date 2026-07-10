@@ -719,9 +719,15 @@ export interface PieceCompileActionCacheRecordResult {
 }
 
 export interface PieceCompileActionCacheRecord {
-  readonly version: 1;
+  readonly version: 1 | 2;
   readonly kind: "piece-action-cache-record";
   readonly key: string;
+  /** Present on Node-local cache records that use the secure v2 schema. */
+  readonly cacheSchemaVersion?: 2;
+  /** Present on Node-local cache records that use a cryptographic storage key. */
+  readonly keyAlgorithm?: "sha256" | (string & {});
+  /** Legacy short key retained for diagnostics only; it is never used for v2 reuse. */
+  readonly legacyKey?: string;
   readonly action: {
     readonly packageLabel: string;
     readonly targetLabel: string;
