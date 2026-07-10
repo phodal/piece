@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { win32 } from "node:path";
 import { performance } from "node:perf_hooks";
 
 // Five minutes bounds a stuck tool while remaining compatible with cold Gradle
@@ -7,10 +8,23 @@ export const DEFAULT_ACTION_TIMEOUT_MS = 300_000;
 export const DEFAULT_ACTION_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 export const DEFAULT_ACTION_KILL_GRACE_MS = 1_000;
 
+// Keep caller-provided limits useful for cold builds without letting one
+// malformed policy retain a worker indefinitely or reserve unbounded output.
+export const MAX_ACTION_TIMEOUT_MS = 30 * 60 * 1_000;
+export const MAX_ACTION_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+export const MAX_ACTION_KILL_GRACE_MS = 30_000;
+
+// `ComSpec` is user-overridable, so it is not a safe executable selection for
+// an action runner. `SystemRoot` is the Windows system location used to make
+// this work on installations outside C:\\Windows; use a safe absolute fallback
+// when it is absent or malformed (for example in cross-platform tests).
+export const WINDOWS_DEFAULT_COMMAND_PROCESSOR = "C:\\Windows\\System32\\cmd.exe";
+
 export const NODE_ACTION_ERROR_CODES = Object.freeze({
   timeout: "ACTION_TIMEOUT",
   cancelled: "ACTION_ABORTED",
-  outputLimit: "ACTION_OUTPUT_LIMIT"
+  outputLimit: "ACTION_OUTPUT_LIMIT",
+  invalidInput: "ACTION_INVALID_INPUT"
 });
 
 export function isNodeActionFailure(result) {
@@ -24,7 +38,92 @@ export function canUseNodeActionOutput(result) {
 }
 
 function isWindowsBatchCommand(command) {
-  return /\.(?:bat|cmd)$/i.test(String(command ?? ""));
+  // Windows ignores trailing periods and spaces in file names. Normalize them
+  // before deciding whether cmd.exe quoting is required (CVE-2024-36138 class).
+  return /\.(?:bat|cmd)$/i.test(String(command ?? "").replace(/[. ]+$/u, ""));
+}
+
+function safeWindowsSystemRoot() {
+  const value = process.env.SystemRoot ?? process.env.SYSTEMROOT;
+  if (typeof value !== "string" || value.length === 0 || /[\0\r\n"]/.test(value)) {
+    return undefined;
+  }
+  const normalizedSeparators = value.replaceAll("/", "\\");
+  if (!/^[A-Za-z]:\\/.test(normalizedSeparators) || normalizedSeparators.split("\\").includes("..")) {
+    return undefined;
+  }
+  return normalizedSeparators.replace(/[\\/]+$/u, "");
+}
+
+/**
+ * Resolve the OS command processor without honoring the user-overridable
+ * ComSpec variable. The absolute fallback also keeps platform simulations
+ * deterministic when no Windows environment is available.
+ */
+function resolveWindowsSystemExecutable(fileName) {
+  const systemRoot = safeWindowsSystemRoot();
+  if (systemRoot) return win32.join(systemRoot, "System32", fileName);
+  return fileName === "cmd.exe"
+    ? WINDOWS_DEFAULT_COMMAND_PROCESSOR
+    : win32.join("C:\\Windows\\System32", fileName);
+}
+
+export function resolveWindowsCommandProcessor() {
+  return resolveWindowsSystemExecutable("cmd.exe");
+}
+
+function actionInputError(message) {
+  const error = new TypeError(message);
+  error.code = NODE_ACTION_ERROR_CODES.invalidInput;
+  return error;
+}
+
+function assertSafeWindowsBatchToken(value, label) {
+  const token = String(value);
+  // cmd.exe treats a line break as a new command and CreateProcessW treats NUL
+  // as a terminator. Neither has a representation that preserves one argv
+  // token safely through a batch file.
+  if (/[\0\r\n]/u.test(token)) {
+    throw actionInputError(`${label} cannot contain NUL, carriage return, or line feed when invoking a Windows batch file.`);
+  }
+  return token;
+}
+
+/**
+ * Encode one token for cmd.exe's batch-file parser. This mirrors the guarded
+ * strategy used by modern native runtimes: every token is quoted, delayed
+ * expansion is disabled by the caller, embedded quotes retain their argv
+ * meaning, and percent signs are neutralized before cmd can expand variables.
+ */
+function quoteWindowsBatchToken(value, label) {
+  const token = assertSafeWindowsBatchToken(value, label);
+  let encoded = '"';
+  let backslashCount = 0;
+
+  for (const character of token) {
+    if (character === "\\") {
+      backslashCount += 1;
+    } else {
+      if (character === '"') {
+        // The first quote escapes the second one. Duplicate preceding
+        // backslashes so they retain their literal meaning before a quote.
+        encoded += "\\".repeat(backslashCount);
+        encoded += '"';
+      } else if (character === "%") {
+        // `%%cd:~,%` expands to an empty, built-in substring expression. It
+        // consumes the first percent sign so `%UNTRUSTED%` cannot become an
+        // environment-variable expansion while the literal percent survives.
+        encoded += "%%cd:~,";
+      }
+      backslashCount = 0;
+    }
+    encoded += character;
+  }
+
+  // A trailing backslash would otherwise escape the closing quote.
+  encoded += "\\".repeat(backslashCount);
+  encoded += '"';
+  return encoded;
 }
 
 /**
@@ -43,9 +142,15 @@ export function createNodeActionInvocation(command, args = [], options = {}) {
       resultArgs: originalArgs
     };
   }
+  const commandLine = [
+    quoteWindowsBatchToken(command, "command"),
+    ...originalArgs.map((argument, index) => quoteWindowsBatchToken(argument, `args[${index}]`))
+  ].join(" ");
   return {
-    command: options.comSpec ?? process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe",
-    args: ["/d", "/s", "/c", "call", command, ...originalArgs],
+    command: resolveWindowsCommandProcessor(),
+    // `/d` disables AutoRun, `/v:off` prevents ! expansion, and the extra
+    // outer quotes let `/s /c` preserve the already-quoted batch command.
+    args: ["/d", "/e:on", "/v:off", "/s", "/c", `"${commandLine}"`],
     resultCommand: command,
     resultArgs: originalArgs
   };
@@ -60,6 +165,22 @@ function positiveInteger(value, fallback, { allowZero = false } = {}) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < (allowZero ? 0 : 1)) return fallback;
   return Math.floor(number);
+}
+
+function boundedPositiveInteger(value, fallback, maximum, options = {}) {
+  return Math.min(positiveInteger(value, fallback, options), maximum);
+}
+
+export function resolveNodeActionLimits(options = {}) {
+  return {
+    timeoutMs: boundedPositiveInteger(options.timeoutMs, DEFAULT_ACTION_TIMEOUT_MS, MAX_ACTION_TIMEOUT_MS),
+    maxOutputBytes: boundedPositiveInteger(options.maxOutputBytes, DEFAULT_ACTION_MAX_OUTPUT_BYTES, MAX_ACTION_MAX_OUTPUT_BYTES, {
+      allowZero: true
+    }),
+    killGraceMs: boundedPositiveInteger(options.killGraceMs, DEFAULT_ACTION_KILL_GRACE_MS, MAX_ACTION_KILL_GRACE_MS, {
+      allowZero: true
+    })
+  };
 }
 
 function uniqueEnvironmentNames(names) {
@@ -107,12 +228,16 @@ function forceTerminateProcessTree(child) {
   if (!child?.pid) return;
   if (process.platform === "win32") {
     try {
-      const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-        detached: true,
-        shell: false,
-        stdio: "ignore",
-        windowsHide: true
-      });
+      const killer = spawn(
+        resolveWindowsSystemExecutable("taskkill.exe"),
+        ["/pid", String(child.pid), "/T", "/F"],
+        {
+          detached: true,
+          shell: false,
+          stdio: "ignore",
+          windowsHide: true
+        }
+      );
       killer.on("error", () => {
         try {
           child.kill("SIGKILL");
@@ -134,7 +259,7 @@ function outputText(chunks) {
 }
 
 function immediateCancellationResult(command, args, options, startedAt) {
-  const maxOutputBytes = positiveInteger(options.maxOutputBytes, DEFAULT_ACTION_MAX_OUTPUT_BYTES, { allowZero: true });
+  const { maxOutputBytes } = resolveNodeActionLimits(options);
   return {
     command,
     args,
@@ -161,9 +286,7 @@ function immediateCancellationResult(command, args, options, startedAt) {
  */
 export async function runNodeAction(command, args = [], options = {}) {
   const startedAt = performance.now();
-  const timeoutMs = positiveInteger(options.timeoutMs, DEFAULT_ACTION_TIMEOUT_MS);
-  const maxOutputBytes = positiveInteger(options.maxOutputBytes, DEFAULT_ACTION_MAX_OUTPUT_BYTES, { allowZero: true });
-  const killGraceMs = positiveInteger(options.killGraceMs, DEFAULT_ACTION_KILL_GRACE_MS, { allowZero: true });
+  const { timeoutMs, maxOutputBytes, killGraceMs } = resolveNodeActionLimits(options);
   if (options.signal?.aborted) {
     return immediateCancellationResult(command, args, options, startedAt);
   }
@@ -245,8 +368,8 @@ export async function runNodeAction(command, args = [], options = {}) {
       }
     };
 
-    const invocation = createNodeActionInvocation(command, args, { comSpec: options.comSpec });
     try {
+      const invocation = createNodeActionInvocation(command, args);
       child = spawn(invocation.command, invocation.args, {
         cwd: options.cwd,
         env: createNodeActionEnvironment(options),
@@ -255,6 +378,7 @@ export async function runNodeAction(command, args = [], options = {}) {
         windowsHide: true
       });
     } catch (error) {
+      spawnErrorMessage = error?.message ?? String(error);
       finish({ errorCode: error?.code ?? "ACTION_SPAWN_FAILED" });
       return;
     }

@@ -2,14 +2,38 @@ import { describe, expect, it } from "vitest";
 import {
   canUseNodeActionOutput,
   DEFAULT_ACTION_MAX_OUTPUT_BYTES,
+  MAX_ACTION_KILL_GRACE_MS,
+  MAX_ACTION_MAX_OUTPUT_BYTES,
+  MAX_ACTION_TIMEOUT_MS,
   isNodeActionFailure,
   NODE_ACTION_ERROR_CODES,
+  resolveNodeActionLimits,
   runNodeAction
 } from "../src/node-action-runner.js";
 
 const node = process.execPath;
 
 describe("Node Action Runner", () => {
+  it("clamps action resource requests to bounded, predictable limits", () => {
+    expect(
+      resolveNodeActionLimits({
+        timeoutMs: Number.MAX_SAFE_INTEGER,
+        maxOutputBytes: Number.MAX_SAFE_INTEGER,
+        killGraceMs: Number.MAX_SAFE_INTEGER
+      })
+    ).toEqual({
+      timeoutMs: MAX_ACTION_TIMEOUT_MS,
+      maxOutputBytes: MAX_ACTION_MAX_OUTPUT_BYTES,
+      killGraceMs: MAX_ACTION_KILL_GRACE_MS
+    });
+
+    expect(resolveNodeActionLimits({ timeoutMs: -1, maxOutputBytes: 0, killGraceMs: 0 })).toEqual({
+      timeoutMs: 300_000,
+      maxOutputBytes: 0,
+      killGraceMs: 0
+    });
+  });
+
   it("returns a structured timeout without waiting for the child indefinitely", async () => {
     const result = await runNodeAction(node, ["-e", "setInterval(() => {}, 1000)"], {
       timeoutMs: 30,
@@ -37,6 +61,19 @@ describe("Node Action Runner", () => {
     expect(result.errorCode).toBe(NODE_ACTION_ERROR_CODES.cancelled);
     expect(result.cancelled).toBe(true);
     expect(result.timedOut).toBe(false);
+  });
+
+  it("uses the same output cap for an immediately cancelled action", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await runNodeAction(node, ["-e", "process.exit(0)"], {
+      signal: controller.signal,
+      maxOutputBytes: Number.MAX_SAFE_INTEGER
+    });
+
+    expect(result.errorCode).toBe(NODE_ACTION_ERROR_CODES.cancelled);
+    expect(result.outputBytes.limit).toBe(MAX_ACTION_MAX_OUTPUT_BYTES);
   });
 
   it("caps total stdout and stderr then terminates the noisy child", async () => {

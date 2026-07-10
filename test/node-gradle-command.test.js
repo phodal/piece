@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createNodeActionInvocation } from "../src/node-action-runner.js";
+import { createNodeActionInvocation, resolveWindowsCommandProcessor } from "../src/node-action-runner.js";
 import { resolveNodeGradleCommand, resolveNodeGradleWrapperPath } from "../src/node-gradle-command.js";
 
 describe("Node Gradle command resolution", () => {
@@ -18,19 +18,26 @@ describe("Node Gradle command resolution", () => {
     expect(resolveNodeGradleCommand("./tools/gradlew", { platform: "linux", baseDirectory: "/work/app" })).toBe("/work/app/tools/gradlew");
   });
 
-  it("wraps only explicit Windows batch commands through cmd.exe while preserving result identity", () => {
+  it("wraps only explicit Windows batch commands through the trusted cmd.exe path while preserving result identity", () => {
     const args = ["check", "--project-cache-dir", "C:\\cache with spaces"];
-    expect(
-      createNodeActionInvocation("C:\\Program Files\\Piece\\gradlew.bat", args, {
-        platform: "win32",
-        comSpec: "C:\\Windows\\System32\\cmd.exe"
-      })
-    ).toEqual({
-      command: "C:\\Windows\\System32\\cmd.exe",
-      args: ["/d", "/s", "/c", "call", "C:\\Program Files\\Piece\\gradlew.bat", ...args],
+    const invocation = createNodeActionInvocation("C:\\Program Files\\Piece\\gradlew.bat", args, {
+      platform: "win32",
+      comSpec: "C:\\attacker\\cmd.exe"
+    });
+    expect(invocation).toEqual({
+      command: resolveWindowsCommandProcessor(),
+      args: [
+        "/d",
+        "/e:on",
+        "/v:off",
+        "/s",
+        "/c",
+        '""C:\\Program Files\\Piece\\gradlew.bat" "check" "--project-cache-dir" "C:\\cache with spaces""'
+      ],
       resultCommand: "C:\\Program Files\\Piece\\gradlew.bat",
       resultArgs: args
     });
+    expect(invocation.command).not.toBe("C:\\attacker\\cmd.exe");
 
     expect(createNodeActionInvocation("gradle", ["check"], { platform: "win32" })).toEqual({
       command: "gradle",
@@ -44,5 +51,52 @@ describe("Node Gradle command resolution", () => {
       resultCommand: "/opt/piece/gradlew",
       resultArgs: ["check"]
     });
+  });
+
+  it("quotes batch paths and arguments with cmd metacharacters into one controlled command string", () => {
+    const previousComSpec = process.env.ComSpec;
+    const previousUpperComSpec = process.env.COMSPEC;
+    process.env.ComSpec = "C:\\attacker\\cmd.exe";
+    process.env.COMSPEC = "C:\\attacker-upper\\cmd.exe";
+    try {
+      const invocation = createNodeActionInvocation(
+        "C:\\build & tools\\gradlew.bat. ",
+        ["a&whoami", "a|b", "<input>", "%UNTRUSTED%", "!delayed!", 'quote"value', "trailing\\"],
+        { platform: "win32" }
+      );
+
+      expect(invocation.command).toBe(resolveWindowsCommandProcessor());
+      expect(invocation.command).not.toBe(process.env.ComSpec);
+      expect(invocation.args).toEqual([
+        "/d",
+        "/e:on",
+        "/v:off",
+        "/s",
+        "/c",
+        '""C:\\build & tools\\gradlew.bat. " "a&whoami" "a|b" "<input>" "%%cd:~,%UNTRUSTED%%cd:~,%" "!delayed!" "quote""value" "trailing\\\\""'
+      ]);
+      expect(invocation.resultCommand).toBe("C:\\build & tools\\gradlew.bat. ");
+      expect(invocation.resultArgs).toEqual([
+        "a&whoami",
+        "a|b",
+        "<input>",
+        "%UNTRUSTED%",
+        "!delayed!",
+        'quote"value',
+        "trailing\\"
+      ]);
+      expect(invocation.args.at(-1)).not.toContain("call ");
+    } finally {
+      if (previousComSpec === undefined) delete process.env.ComSpec;
+      else process.env.ComSpec = previousComSpec;
+      if (previousUpperComSpec === undefined) delete process.env.COMSPEC;
+      else process.env.COMSPEC = previousUpperComSpec;
+    }
+  });
+
+  it("rejects Windows batch tokens that cannot be represented without creating another command line", () => {
+    expect(() => createNodeActionInvocation("C:\\work\\gradlew.bat", ["safe\nunsafe"], { platform: "win32" })).toThrow(
+      /cannot contain NUL, carriage return, or line feed/
+    );
   });
 });
