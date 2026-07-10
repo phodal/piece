@@ -79,6 +79,34 @@ function renamePublicShapeHashForSlice(slice) {
   );
 }
 
+function reusableRenameFields(previousDeclaration, slice, stableId) {
+  if (
+    !previousDeclaration ||
+    previousDeclaration.id !== slice.id ||
+    previousDeclaration.filePath !== slice.filePath ||
+    previousDeclaration.kind !== slice.kind ||
+    previousDeclaration.name !== slice.name ||
+    previousDeclaration.exportName !== slice.exportName ||
+    previousDeclaration.textHash !== slice.hashes.bodyHash ||
+    previousDeclaration.stableId !== stableId ||
+    !sourceRangesMatch(previousDeclaration.range, slice.range)
+  ) {
+    return undefined;
+  }
+  if (!slice.name) {
+    return { renameFingerprint: undefined, renamePublicShapeHash: undefined };
+  }
+  // Snapshots written before rename matching intentionally lack these fields;
+  // populate them once, then retain the SHA work across unchanged revisions.
+  if (typeof previousDeclaration.renameFingerprint !== "string" || typeof previousDeclaration.renamePublicShapeHash !== "string") {
+    return undefined;
+  }
+  return {
+    renameFingerprint: previousDeclaration.renameFingerprint,
+    renamePublicShapeHash: previousDeclaration.renamePublicShapeHash
+  };
+}
+
 function publicShapeHashForSlice(slice, previousDeclaration) {
   // The public shape hash is a pure function of the slice's own text (kind, name, export
   // metadata, and the signature-only source below). If the slice body hash is unchanged from
@@ -191,8 +219,9 @@ function createDeclarationRecords(slices, edgesBySource, previousDeclarations, c
     const outgoingEdges = edgesBySource.get(slice.id) ?? [];
     const publicShapeHash = publicShapeHashes.get(slice.id);
     const stableId = normalizedStableId(slice);
-    const renameFingerprint = renameFingerprintForSlice(slice);
-    const renamePublicShapeHash = renamePublicShapeHashForSlice(slice);
+    const previousRenameFields = reusableRenameFields(previousDeclaration, slice, stableId);
+    const renameFingerprint = previousRenameFields?.renameFingerprint ?? renameFingerprintForSlice(slice);
+    const renamePublicShapeHash = previousRenameFields?.renamePublicShapeHash ?? renamePublicShapeHashForSlice(slice);
     const canReuseDependencyFields = declarationMatchesSlice(
       previousDeclaration,
       slice,

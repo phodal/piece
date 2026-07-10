@@ -1730,6 +1730,29 @@ export function UserCard() {
     );
   });
 
+  it("backfills rename metadata on an older v2 snapshot without invalidating artifacts", async () => {
+    const compiler = createPieceCompiler();
+    const analysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: sampleSource()
+    });
+    const snapshot = {
+      ...analysis.snapshot,
+      declarations: Object.fromEntries(
+        Object.entries(analysis.snapshot.declarations).map(([id, declaration]) => {
+          const { renameFingerprint, renamePublicShapeHash, ...withoutRenameMetadata } = declaration;
+          return [id, withoutRenameMetadata];
+        })
+      )
+    };
+
+    const reconciliation = reconcilePieceSnapshot({ previousSnapshot: snapshot, analysis });
+
+    expect(reconciliation.changedPieces).toEqual([]);
+    expect(reconciliation.snapshot.artifacts).toBe(snapshot.artifacts);
+    expect(reconciliation.reusedArtifactIds).toEqual(Object.keys(snapshot.artifacts).sort());
+  });
+
   it("pairs an unambiguous internal rename without marking downstream pieces public-shape dirty", async () => {
     const compiler = createPieceCompiler();
     const previousSource = `function helper() {
