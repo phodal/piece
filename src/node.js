@@ -37,7 +37,8 @@ function withNodeDeclarationExtractor(options = {}) {
         sourceFiles: options.sourceFiles,
         sourceRoots: options.sourceRoots,
         cwd: options.cwd ?? options.fileSystem?.cwd,
-        env: options.env
+        env: options.env,
+        actionRunner: options.actionRunner
       })
     };
   }
@@ -58,7 +59,8 @@ function withNodeDeclarationExtractor(options = {}) {
         analysisApiVersion: options.kotlinAnalysisApiVersion ?? options.analysisApiVersion,
         semanticDiagnostics: options.semanticDiagnostics === true,
         semanticSymbols: options.semanticSymbols === true,
-        env: options.env
+        env: options.env,
+        actionRunner: options.actionRunner
       })
     };
   }
@@ -308,7 +310,8 @@ async function applyPieceDslOverride(analysis, options = {}) {
     overrideFilePath: options.overrideFilePath,
     overrideSource: options.overrideSource,
     cwd: options.cwd ?? options.fileSystem?.cwd,
-    env: options.env
+    env: options.env,
+    actionRunner: options.actionRunner
   });
   if (!merged.piecePackage) {
     return {

@@ -24,6 +24,26 @@ export function createNodeEsbuildBuildEngine(options?: {
 }): PieceBuildEngine;
 export function createNodeVirtualFileSystem(options?: { readonly cwd?: string }): VirtualFileSystem;
 
+/** Policy applied to every external Go or JVM/Gradle action started by a Node host. */
+export interface NodeActionRunnerOptions {
+  /** Finite action timeout in milliseconds; defaults to 300000 (five minutes). */
+  readonly timeoutMs?: number;
+  /** Combined stdout/stderr capture limit in bytes; defaults to 4 MiB. */
+  readonly maxOutputBytes?: number;
+  /** Grace period between cooperative termination and force termination. */
+  readonly killGraceMs?: number;
+  /** Cancels the action and returns an ACTION_ABORTED command result. */
+  readonly signal?: AbortSignal;
+  /** Defaults to true for compatibility. Set false to avoid inheriting process.env. */
+  readonly inheritProcessEnv?: boolean;
+  /** Optional process.env names to inherit when using a controlled environment. */
+  readonly envAllowlist?: readonly string[];
+}
+
+export interface NodeActionRunnerPolicyOptions {
+  readonly actionRunner?: NodeActionRunnerOptions;
+}
+
 export interface PieceCompilerCommandResult {
   readonly command: string;
   readonly args: readonly string[];
@@ -33,6 +53,16 @@ export interface PieceCompilerCommandResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly errorCode?: string;
+  readonly timedOut?: boolean;
+  readonly cancelled?: boolean;
+  readonly outputLimitExceeded?: boolean;
+  readonly outputBytes?: {
+    readonly stdout: number;
+    readonly stderr: number;
+    readonly total: number;
+    readonly captured: number;
+    readonly limit: number;
+  };
   readonly durationMs: number;
 }
 
@@ -99,14 +129,14 @@ export interface PieceDslMergeResult {
   readonly diagnostics: readonly PieceDslParseDiagnostic[];
 }
 
-export interface ParsePieceDslFileOptions {
+export interface ParsePieceDslFileOptions extends NodeActionRunnerPolicyOptions {
   readonly filePath?: string;
   readonly source?: string;
   readonly cwd?: string;
   readonly env?: Record<string, string | undefined>;
 }
 
-export interface MergePieceDslFilesOptions {
+export interface MergePieceDslFilesOptions extends NodeActionRunnerPolicyOptions {
   readonly generatedFilePath?: string;
   readonly overrideFilePath?: string;
   readonly generatedPackage?: SingleFilePiecePackage;
@@ -119,15 +149,16 @@ export interface MergePieceDslFilesOptions {
 export type PieceDslOverrideMode = "metadata-only" | "action-snapshot" | (string & {});
 export type PieceDslOverrideBase = "primary" | "current-file" | "selected-package-view" | "source-set-package-view" | (string & {});
 
-export interface NodeAnalyzePieceFileOptions extends AnalyzePieceFileOptions {
+export interface NodeAnalyzePieceFileOptions extends AnalyzePieceFileOptions, NodeActionRunnerPolicyOptions {
   readonly generatedFilePath?: string;
   readonly overrideFilePath?: string;
   readonly overrideSource?: string;
   readonly pieceDslOverrideBase?: PieceDslOverrideBase;
   readonly pieceDslOverrideMode?: PieceDslOverrideMode;
+  readonly env?: Record<string, string | undefined>;
 }
 
-export interface NodeCompilePieceAppOptions extends CompilePieceAppOptions {
+export interface NodeCompilePieceAppOptions extends CompilePieceAppOptions, NodeActionRunnerPolicyOptions {
   readonly generatedFilePath?: string;
   readonly overrideFilePath?: string;
   readonly overrideSource?: string;
@@ -151,14 +182,16 @@ export interface NodeCompilePieceAppOptions extends CompilePieceAppOptions {
     | readonly PieceCompileActionCacheRecord[];
   readonly actionCacheMode?: "status-only" | "bypass" | "reuse-local" | (string & {});
   readonly actionCacheStorePath?: string;
+  readonly env?: Record<string, string | undefined>;
 }
 
-export interface NodeBuildPiecePreviewOptions extends BuildPiecePreviewOptions {
+export interface NodeBuildPiecePreviewOptions extends BuildPiecePreviewOptions, NodeActionRunnerPolicyOptions {
   readonly generatedFilePath?: string;
   readonly overrideFilePath?: string;
   readonly overrideSource?: string;
   readonly pieceDslOverrideBase?: PieceDslOverrideBase;
   readonly pieceDslOverrideMode?: PieceDslOverrideMode;
+  readonly env?: Record<string, string | undefined>;
 }
 
 export interface NodeActionPackageOrigin {
@@ -266,7 +299,7 @@ export interface KotlinPieceDslGenerationResult {
   readonly diagnostics: readonly PieceDslParseDiagnostic[];
 }
 
-export interface GenerateKotlinPieceDslFileOptions {
+export interface GenerateKotlinPieceDslFileOptions extends NodeActionRunnerPolicyOptions {
   readonly filePath?: string;
   readonly source?: string;
   readonly backend?: KotlinAnalysisBackendKind;
@@ -277,7 +310,7 @@ export interface GenerateKotlinPieceDslFileOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
-export interface CompileGoPieceFileOptions {
+export interface CompileGoPieceFileOptions extends NodeActionRunnerPolicyOptions {
   readonly filePath?: string;
   readonly source?: string;
   readonly workspace?: string;
@@ -293,7 +326,7 @@ export interface CompileGoPieceFileOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
-export interface CompileKotlinPieceFileOptions {
+export interface CompileKotlinPieceFileOptions extends NodeActionRunnerPolicyOptions {
   readonly filePath?: string;
   readonly source?: string;
   readonly target?: "jvm" | "js" | "wasmJs" | "all" | (string & {});
@@ -316,7 +349,7 @@ export interface CompileKotlinPieceFileOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
-export interface CompileJavaScriptPieceFileOptions {
+export interface CompileJavaScriptPieceFileOptions extends NodeActionRunnerPolicyOptions {
   readonly filePath?: string;
   readonly source?: string;
   readonly target?: "esm" | "browser" | "node" | (string & {});
@@ -355,7 +388,7 @@ export interface CompilePieceActionOptions extends CompileKotlinPieceFileOptions
   readonly actionCacheStorePath?: string;
 }
 
-export interface AnalyzeKotlinPieceFileOptions {
+export interface AnalyzeKotlinPieceFileOptions extends NodeActionRunnerPolicyOptions {
   readonly filePath?: string;
   readonly source?: string;
   readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
@@ -382,7 +415,7 @@ export interface KotlinAnalysisSourceFile {
   readonly source: string;
 }
 
-export interface NodeKotlinPsiDeclarationExtractorOptions {
+export interface NodeKotlinPsiDeclarationExtractorOptions extends NodeActionRunnerPolicyOptions {
   readonly name?: string;
   readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
   readonly sourceRoots?: readonly string[];
@@ -402,7 +435,7 @@ export interface NodeKotlinPsiDeclarationExtractorOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
-export interface NodeGoDeclarationExtractorOptions {
+export interface NodeGoDeclarationExtractorOptions extends NodeActionRunnerPolicyOptions {
   readonly name?: string;
   readonly goCommand?: string;
   readonly modulePath?: string;

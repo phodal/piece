@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -11,6 +10,7 @@ import { createPieceActionCacheRecord, explainPieceActionCacheStatus } from "./c
 import { hashParts, stableTextHash } from "./core/hash.js";
 import { mergePiecePackages, piecePackageToPicDsl } from "./core/pic-dsl.js";
 import { createGoDeclarationExtractor } from "./languages/go/declaration-extractor.js";
+import { canUseNodeActionOutput, isNodeActionFailure, runNodeAction } from "./node-action-runner.js";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const GO_ANALYZER_PATH = join(PACKAGE_ROOT, "go-backend", "analyzer", "main.go");
@@ -454,7 +454,7 @@ function goPackageScopeDeclarationFromSlice(slice) {
   };
 }
 
-async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env }) {
+async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env, actionRunner }) {
   const workspaceInfo = await prepareWorkspace("piece-go-analyzer-");
   const workspace = workspaceInfo.path;
   const sourceName = sourceBasename(filePath, "Main.go");
@@ -463,7 +463,8 @@ async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env }) {
     await writeFile(sourceFile, source, "utf8");
     const command = await runCommand(goCommand, ["run", GO_ANALYZER_PATH, "--file", sourceFile, "--path", filePath], {
       cwd: workspace,
-      env
+      env,
+      ...actionRunner
     });
     if (command.exitCode !== 0) {
       return { command };
@@ -480,7 +481,7 @@ async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env }) {
   }
 }
 
-async function collectGoCompanionBindings({ companions = [], goCommand = "go", env }) {
+async function collectGoCompanionBindings({ companions = [], goCommand = "go", env, actionRunner }) {
   const bindings = [];
   const declarations = [];
   const diagnostics = [];
@@ -489,7 +490,8 @@ async function collectGoCompanionBindings({ companions = [], goCommand = "go", e
       filePath: companion.filePath,
       source: companion.source ?? "",
       goCommand,
-      env
+      env,
+      actionRunner
     });
     if (!analyzerResult.manifest) {
       diagnostics.push(
@@ -594,7 +596,7 @@ async function collectGoCompanionSources(options, primaryFilePath) {
   return companions;
 }
 
-async function collectGoListForSource({ filePath, source, companions = [], goCommand = "go", modulePath, env, cwd = process.cwd() }) {
+async function collectGoListForSource({ filePath, source, companions = [], goCommand = "go", modulePath, env, actionRunner, cwd = process.cwd() }) {
   const workspaceInfo = await prepareWorkspace("piece-go-analysis-");
   const workspace = workspaceInfo.path;
   const sourceName = sourceBasename(filePath, "Main.go");
@@ -602,7 +604,7 @@ async function collectGoListForSource({ filePath, source, companions = [], goCom
   try {
     await writeGoWorkspaceSources({ workspace, filePath, source, companions, cwd });
     await writeFile(join(workspace, "go.mod"), `module ${resolvedModulePath}\n\ngo 1.22\n`, "utf8");
-    const command = await runCommand(goCommand, ["list", "-json", "./..."], { cwd: workspace, env });
+    const command = await runCommand(goCommand, ["list", "-json", "./..."], { cwd: workspace, env, ...actionRunner });
     return {
       command,
       goList: createGoListReport(command, workspace)
@@ -638,49 +640,20 @@ function uniqueResolvedPaths(entries, cwd) {
   ];
 }
 
-async function runCommand(command, args, options = {}) {
-  const startedAt = performance.now();
-  return new Promise((resolveResult) => {
-    let stdout = "";
-    let stderr = "";
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: { ...process.env, ...options.env },
-      shell: false
-    });
+function actionRunnerOptionsFor(options = {}) {
+  const actionRunner = options.actionRunner ?? {};
+  return {
+    timeoutMs: actionRunner.timeoutMs,
+    maxOutputBytes: actionRunner.maxOutputBytes,
+    killGraceMs: actionRunner.killGraceMs,
+    signal: actionRunner.signal,
+    inheritProcessEnv: actionRunner.inheritProcessEnv,
+    envAllowlist: actionRunner.envAllowlist
+  };
+}
 
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (error) => {
-      resolveResult({
-        command,
-        args,
-        cwd: options.cwd,
-        exitCode: null,
-        signal: null,
-        stdout,
-        stderr: stderr || error.message,
-        errorCode: error.code,
-        durationMs: durationSince(startedAt)
-      });
-    });
-    child.on("close", (exitCode, signal) => {
-      resolveResult({
-        command,
-        args,
-        cwd: options.cwd,
-        exitCode,
-        signal,
-        stdout,
-        stderr,
-        durationMs: durationSince(startedAt)
-      });
-    });
-  });
+async function runCommand(command, args, options = {}) {
+  return runNodeAction(command, args, options);
 }
 
 async function prepareWorkspace(prefix, workspace) {
@@ -776,19 +749,44 @@ async function resolveProjectGradleCommand(command, projectRoot) {
   return isAbsolute(command) ? command : resolve(projectRoot ?? PACKAGE_ROOT, command);
 }
 
+function commandFailureMessage(command) {
+  if (command.stderr.trim() || command.stdout.trim()) {
+    return command.stderr.trim() || command.stdout.trim();
+  }
+  if (command.errorCode === "ACTION_TIMEOUT") {
+    return `${command.command} exceeded the configured action timeout.`;
+  }
+  if (command.errorCode === "ACTION_ABORTED") {
+    return `${command.command} was cancelled by the action signal.`;
+  }
+  if (command.errorCode === "ACTION_OUTPUT_LIMIT") {
+    return `${command.command} exceeded the configured stdout/stderr output limit.`;
+  }
+  return `${command.command} exited with code ${command.exitCode}`;
+}
+
 function diagnosticsFromCommands(commands) {
   return commands
-    .filter((command) => command.exitCode !== 0)
+    .filter(isNodeActionFailure)
     .map((command) => ({
-      code: command.errorCode === "ENOENT" ? "tool-not-found" : "compiler-error",
+      code:
+        command.errorCode === "ENOENT"
+          ? "tool-not-found"
+          : command.errorCode === "ACTION_TIMEOUT"
+            ? "action-timeout"
+            : command.errorCode === "ACTION_ABORTED"
+              ? "action-cancelled"
+              : command.errorCode === "ACTION_OUTPUT_LIMIT"
+                ? "action-output-limit"
+                : "compiler-error",
       severity: "error",
-      message: command.stderr.trim() || command.stdout.trim() || `${command.command} exited with code ${command.exitCode}`,
+      message: commandFailureMessage(command),
       command: [command.command, ...command.args].join(" ")
     }));
 }
 
 function compileStatus(commands) {
-  return commands.every((command) => command.exitCode === 0) ? "success" : "error";
+  return commands.every((command) => !isNodeActionFailure(command)) ? "success" : "error";
 }
 
 async function cleanupWorkspace(workspace, keepWorkspace) {
@@ -1771,8 +1769,12 @@ async function collectKotlinGradleProjectModel(options = {}) {
       `-PpieceGradleProjectModel.gradleVersion=${options.gradleVersion ?? ""}`,
       `-PpieceGradleProjectModel.sourceSet=${sourceSet ?? ""}`
     ];
-    const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
-    if (await pathExists(outputReport)) {
+    const backendCommand = await runCommand(defaultGradleCommand(), args, {
+      cwd: PACKAGE_ROOT,
+      env: options.env,
+      ...actionRunnerOptionsFor(options)
+    });
+    if (canUseNodeActionOutput(backendCommand) && (await pathExists(outputReport))) {
       return readJsonFile(outputReport);
     }
     return withKotlinProjectModelHashes({
@@ -1789,12 +1791,18 @@ async function collectKotlinGradleProjectModel(options = {}) {
       commands: [backendCommand],
       diagnostics: [
         {
-          code: backendCommand.errorCode === "ENOENT" ? "tool-not-found" : "kotlin-gradle-project-model-error",
+          code:
+            backendCommand.errorCode === "ENOENT"
+              ? "tool-not-found"
+              : backendCommand.errorCode === "ACTION_TIMEOUT"
+                ? "action-timeout"
+                : backendCommand.errorCode === "ACTION_ABORTED"
+                  ? "action-cancelled"
+                  : backendCommand.errorCode === "ACTION_OUTPUT_LIMIT"
+                    ? "action-output-limit"
+                    : "kotlin-gradle-project-model-error",
           severity: "warning",
-          message:
-            backendCommand.stderr.trim() ||
-            backendCommand.stdout.trim() ||
-            `${backendCommand.command} exited with code ${backendCommand.exitCode}`,
+          message: commandFailureMessage(backendCommand),
           command: [backendCommand.command, ...backendCommand.args].join(" ")
         }
       ]
@@ -2273,8 +2281,12 @@ export async function parsePieceDslFile(options = {}) {
       `-PpieceDsl.outputReport=${outputReport}`
     ];
 
-    const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
-    if (await pathExists(outputReport)) {
+    const backendCommand = await runCommand(defaultGradleCommand(), args, {
+      cwd: PACKAGE_ROOT,
+      env: options.env,
+      ...actionRunnerOptionsFor(options)
+    });
+    if (canUseNodeActionOutput(backendCommand) && (await pathExists(outputReport))) {
       return readJsonFile(outputReport);
     }
     return errorPicDslReport({ filePath, source, commands: [backendCommand] });
@@ -2295,13 +2307,15 @@ export async function mergePieceDslFiles(options = {}) {
         filePath: generatedFilePath,
         source: options.generatedSource,
         cwd: options.cwd,
-        env: options.env
+        env: options.env,
+        actionRunner: options.actionRunner
       });
   const override = await parsePieceDslFile({
     filePath: overrideFilePath,
     source: options.overrideSource,
     cwd: options.cwd,
-    env: options.env
+    env: options.env,
+    actionRunner: options.actionRunner
   });
   const parseDiagnostics = [...(generated.diagnostics ?? []), ...(override.diagnostics ?? [])];
 
@@ -2356,8 +2370,12 @@ export async function generateKotlinPieceDslFile(options = {}) {
       `-PpiecePic.backend=${backend ?? ""}`
     ];
 
-    const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
-    if (await pathExists(outputReport)) {
+    const backendCommand = await runCommand(defaultGradleCommand(), args, {
+      cwd: PACKAGE_ROOT,
+      env: options.env,
+      ...actionRunnerOptionsFor(options)
+    });
+    if (canUseNodeActionOutput(backendCommand) && (await pathExists(outputReport))) {
       return readJsonFile(outputReport);
     }
     return errorKotlinPicGenerationReport({ filePath, source, commands: [backendCommand] });
@@ -2494,6 +2512,7 @@ export async function compileGoPieceFile(options = {}) {
   );
   const goCommand = options.goCommand ?? "go";
   const modulePath = options.modulePath ?? `piece.local/${sanitizeProjectName(sourceName.replace(/\.go$/, ""))}`;
+  const actionRunner = actionRunnerOptionsFor(options);
   const commands = [];
 
   try {
@@ -2501,13 +2520,13 @@ export async function compileGoPieceFile(options = {}) {
     await writeGoWorkspaceSources({ workspace, filePath, source, companions: companionSources, cwd });
     await writeFile(join(workspace, "go.mod"), `module ${modulePath}\n\ngo 1.22\n`, "utf8");
 
-    const goListCommand = await runCommand(goCommand, ["list", "-json", "./..."], { cwd: workspace, env: options.env });
+    const goListCommand = await runCommand(goCommand, ["list", "-json", "./..."], { cwd: workspace, env: options.env, ...actionRunner });
     commands.push(goListCommand);
     const goList = createGoListReport(goListCommand, workspace);
     const buildArgs = packageName === "main" ? ["build", "-o", join(outputDir, sanitizeProjectName(sourceName.replace(/\.go$/, ""))), "."] : ["build", "./..."];
-    commands.push(await runCommand(goCommand, buildArgs, { cwd: workspace, env: options.env }));
+    commands.push(await runCommand(goCommand, buildArgs, { cwd: workspace, env: options.env, ...actionRunner }));
     if ((options.runTests ?? true) && commands.at(-1)?.exitCode === 0) {
-      commands.push(await runCommand(goCommand, ["test", "./..."], { cwd: workspace, env: options.env }));
+      commands.push(await runCommand(goCommand, ["test", "./..."], { cwd: workspace, env: options.env, ...actionRunner }));
     }
 
     const outputFiles = await collectFiles(outputDir);
@@ -2536,6 +2555,7 @@ export async function compileGoPieceFile(options = {}) {
 
 export function createNodeGoDeclarationExtractor(options = {}) {
   const baseExtractor = options.declarationExtractor ?? createGoDeclarationExtractor(options);
+  const actionRunner = actionRunnerOptionsFor(options);
   return {
     name: options.name ?? baseExtractor.name,
     async extract({ filePath, source, previousTree }) {
@@ -2549,7 +2569,8 @@ export function createNodeGoDeclarationExtractor(options = {}) {
           filePath,
           source,
           goCommand: options.goCommand ?? "go",
-          env: options.env
+          env: options.env,
+          actionRunner
         });
         if (analyzerResult.manifest) {
           manifest = analyzerResult.manifest;
@@ -2571,7 +2592,8 @@ export function createNodeGoDeclarationExtractor(options = {}) {
         companionBindingResult = await collectGoCompanionBindings({
           companions: companionSources,
           goCommand: options.goCommand ?? "go",
-          env: options.env
+          env: options.env,
+          actionRunner
         });
         manifest = attachGoCompanionBindings(
           manifest,
@@ -2589,6 +2611,7 @@ export function createNodeGoDeclarationExtractor(options = {}) {
         goCommand: options.goCommand ?? "go",
         modulePath: options.modulePath ?? options.goModulePath,
         env: options.env,
+        actionRunner,
         cwd
       });
       const packageScope = createGoPackageScope({
@@ -2674,8 +2697,12 @@ export async function compileKotlinPieceFile(options = {}) {
       args.push(`-PpieceCompile.workspace=${resolve(options.workspace)}`);
     }
 
-    const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
-    if (await pathExists(outputReport)) {
+    const backendCommand = await runCommand(defaultGradleCommand(), args, {
+      cwd: PACKAGE_ROOT,
+      env: options.env,
+      ...actionRunnerOptionsFor(options)
+    });
+    if (canUseNodeActionOutput(backendCommand) && (await pathExists(outputReport))) {
       return readJsonFile(outputReport);
     }
     const commands = [backendCommand];
@@ -2860,8 +2887,12 @@ export async function analyzeKotlinPieceFile(options = {}) {
       `-PpieceAnalysis.classpathFile=${classpath.length > 0 ? classpathFile : ""}`
     ];
 
-    const backendCommand = await runCommand(defaultGradleCommand(), args, { cwd: PACKAGE_ROOT, env: options.env });
-    if (await pathExists(outputReport)) {
+    const backendCommand = await runCommand(defaultGradleCommand(), args, {
+      cwd: PACKAGE_ROOT,
+      env: options.env,
+      ...actionRunnerOptionsFor(options)
+    });
+    if (canUseNodeActionOutput(backendCommand) && (await pathExists(outputReport))) {
       return attachKotlinProjectModel(await readJsonFile(outputReport), projectModel);
     }
     return attachKotlinProjectModel(
@@ -2905,7 +2936,8 @@ export function createNodeKotlinPsiDeclarationExtractor(options = {}) {
         gradleCommand: options.gradleCommand,
         gradleVersion: options.gradleVersion,
         cwd: options.cwd,
-        env: options.env
+        env: options.env,
+        actionRunner: options.actionRunner
       });
     }
   };
