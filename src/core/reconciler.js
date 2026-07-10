@@ -147,17 +147,8 @@ function rangesOverlap(left, right) {
   return left.startByte < right.endByte && left.endByte > right.startByte;
 }
 
-function touchedPiecesForRanges(declarations, ranges = []) {
-  if (ranges.length === 0) {
-    return [];
-  }
-  const touched = new Set();
-  for (const declaration of Object.values(declarations)) {
-    if (ranges.some((range) => rangesOverlap(declaration.range, range))) {
-      touched.add(declaration.id);
-    }
-  }
-  return [...touched].sort();
+function declarationOverlapsRanges(declaration, ranges) {
+  return declaration && ranges.some((range) => rangesOverlap(declaration.range, range));
 }
 
 function reverseDependents(reverseGraph, seedIds) {
@@ -265,13 +256,18 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
 
   const nextDeclarations = nextSnapshot.declarations;
   const allDeclarationIds = sortStrings([...Object.keys(previousDeclarations), ...Object.keys(nextDeclarations)]);
-  const touchedPieces = sortStrings([...touchedPiecesForRanges(previousDeclarations, changedRanges), ...touchedPiecesForRanges(nextDeclarations, changedRanges)]);
+  const touchedPieces = [];
   const changedPieces = new Set();
   const publicShapeChangedPieces = new Set();
 
   for (const id of allDeclarationIds) {
     const before = previousDeclarations[id];
     const after = nextDeclarations[id];
+    // Declarations can move or disappear after an insertion/deletion, so check both
+    // coordinate spaces while traversing the union that is already needed for the diff.
+    if (declarationOverlapsRanges(before, changedRanges) || declarationOverlapsRanges(after, changedRanges)) {
+      touchedPieces.push(id);
+    }
     if (!before || !after || before.textHash !== after.textHash) {
       changedPieces.add(id);
     }

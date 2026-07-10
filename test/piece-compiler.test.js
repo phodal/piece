@@ -1687,6 +1687,42 @@ export function UserCard() {
     expect(reconciliation.reusedArtifactIds.map((id) => id.split("#")[1])).toEqual(["function:OtherCard", "value:statusColorMap"]);
   });
 
+  it("keeps touched pieces from both declaration coordinate spaces across insertions and deletions", async () => {
+    const compiler = createPieceCompiler();
+    const previousSource = sampleSource();
+    const previousAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: previousSource
+    });
+    const previousSnapshot = createPieceSnapshot({ analysis: previousAnalysis });
+
+    const insertedSource = previousSource.replace("\nexport function UserCard", '\nconst addedLabel = "Added";\n\nexport function UserCard');
+    const insertedAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: insertedSource
+    });
+    const insertion = reconcilePieceSnapshot({
+      previousSnapshot,
+      analysis: insertedAnalysis,
+      changedRanges: [changedRange(previousSource, insertedSource)]
+    });
+
+    expect(insertion.touchedPieces.map((id) => id.split("#")[1])).toContain("value:addedLabel");
+
+    const deletedSource = previousSource.replace('const statusColorMap = {\n  active: "green",\n  disabled: "gray"\n};\n\n', "");
+    const deletedAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: deletedSource
+    });
+    const deletion = reconcilePieceSnapshot({
+      previousSnapshot,
+      analysis: deletedAnalysis,
+      changedRanges: [changedRange(previousSource, deletedSource)]
+    });
+
+    expect(deletion.touchedPieces.map((id) => id.split("#")[1])).toContain("value:statusColorMap");
+  });
+
   it("extracts Kotlin single-file pieces and exposes Bazel-like targets", async () => {
     const compiler = createPieceCompiler();
     const analysis = await compiler.analyzeFile({
