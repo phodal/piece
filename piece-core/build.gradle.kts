@@ -84,7 +84,7 @@ dependencies {
         pieceAnalysisApiClasspath("org.jetbrains.kotlin:kotlin-reflect:1.6.10") {
             isTransitive = false
         }
-        pieceAnalysisApiClasspath("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0") {
+        pieceAnalysisApiClasspath("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0") {
             isTransitive = false
         }
         pieceAnalysisApiClasspath("org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:${pieceAnalysisApiSerializationVersion.get()}") {
