@@ -13,24 +13,22 @@ describe("Gradle launcher", () => {
     );
   });
 
-  it("routes only Windows batch wrappers through controlled cmd.exe", () => {
+  it("routes only Windows batch wrappers through the shared controlled cmd.exe invocation", () => {
     expect(
       createGradleInvocation(["check", "--project-cache-dir", "C:\\cache with spaces"], {
         platform: "win32",
         packageRoot: "C:\\Program Files\\Piece",
-        comSpec: "C:\\Windows\\System32\\cmd.exe"
+        comSpec: "C:\\attacker\\cmd.exe"
       })
     ).toEqual({
       command: "C:\\Windows\\System32\\cmd.exe",
       args: [
         "/d",
+        "/e:on",
+        "/v:off",
         "/s",
         "/c",
-        "call",
-        "C:\\Program Files\\Piece\\gradlew.bat",
-        "check",
-        "--project-cache-dir",
-        "C:\\cache with spaces"
+        '""C:\\Program Files\\Piece\\gradlew.bat" "check" "--project-cache-dir" "C:\\cache with spaces""'
       ],
       cwd: "C:\\Program Files\\Piece"
     });

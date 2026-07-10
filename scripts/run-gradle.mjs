@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { dirname, join, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createNodeActionInvocation } from "../src/node-action-runner.js";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -14,16 +15,10 @@ export function resolveGradleWrapperPath({ platform = process.platform, packageR
 
 export function createGradleInvocation(args, options = {}) {
   const platform = options.platform ?? process.platform;
-  const wrapper = resolveGradleWrapperPath({ platform, packageRoot: options.packageRoot ?? PACKAGE_ROOT });
-  if (platform !== "win32") return { command: wrapper, args: [...args], cwd: options.packageRoot ?? PACKAGE_ROOT };
-
-  // cmd.exe is required for .bat wrappers. Keep shell execution constrained to
-  // this checked-in wrapper rather than enabling a shell for arbitrary tools.
-  return {
-    command: options.comSpec ?? process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe",
-    args: ["/d", "/s", "/c", "call", wrapper, ...args],
-    cwd: options.packageRoot ?? PACKAGE_ROOT
-  };
+  const packageRoot = options.packageRoot ?? PACKAGE_ROOT;
+  const wrapper = resolveGradleWrapperPath({ platform, packageRoot });
+  const invocation = createNodeActionInvocation(wrapper, args, { platform, environment: options.environment });
+  return { command: invocation.command, args: invocation.args, cwd: packageRoot };
 }
 
 export async function runGradle(args, options = {}) {

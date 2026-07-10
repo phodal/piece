@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveNodeActionInvocation } from "../src/node-action-runner.js";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE_NAME = "piece-compiler";
@@ -56,14 +57,14 @@ function run(command, args, options = {}) {
   });
 }
 
-function npmInvocation(args) {
-  if (process.platform !== "win32") return { command: "npm", args };
-  const command = ["npm", ...args].map((part) => `"${String(part).replaceAll('"', '""')}"`).join(" ");
-  return { command: process.env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", command] };
+async function npmInvocation(args, options = {}) {
+  return resolveNodeActionInvocation("npm", args, {
+    environment: { ...process.env, ...options.env }
+  });
 }
 
 async function runNpm(args, options) {
-  const invocation = npmInvocation(args);
+  const invocation = await npmInvocation(args, options);
   return run(invocation.command, invocation.args, options);
 }
 

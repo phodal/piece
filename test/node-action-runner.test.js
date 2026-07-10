@@ -5,6 +5,7 @@ import {
   MAX_ACTION_KILL_GRACE_MS,
   MAX_ACTION_MAX_OUTPUT_BYTES,
   MAX_ACTION_TIMEOUT_MS,
+  resolveNodeActionInvocation,
   isNodeActionFailure,
   NODE_ACTION_ERROR_CODES,
   resolveNodeActionLimits,
@@ -129,5 +130,33 @@ describe("Node Action Runner", () => {
       if (previousSecret === undefined) delete process.env[secretName];
       else process.env[secretName] = previousSecret;
     }
+  });
+
+  it("resolves a controlled Windows PATH .cmd shim before invoking cmd.exe", async () => {
+    const inspected = [];
+    const invocation = await resolveNodeActionInvocation("npm", ["run", "build"], {
+      platform: "win32",
+      environment: {
+        PATH: "C:\\tooling;C:\\Program Files\\nodejs",
+        PATHEXT: ".EXE;.CMD"
+      },
+      pathExists: async (candidate) => {
+        inspected.push(candidate);
+        return candidate === "C:\\Program Files\\nodejs\\npm.CMD";
+      }
+    });
+
+    expect(inspected).toEqual([
+      "C:\\tooling\\npm.EXE",
+      "C:\\tooling\\npm.CMD",
+      "C:\\Program Files\\nodejs\\npm.EXE",
+      "C:\\Program Files\\nodejs\\npm.CMD"
+    ]);
+    expect(invocation).toMatchObject({
+      command: "C:\\Windows\\System32\\cmd.exe",
+      args: ["/d", "/e:on", "/v:off", "/s", "/c", '""C:\\Program Files\\nodejs\\npm.CMD" "run" "build""'],
+      resultCommand: "npm",
+      resultArgs: ["run", "build"]
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { lstat } from "node:fs/promises";
 import { win32 } from "node:path";
 import { performance } from "node:perf_hooks";
 
@@ -19,6 +20,8 @@ export const MAX_ACTION_KILL_GRACE_MS = 30_000;
 // this work on installations outside C:\\Windows; use a safe absolute fallback
 // when it is absent or malformed (for example in cross-platform tests).
 export const WINDOWS_DEFAULT_COMMAND_PROCESSOR = "C:\\Windows\\System32\\cmd.exe";
+const DEFAULT_WINDOWS_PATH_EXTENSIONS = [".COM", ".EXE", ".BAT", ".CMD"];
+const WINDOWS_PATH_EXTENSIONS = new Set(DEFAULT_WINDOWS_PATH_EXTENSIONS);
 
 export const NODE_ACTION_ERROR_CODES = Object.freeze({
   timeout: "ACTION_TIMEOUT",
@@ -43,8 +46,16 @@ function isWindowsBatchCommand(command) {
   return /\.(?:bat|cmd)$/i.test(String(command ?? "").replace(/[. ]+$/u, ""));
 }
 
-function safeWindowsSystemRoot() {
-  const value = process.env.SystemRoot ?? process.env.SYSTEMROOT;
+function environmentValue(environment, name) {
+  const expectedName = name.toUpperCase();
+  for (const [key, value] of Object.entries(environment ?? {})) {
+    if (key.toUpperCase() === expectedName) return value;
+  }
+  return undefined;
+}
+
+function safeWindowsSystemRoot(environment = process.env) {
+  const value = environmentValue(environment, "SystemRoot");
   if (typeof value !== "string" || value.length === 0 || /[\0\r\n"]/.test(value)) {
     return undefined;
   }
@@ -60,16 +71,16 @@ function safeWindowsSystemRoot() {
  * ComSpec variable. The absolute fallback also keeps platform simulations
  * deterministic when no Windows environment is available.
  */
-function resolveWindowsSystemExecutable(fileName) {
-  const systemRoot = safeWindowsSystemRoot();
+function resolveWindowsSystemExecutable(fileName, environment) {
+  const systemRoot = safeWindowsSystemRoot(environment);
   if (systemRoot) return win32.join(systemRoot, "System32", fileName);
   return fileName === "cmd.exe"
     ? WINDOWS_DEFAULT_COMMAND_PROCESSOR
     : win32.join("C:\\Windows\\System32", fileName);
 }
 
-export function resolveWindowsCommandProcessor() {
-  return resolveWindowsSystemExecutable("cmd.exe");
+export function resolveWindowsCommandProcessor(options = {}) {
+  return resolveWindowsSystemExecutable("cmd.exe", options.environment);
 }
 
 function actionInputError(message) {
@@ -128,8 +139,9 @@ function quoteWindowsBatchToken(value, label) {
 
 /**
  * Build the executable invocation without enabling a shell. Windows batch
- * files require cmd.exe, while bare commands such as `gradle` stay direct.
- * `resultCommand` remains the caller's original command for diagnostics.
+ * files require cmd.exe; resolveNodeActionInvocation() resolves PATH-backed
+ * batch shims before reaching this function. `resultCommand` remains the
+ * caller's original command for diagnostics.
  */
 export function createNodeActionInvocation(command, args = [], options = {}) {
   const platform = options.platform ?? process.platform;
@@ -147,12 +159,76 @@ export function createNodeActionInvocation(command, args = [], options = {}) {
     ...originalArgs.map((argument, index) => quoteWindowsBatchToken(argument, `args[${index}]`))
   ].join(" ");
   return {
-    command: resolveWindowsCommandProcessor(),
+    command: resolveWindowsCommandProcessor({ environment: options.environment }),
     // `/d` disables AutoRun, `/v:off` prevents ! expansion, and the extra
     // outer quotes let `/s /c` preserve the already-quoted batch command.
     args: ["/d", "/e:on", "/v:off", "/s", "/c", `"${commandLine}"`],
     resultCommand: command,
     resultArgs: originalArgs
+  };
+}
+
+function windowsPathEntries(environment) {
+  const value = environmentValue(environment, "PATH");
+  if (typeof value !== "string") return [];
+  return value
+    .split(";")
+    .map((entry) => entry.trim())
+    .map((entry) => (entry.length >= 2 && entry.startsWith('"') && entry.endsWith('"') ? entry.slice(1, -1) : entry))
+    .filter((entry) => entry.length > 0 && !/[\0\r\n]/u.test(entry));
+}
+
+function windowsPathExtensions(environment) {
+  const value = environmentValue(environment, "PATHEXT");
+  if (typeof value !== "string") return DEFAULT_WINDOWS_PATH_EXTENSIONS;
+  const extensions = value
+    .split(";")
+    .map((extension) => extension.trim().toUpperCase())
+    .filter((extension) => WINDOWS_PATH_EXTENSIONS.has(extension));
+  return extensions.length > 0 ? [...new Set(extensions)] : DEFAULT_WINDOWS_PATH_EXTENSIONS;
+}
+
+function isBareWindowsCommand(command) {
+  return typeof command === "string" && command.length > 0 && !/[\\/:]/u.test(command) && !/\.[A-Za-z0-9]+[. ]*$/u.test(command);
+}
+
+async function existingRegularFile(path) {
+  try {
+    return (await lstat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve a bare Windows command using the child action's controlled PATH.
+ * Node cannot directly execute .cmd/.bat shims with shell:false, so resolve
+ * the same PATH/PATHEXT candidate first and then let createNodeActionInvocation
+ * apply the guarded cmd.exe quoting path.
+ */
+export async function resolveWindowsPathCommand(command, options = {}) {
+  const platform = options.platform ?? process.platform;
+  if (platform !== "win32" || !isBareWindowsCommand(command) || isWindowsBatchCommand(command)) {
+    return command;
+  }
+  const pathExists = options.pathExists ?? existingRegularFile;
+  for (const directory of windowsPathEntries(options.environment ?? process.env)) {
+    for (const extension of windowsPathExtensions(options.environment ?? process.env)) {
+      const candidate = win32.join(directory, `${command}${extension}`);
+      if (await pathExists(candidate)) return candidate;
+    }
+  }
+  return command;
+}
+
+/** Resolve PATH-backed Windows batch shims before creating a shell-free invocation. */
+export async function resolveNodeActionInvocation(command, args = [], options = {}) {
+  const resolvedCommand = await resolveWindowsPathCommand(command, options);
+  const invocation = createNodeActionInvocation(resolvedCommand, args, options);
+  return {
+    ...invocation,
+    resultCommand: command,
+    resultArgs: [...args]
   };
 }
 
@@ -368,35 +444,43 @@ export async function runNodeAction(command, args = [], options = {}) {
       }
     };
 
-    try {
-      const invocation = createNodeActionInvocation(command, args);
-      child = spawn(invocation.command, invocation.args, {
-        cwd: options.cwd,
-        env: createNodeActionEnvironment(options),
-        detached: process.platform !== "win32",
-        shell: false,
-        windowsHide: true
-      });
-    } catch (error) {
-      spawnErrorMessage = error?.message ?? String(error);
-      finish({ errorCode: error?.code ?? "ACTION_SPAWN_FAILED" });
-      return;
-    }
+    const launch = async () => {
+      try {
+        const environment = createNodeActionEnvironment(options);
+        const invocation = await resolveNodeActionInvocation(command, args, { environment });
+        if (options.signal?.aborted) {
+          finish({ errorCode: NODE_ACTION_ERROR_CODES.cancelled });
+          return;
+        }
+        child = spawn(invocation.command, invocation.args, {
+          cwd: options.cwd,
+          env: environment,
+          detached: process.platform !== "win32",
+          shell: false,
+          windowsHide: true
+        });
+      } catch (error) {
+        spawnErrorMessage = error?.message ?? String(error);
+        finish({ errorCode: error?.code ?? "ACTION_SPAWN_FAILED" });
+        return;
+      }
 
-    child.stdout?.on("data", (chunk) => appendOutput("stdout", chunk));
-    child.stderr?.on("data", (chunk) => appendOutput("stderr", chunk));
-    child.once("error", (error) => {
-      spawnErrorMessage = error?.message ?? String(error);
-      finish({ errorCode: error?.code ?? "ACTION_SPAWN_FAILED" });
-    });
-    child.once("close", (exitCode, signal) => finish({ exitCode, signal }));
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-    if (options.signal?.aborted) {
-      onAbort();
-      return;
-    }
-    if (!finished && !termination) {
-      timeoutTimer = setTimeout(() => requestTermination(NODE_ACTION_ERROR_CODES.timeout), timeoutMs);
-    }
+      child.stdout?.on("data", (chunk) => appendOutput("stdout", chunk));
+      child.stderr?.on("data", (chunk) => appendOutput("stderr", chunk));
+      child.once("error", (error) => {
+        spawnErrorMessage = error?.message ?? String(error);
+        finish({ errorCode: error?.code ?? "ACTION_SPAWN_FAILED" });
+      });
+      child.once("close", (exitCode, signal) => finish({ exitCode, signal }));
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+      if (options.signal?.aborted) {
+        onAbort();
+        return;
+      }
+      if (!finished && !termination) {
+        timeoutTimer = setTimeout(() => requestTermination(NODE_ACTION_ERROR_CODES.timeout), timeoutMs);
+      }
+    };
+    void launch();
   });
 }
