@@ -1,4 +1,4 @@
-import { reversePieceGraph } from "./slice-graph.js";
+import { indexPieceGraphEdges } from "./slice-graph.js";
 
 function sliceContainingRange(manifest, range) {
   return manifest.slices.find((slice) => range.startByte < slice.range.endByte && range.endByte > slice.range.startByte);
@@ -48,7 +48,7 @@ export function analyzePieceEdit({ previousManifest, nextManifest, changedRanges
 }
 
 export function findAffectedPiecePreviewTargets({ changedSlices, graph, previewTargets }) {
-  const reverse = reversePieceGraph(graph);
+  const reverse = indexPieceGraphEdges(graph).edgesByTarget;
   const affected = new Set();
   // A reverse graph can contain cycles (for example mutually recursive
   // declarations). Mark a node as queued before appending it so each node is

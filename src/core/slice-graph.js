@@ -158,13 +158,30 @@ export function updatePieceSliceGraph(previousGraph, manifest, changedSliceIds, 
   };
 }
 
-export function reversePieceGraph(graph) {
-  const reverse = new Map();
+/**
+ * Build forward and reverse edge indexes together. Callers that need both
+ * dependency directions (notably reconciliation) avoid two full edge scans.
+ */
+export function indexPieceGraphEdges(graph) {
+  const edgesBySource = new Map();
+  const edgesByTarget = new Map();
   for (const edge of graph.edges) {
-    if (!reverse.has(edge.to)) {
-      reverse.set(edge.to, []);
+    const outgoing = edgesBySource.get(edge.from);
+    if (outgoing) {
+      outgoing.push(edge);
+    } else {
+      edgesBySource.set(edge.from, [edge]);
     }
-    reverse.get(edge.to).push(edge);
+    const incoming = edgesByTarget.get(edge.to);
+    if (incoming) {
+      incoming.push(edge);
+    } else {
+      edgesByTarget.set(edge.to, [edge]);
+    }
   }
-  return reverse;
+  return { edgesBySource, edgesByTarget };
+}
+
+export function reversePieceGraph(graph) {
+  return indexPieceGraphEdges(graph).edgesByTarget;
 }

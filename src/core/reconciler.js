@@ -1,5 +1,5 @@
 import { PIECE_FINGERPRINT_VERSION, hashParts, stableTextHash } from "./hash.js";
-import { reversePieceGraph } from "./slice-graph.js";
+import { indexPieceGraphEdges } from "./slice-graph.js";
 import { explainPieceFeedbackScope } from "./feedback-scope.js";
 import { createPieceActionCacheMetadata } from "./action-cache.js";
 
@@ -32,19 +32,6 @@ function slicePublicShapeSource(slice) {
   }
 
   return source;
-}
-
-function indexEdgesBySource(graph) {
-  const index = new Map();
-  for (const edge of graph.edges) {
-    const list = index.get(edge.from);
-    if (list) {
-      list.push(edge);
-    } else {
-      index.set(edge.from, [edge]);
-    }
-  }
-  return index;
 }
 
 function publicShapeHashForSlice(slice, previousDeclaration) {
@@ -217,8 +204,8 @@ function declarationOverlapsRanges(declaration, ranges) {
 function reverseDependents(reverseGraph, seedIds) {
   const affected = new Set();
   const queue = [...seedIds];
-  while (queue.length > 0) {
-    const current = queue.shift();
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
     for (const edge of reverseGraph.get(current) ?? []) {
       if (!affected.has(edge.from)) {
         affected.add(edge.from);
@@ -243,7 +230,7 @@ function previewTargetsAffectedByDirtyPieces(reverseGraph, previewTargets, dirty
   return previewTargets.filter((target) => candidates.has(target)).sort();
 }
 
-export function createPieceSnapshot({ analysis, artifacts, version = 1, compilerOptionsHash = "", compilerOptions, dependencyArtifacts, actionCache, previousDeclarations }) {
+export function createPieceSnapshot({ analysis, artifacts, version = 1, compilerOptionsHash = "", compilerOptions, dependencyArtifacts, actionCache, previousDeclarations, graphIndexes }) {
   const projectModelHash = analysis.manifest.projectModel?.analysisScope?.hashes?.scopeHash ?? analysis.manifest.projectModel?.hashes?.modelHash ?? "";
   const feedbackScope = analysis.feedbackScope ?? explainPieceFeedbackScope({ manifest: analysis.manifest, graph: analysis.graph });
   const suppliedActionCache = actionCache ?? analysis.actionCache;
@@ -258,8 +245,8 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
     projectModelHash,
     feedbackScope.hashes.fallbackScopeHash
   ];
-  const edgesBySource = indexEdgesBySource(analysis.graph);
-  const declarations = createDeclarationRecords(analysis.manifest.slices, edgesBySource, previousDeclarations, cacheKeySalt);
+  const indexes = graphIndexes ?? indexPieceGraphEdges(analysis.graph);
+  const declarations = createDeclarationRecords(analysis.manifest.slices, indexes.edgesBySource, previousDeclarations, cacheKeySalt);
   const declarationRecord = objectFromEntries(declarations.map((declaration) => [declaration.id, declaration]));
   return {
     version: 1,
@@ -287,6 +274,7 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
   const previous = previousSnapshot;
   const fingerprintChanged = previous && previous.fingerprintVersion !== PIECE_FINGERPRINT_VERSION;
   const previousDeclarations = fingerprintChanged ? {} : previous?.declarations ?? {};
+  const graphIndexes = indexPieceGraphEdges(analysis.graph);
   const nextSnapshot = createPieceSnapshot({
     analysis,
     artifacts,
@@ -295,7 +283,8 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
     compilerOptions,
     dependencyArtifacts,
     actionCache,
-    previousDeclarations
+    previousDeclarations,
+    graphIndexes
   });
 
   if (!previous) {
@@ -343,7 +332,7 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
   const changedEffects = fingerprintChanged || previous.effectHash !== nextSnapshot.effectHash;
   // Build the reverse dependency graph once and reuse it for both the public-shape dirty
   // propagation below and the preview-target lookup further down, instead of rebuilding it twice.
-  const reverseGraph = reversePieceGraph(analysis.graph);
+  const reverseGraph = graphIndexes.edgesByTarget;
   const dirtyPieces = new Set(changedPieces);
   for (const id of reverseDependents(reverseGraph, publicShapeChangedPieces)) {
     dirtyPieces.add(id);
