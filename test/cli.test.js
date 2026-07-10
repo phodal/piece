@@ -516,6 +516,48 @@ describe("piece CLI", () => {
     });
   });
 
+  it("reports source-derived workspace cycles as blocked rather than dependency failures", async () => {
+    await withWorkspace(async (workspace) => {
+      await writeProject(workspace, "a", {
+        source: 'import { b } from "../../b/src";\nexport const a = () => b();\n'
+      });
+      await writeProject(workspace, "b", {
+        source: 'import { a } from "../../a/src";\nexport const b = () => a();\n'
+      });
+      const task = (script) => ({
+        request: { profile: "typescript", script },
+        policy: { profiles: { typescript: { root: ".", allowScripts: [script] } }, envAllowlist: ["PATH"] }
+      });
+      await writeFile(
+        join(workspace, "piece.config.json"),
+        `${JSON.stringify({
+          schemaVersion: 2,
+          defaultProject: "a",
+          projects: [
+            { id: "a", root: "a", sourceRoots: ["src"], dependsOn: [], build: task("build"), check: task("check") },
+            { id: "b", root: "b", sourceRoots: ["src"], dependsOn: [], build: task("build"), check: task("check") }
+          ]
+        })}\n`,
+        "utf8"
+      );
+
+      const result = await invokePiece(["build", "--workspace", workspace, "--format", "json"]);
+      expect(result.exitCode).toBe(1);
+      const body = JSON.parse(result.stdout);
+      expect(body.projects.map((project) => [project.id, project.execution.status, project.execution.reason])).toEqual([
+        ["a", "blocked", "dependency-cycle"],
+        ["b", "blocked", "dependency-cycle"]
+      ]);
+      expect(body.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "workspace-project-dependency-cycle", projectId: "a" }),
+          expect.objectContaining({ code: "workspace-project-dependency-cycle", projectId: "b" })
+        ])
+      );
+      expect(body.diagnostics).not.toEqual(expect.arrayContaining([expect.objectContaining({ code: "workspace-project-dependency-failed" })]));
+    });
+  });
+
   it.runIf(process.platform !== "win32")("fails a build when a declared output resolves through a symlink outside its project", async () => {
     await withWorkspace(async (workspace) => {
       const outside = await mkdtemp(join(tmpdir(), "piece-cli-output-outside-"));

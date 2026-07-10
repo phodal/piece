@@ -628,20 +628,26 @@ export async function runPieceWorkspaceCliTask({ command, workspace, config, pro
     for (const action of batch.actions) {
       const project = projectById.get(action.projectId);
       const configProject = configById.get(action.projectId);
-      const failedDependencies = action.dependsOn.filter((dependencyId) => actionStatuses.get(dependencyId) !== "success");
       let projectResult;
-      if (failedDependencies.length > 0) {
-        projectResult = skippedProjectResult({ action, project, workspaceRoot: preflight.workspaceRoot, dependencyIds: failedDependencies });
-      } else if (action.scheduling === "cycle-fallback") {
+      // A strongly-connected component cannot have a successful dependency
+      // before one of its members runs. Handle it before ordinary dependency
+      // failure propagation so the result preserves the planner's cycle
+      // diagnosis instead of misreporting every member as skipped.
+      if (action.scheduling === "cycle-fallback") {
         projectResult = cycleProjectResult({ action, project, workspaceRoot: preflight.workspaceRoot });
       } else {
-        projectResult = await executeWorkspaceAction({
-          action,
-          project,
-          configProject,
-          command,
-          workspaceRoot: preflight.workspaceRoot
-        });
+        const failedDependencies = action.dependsOn.filter((dependencyId) => actionStatuses.get(dependencyId) !== "success");
+        if (failedDependencies.length > 0) {
+          projectResult = skippedProjectResult({ action, project, workspaceRoot: preflight.workspaceRoot, dependencyIds: failedDependencies });
+        } else {
+          projectResult = await executeWorkspaceAction({
+            action,
+            project,
+            configProject,
+            command,
+            workspaceRoot: preflight.workspaceRoot
+          });
+        }
       }
       actionStatuses.set(action.id, projectResult.execution.status);
       projects.push(projectResult);

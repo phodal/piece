@@ -50,16 +50,26 @@ export function analyzePieceEdit({ previousManifest, nextManifest, changedRanges
 export function findAffectedPiecePreviewTargets({ changedSlices, graph, previewTargets }) {
   const reverse = reversePieceGraph(graph);
   const affected = new Set();
-  const queue = [...changedSlices];
+  // A reverse graph can contain cycles (for example mutually recursive
+  // declarations). Mark a node as queued before appending it so each node is
+  // processed at most once and a cycle cannot keep extending the work list.
+  const queue = [...new Set(changedSlices)];
+  const queued = new Set(queue);
+  const visited = new Set();
   const previewTargetSet = new Set(previewTargets);
 
-  while (queue.length > 0) {
-    const current = queue.shift();
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    if (visited.has(current)) continue;
+    visited.add(current);
     if (previewTargetSet.has(current)) {
       affected.add(current);
     }
     for (const edge of reverse.get(current) ?? []) {
-      queue.push(edge.from);
+      if (!queued.has(edge.from)) {
+        queued.add(edge.from);
+        queue.push(edge.from);
+      }
     }
   }
 
