@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { parsePieceDslFile } from "../src/node.js";
 
 describe(".pic parser diagnostic exit semantics", () => {
+  // This starts the JVM/ANTLR backend. Keep the semantic assertion strict but
+  // allow a cold Gradle worker under the full parallel Vitest suite.
   it("returns the JVM parser's validated syntax report when the backend exits 1", async () => {
     const source = `package "//repo/src:Broken.kt" {
   language kotlin
@@ -22,5 +24,5 @@ describe(".pic parser diagnostic exit semantics", () => {
       expect.arrayContaining([expect.objectContaining({ code: "pic-syntax-error", severity: "error" })])
     );
     expect(result.diagnostics.some((diagnostic) => diagnostic.code === "compiler-error")).toBe(false);
-  });
+  }, 20_000);
 });
