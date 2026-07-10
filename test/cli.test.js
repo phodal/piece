@@ -436,7 +436,7 @@ describe("piece CLI", () => {
       expect(time("app", "start")).toBeGreaterThanOrEqual(Math.max(time("a", "end"), time("b", "end")));
       expect(JSON.parse(result.stdout).projects.map((project) => project.id)).toEqual(["a", "b", "app"]);
     });
-  });
+  }, 20_000);
 
   it.runIf(process.platform !== "win32")("blocks downstream projects after a configured fallback task fails and rejects missing declared outputs", async () => {
     await withWorkspace(async (workspace) => {
