@@ -1,0 +1,64 @@
+name: Publish npm package
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish npm package after lifecycle verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure the tag matches package.json
+        shell: bash
+        run: |
+          expected_tag="v$(node --print \"require('./package.json').version\")"
+          test "$GITHUB_REF_TYPE" = "tag"
+          test "$GITHUB_REF_NAME" = "$expected_tag"
+
+      # Configure this repository as an npm Trusted Publisher before enabling tags.
+      # npm publish runs package.json#prepublishOnly once, which runs release:verify.
+      # Do not add --ignore-scripts or duplicate release:verify steps here.
+      # The id-token permission lets npm attach provenance without a long-lived token.
+      - name: Publish with provenance (runs prepublishOnly release:verify)
+        run: npm publish --provenance --access public

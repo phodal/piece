@@ -1,20 +1,64 @@
-name: Deploy GitHub Pages
+name: CI
 
 on:
+  pull_request:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: github-pages
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  validate:
+  node:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify source package
+        run: npm run verify
+
+      - name: Smoke-test the packed package and CLI
+        run: node scripts/smoke-packed-package.mjs
+
+  gradle-wrapper:
+    name: Validate Gradle wrapper
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+  toolchains:
+    name: Linux language toolchains
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -43,9 +87,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Verify source package
-        run: npm run verify
 
       - name: Core check
         run: npm run core:check
@@ -76,41 +117,3 @@ jobs:
 
       - name: Language compile smoke
         run: npm run language:compile:smoke
-
-      - name: Build Pages site
-        run: npm run pages:build
-
-      - name: Upload Pages artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: piece-pages-${{ github.sha }}
-          path: site
-          if-no-files-found: error
-          retention-days: 1
-
-  deploy:
-    needs: validate
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - name: Download Pages artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: piece-pages-${{ github.sha }}
-          path: site
-
-      - name: Publish gh-pages branch
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          cd site
-          git init
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b gh-pages
-          git add .
-          git commit -m "deploy: ${GITHUB_SHA}"
-          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
