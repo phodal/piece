@@ -25,6 +25,7 @@ import org.jetbrains.kotlin.resolve.BindingContext
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Locale
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteRecursively
@@ -65,9 +66,8 @@ internal class KotlinBindingSymbolBackend {
             workspace.createDirectories()
             sourceFile.parent.createDirectories()
             sourceFile.writeText(request.source)
-            val virtualPathByActualPath = mutableMapOf(
-                sourceFile.toAbsolutePath().normalize().toString() to request.filePath,
-            )
+            val sourcePathKey = workspacePathKey(sourceFile.toString())
+            val virtualPathByActualPath = mutableMapOf(sourcePathKey to request.filePath)
             val companionSourceFiles = request.companionFiles
                 .filterNot { it.filePath == request.filePath }
                 .mapIndexed { index, companion ->
@@ -76,7 +76,7 @@ internal class KotlinBindingSymbolBackend {
                         .resolve("${index}-${sourceName(companion.filePath, "Companion.kt")}")
                     companionFile.parent.createDirectories()
                     companionFile.writeText(companion.source)
-                    virtualPathByActualPath[companionFile.toAbsolutePath().normalize().toString()] = companion.filePath
+                    virtualPathByActualPath[workspacePathKey(companionFile.toString())] = companion.filePath
                     companionFile
                 }
             val allSourceFiles = listOf(sourceFile) + companionSourceFiles
@@ -99,7 +99,7 @@ internal class KotlinBindingSymbolBackend {
             )
             val sourceFiles = environment.getSourceFiles()
             val sourceKtFile = sourceFiles.firstOrNull {
-                it.virtualFilePath == sourceFile.toAbsolutePath().normalize().toString()
+                workspacePathKey(it.virtualFilePath) == sourcePathKey
             } ?: sourceFiles.firstOrNull()
                 ?: return KotlinBindingSymbolResult(emptyMap())
             val analysis = TopDownAnalyzerFacadeForJVM.analyzeFilesWithJavaIntegration(
@@ -121,7 +121,7 @@ internal class KotlinBindingSymbolBackend {
             val descriptorToExternalBinding = sourceFiles
                 .filterNot { ktFile -> ktFile == sourceKtFile }
                 .flatMap { ktFile ->
-                    val virtualPath = virtualPathByActualPath[ktFile.virtualFilePath] ?: ktFile.virtualFilePath
+                    val virtualPath = virtualPathByActualPath[workspacePathKey(ktFile.virtualFilePath)] ?: ktFile.virtualFilePath
                     ktFile.declarations.mapNotNull { declaration ->
                         val name = declaration.name ?: return@mapNotNull null
                         val descriptor = bindingContext.get(BindingContext.DECLARATION_TO_DESCRIPTOR, declaration)?.topLevelOriginal()
@@ -171,6 +171,11 @@ internal class KotlinBindingSymbolBackend {
             workspace.deleteRecursivelyIfExists()
         }
     }
+}
+
+private fun workspacePathKey(path: String): String {
+    val normalized = Path.of(path).toAbsolutePath().normalize().toString().replace('\\', '/')
+    return if (File.separatorChar == '\\') normalized.lowercase(Locale.ROOT) else normalized
 }
 
 private fun KtDeclaration.collectSemanticSymbols(
