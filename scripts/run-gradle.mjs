@@ -18,7 +18,12 @@ export function createGradleInvocation(args, options = {}) {
   const packageRoot = options.packageRoot ?? PACKAGE_ROOT;
   const wrapper = resolveGradleWrapperPath({ platform, packageRoot });
   const invocation = createNodeActionInvocation(wrapper, args, { platform, environment: options.environment });
-  return { command: invocation.command, args: invocation.args, cwd: packageRoot };
+  return {
+    command: invocation.command,
+    args: invocation.args,
+    cwd: packageRoot,
+    ...(invocation.windowsVerbatimArguments === true ? { windowsVerbatimArguments: true } : {})
+  };
 }
 
 export async function runGradle(args, options = {}) {
@@ -28,7 +33,8 @@ export async function runGradle(args, options = {}) {
       cwd: invocation.cwd,
       env: { ...process.env, ...options.env },
       shell: false,
-      stdio: "inherit"
+      stdio: "inherit",
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments
     });
     child.on("error", rejectResult);
     child.on("close", (code, signal) => {

@@ -22,7 +22,8 @@ function run(command, args, options = {}) {
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: { ...process.env, ...options.env },
-      shell: false
+      shell: false,
+      windowsVerbatimArguments: options.windowsVerbatimArguments === true
     });
     let stdout = "";
     let stderr = "";
@@ -65,7 +66,10 @@ async function npmInvocation(args, options = {}) {
 
 async function runNpm(args, options) {
   const invocation = await npmInvocation(args, options);
-  return run(invocation.command, invocation.args, options);
+  return run(invocation.command, invocation.args, {
+    ...options,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments
+  });
 }
 
 function normalizeBins(packageJson) {

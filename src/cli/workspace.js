@@ -360,7 +360,7 @@ async function preflightWorkspaceConfig(workspaceRoot, config) {
 }
 
 function workspaceRelativePath(workspaceRoot, path) {
-  return relative(workspaceRoot, path) || ".";
+  return (relative(workspaceRoot, path) || ".").replaceAll("\\", "/");
 }
 
 function normalizedDiagnostic(diagnostic, projectId) {

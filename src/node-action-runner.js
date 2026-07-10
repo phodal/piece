@@ -163,6 +163,10 @@ export function createNodeActionInvocation(command, args = [], options = {}) {
     // `/d` disables AutoRun, `/v:off` prevents ! expansion, and the extra
     // outer quotes let `/s /c` preserve the already-quoted batch command.
     args: ["/d", "/e:on", "/v:off", "/s", "/c", `"${commandLine}"`],
+    // The command line above is already encoded for cmd.exe. Letting Node
+    // quote it once more turns its leading quotes into literal characters,
+    // so Windows must receive these argv tokens verbatim.
+    windowsVerbatimArguments: true,
     resultCommand: command,
     resultArgs: originalArgs
   };
@@ -457,7 +461,8 @@ export async function runNodeAction(command, args = [], options = {}) {
           env: environment,
           detached: process.platform !== "win32",
           shell: false,
-          windowsHide: true
+          windowsHide: true,
+          windowsVerbatimArguments: invocation.windowsVerbatimArguments === true
         });
       } catch (error) {
         spawnErrorMessage = error?.message ?? String(error);

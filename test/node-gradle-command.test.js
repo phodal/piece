@@ -34,6 +34,7 @@ describe("Node Gradle command resolution", () => {
         "/c",
         '""C:\\Program Files\\Piece\\gradlew.bat" "check" "--project-cache-dir" "C:\\cache with spaces""'
       ],
+      windowsVerbatimArguments: true,
       resultCommand: "C:\\Program Files\\Piece\\gradlew.bat",
       resultArgs: args
     });
@@ -75,6 +76,7 @@ describe("Node Gradle command resolution", () => {
         "/c",
         '""C:\\build & tools\\gradlew.bat. " "a&whoami" "a|b" "<input>" "%%cd:~,%UNTRUSTED%%cd:~,%" "!delayed!" "quote""value" "trailing\\\\""'
       ]);
+      expect(invocation.windowsVerbatimArguments).toBe(true);
       expect(invocation.resultCommand).toBe("C:\\build & tools\\gradlew.bat. ");
       expect(invocation.resultArgs).toEqual([
         "a&whoami",

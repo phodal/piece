@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { access, chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PieceWorkspaceError, analyzePieceWorkspace, createPieceWorkspaceSession, planPieceWorkspaceBuild } from "../src/node-workspace.js";
 
@@ -48,7 +48,7 @@ describe("Node workspace orchestration", () => {
       expect(initial.metrics).toMatchObject({ freshFileAnalysisCount: 2, reusedFileCount: 0 });
       expect(unchanged.metrics).toMatchObject({ freshFileAnalysisCount: 0, reusedFileCount: 2 });
       expect(edited.metrics).toMatchObject({ freshFileAnalysisCount: 1, reusedFileCount: 1 });
-      expect(calls.map((call) => call.filePath.split("/").at(-1))).toEqual(["First.ts", "Second.ts", "First.ts"]);
+      expect(calls.map((call) => basename(call.filePath))).toEqual(["First.ts", "Second.ts", "First.ts"]);
       expect(calls.at(-1)).toMatchObject({ source: "export const first = 3;\n" });
     });
   });
@@ -97,7 +97,7 @@ describe("Node workspace orchestration", () => {
     });
   });
 
-  it.runIf(GO_AVAILABLE)("batches Go package analysis once per changed package group", async () => {
+  it.runIf(GO_AVAILABLE && process.platform !== "win32")("batches Go package analysis once per changed package group", async () => {
     await withWorkspace(async (root) => {
       const firstFile = await writeSource(root, "go/src/First.go", "package demo\n\nfunc First() int { return Second() }\n");
       await writeSource(root, "go/src/Second.go", "package demo\n\nfunc Second() int { return 2 }\n");
@@ -133,17 +133,17 @@ describe("Node workspace orchestration", () => {
         "go-ast-declaration-extractor",
         "go-ast-declaration-extractor"
       ]);
-      const firstAnalysis = initial.projects[0].files.find((file) => file.filePath.endsWith("/First.go"));
+      const firstAnalysis = initial.projects[0].files.find((file) => basename(file.filePath) === "First.go");
       expect(firstAnalysis).toBeDefined();
       expect(firstAnalysis.analysis.manifest.importBindings).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ local: "Second", imported: "Second", source: expect.stringMatching(/\/go\/src\/Second\.go$/), kind: "named" })
+          expect.objectContaining({ local: "Second", imported: "Second", source: expect.stringMatching(/[\\/]go[\\/]src[\\/]Second\.go$/), kind: "named" })
         ])
       );
     });
   }, 30_000);
 
-  it.runIf(GO_AVAILABLE)("keeps an unchanged Go package batch cached across an unrelated file edit", async () => {
+  it.runIf(GO_AVAILABLE && process.platform !== "win32")("keeps an unchanged Go package batch cached across an unrelated file edit", async () => {
     await withWorkspace(async (root) => {
       await writeSource(root, "mixed/src/Logic.go", "package mixed\n\nfunc Answer() int { return 42 }\n");
       const webFile = await writeSource(root, "mixed/src/View.ts", "export const view = 'one';\n");
@@ -163,7 +163,7 @@ describe("Node workspace orchestration", () => {
         nativeBatchCount: 0,
         nativeBatchFileCount: 0
       });
-      expect(edited.projects[0].files.find((file) => file.filePath.endsWith("/Logic.go"))?.analysis.manifest.parser).toBe(
+      expect(edited.projects[0].files.find((file) => basename(file.filePath) === "Logic.go")?.analysis.manifest.parser).toBe(
         "go-ast-declaration-extractor"
       );
     });

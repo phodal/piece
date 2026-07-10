@@ -363,10 +363,13 @@ describe("piece CLI", () => {
       expect(healthyBody.profileChecks.profiles).toHaveLength(2);
       expect(healthyBody.profileChecks.profiles).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ task: "build", profile: "typescript", status: "ready", tool: { status: "available", command: "npm", path: npm } }),
-          expect.objectContaining({ task: "check", profile: "typescript", status: "ready", tool: { status: "available", command: "npm", path: npm } })
+          expect.objectContaining({ task: "build", profile: "typescript", status: "ready", tool: expect.objectContaining({ status: "available", command: "npm" }) }),
+          expect.objectContaining({ task: "check", profile: "typescript", status: "ready", tool: expect.objectContaining({ status: "available", command: "npm" }) })
         ])
       );
+      for (const profile of healthyBody.profileChecks.profiles) {
+        expect(profile.tool.path.toLowerCase()).toBe(npm.toLowerCase());
+      }
       await expect(readFile(logPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 
       const missingTool = structuredClone(config);
@@ -392,7 +395,7 @@ describe("piece CLI", () => {
     await withWorkspace(async (workspace) => {
       const logPath = join(workspace, "parallel.log");
       const delayedBuild = (project) =>
-        `node -e "const { appendFileSync } = require('node:fs'); const log = process.env.PIECE_PARALLEL_LOG; appendFileSync(log, '${project}:start:' + Date.now() + '\\n'); setTimeout(() => { appendFileSync(log, '${project}:end:' + Date.now() + '\\n'); }, 250);"`;
+          `node -e "const { appendFileSync } = require('node:fs'); const log = process.env.PIECE_PARALLEL_LOG; appendFileSync(log, '${project}:start:' + Date.now() + '\\n'); setTimeout(() => { appendFileSync(log, '${project}:end:' + Date.now() + '\\n'); }, 1000);"`;
       await writeProject(workspace, "a", { scripts: { build: delayedBuild("a"), check: "node -e \"process.exit(0)\"" } });
       await writeProject(workspace, "b", { scripts: { build: delayedBuild("b"), check: "node -e \"process.exit(0)\"" } });
       await writeProject(workspace, "app", { scripts: { build: delayedBuild("app"), check: "node -e \"process.exit(0)\"" } });

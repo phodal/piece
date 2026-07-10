@@ -155,6 +155,7 @@ describe("Node Action Runner", () => {
     expect(invocation).toMatchObject({
       command: "C:\\Windows\\System32\\cmd.exe",
       args: ["/d", "/e:on", "/v:off", "/s", "/c", '""C:\\Program Files\\nodejs\\npm.CMD" "run" "build""'],
+      windowsVerbatimArguments: true,
       resultCommand: "npm",
       resultArgs: ["run", "build"]
     });

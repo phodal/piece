@@ -379,7 +379,7 @@ async function validateConfiguredWorkspacePaths(workspace, config) {
 
 function displayPath(workspace, path) {
   if (!path) return undefined;
-  return relative(workspace, path) || ".";
+  return (relative(workspace, path) || ".").replaceAll("\\", "/");
 }
 
 async function resolveCliContext(parsed, cwd) {

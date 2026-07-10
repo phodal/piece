@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { executePieceFallback, planPieceFallback } from "../src/node-fallback-executor.js";
 
@@ -27,10 +27,26 @@ async function withDirectory(prefix, callback) {
 }
 
 async function writeFakeCommand(directory, name, program) {
+  if (process.platform === "win32") {
+    const programPath = join(directory, `${name}.fake.js`);
+    const commandPath = join(directory, `${name}.cmd`);
+    await writeFile(programPath, `${program}\n`, "utf8");
+    await writeFile(commandPath, `@echo off\r\n"${process.execPath}" "${programPath}" %*\r\n`, "utf8");
+    return commandPath;
+  }
   const path = join(directory, name);
   await writeFile(path, `#!${process.execPath}\n${program}\n`, "utf8");
   await chmod(path, 0o755);
   return path;
+}
+
+async function writeFakeGradleWrapper(directory, program) {
+  if (process.platform !== "win32") return writeFakeCommand(directory, "gradlew", program);
+  const programPath = join(directory, "gradlew.fake.js");
+  const wrapperPath = join(directory, "gradlew.bat");
+  await writeFile(programPath, `${program}\n`, "utf8");
+  await writeFile(wrapperPath, `@echo off\r\n"${process.execPath}" "${programPath}" %*\r\n`, "utf8");
+  return wrapperPath;
 }
 
 function controlledPolicy(profiles, bin, extraEnvironment = {}, extraPolicy = {}) {
@@ -38,7 +54,7 @@ function controlledPolicy(profiles, bin, extraEnvironment = {}, extraPolicy = {}
     profiles,
     envAllowlist: ["PATH", "PIECE_FALLBACK_ALLOWED", "PIECE_FALLBACK_MODE"],
     env: {
-      PATH: `${bin}:${nodeDirectory}`,
+      PATH: `${bin}${delimiter}${nodeDirectory}`,
       PIECE_FALLBACK_ALLOWED: "yes",
       ...extraEnvironment
     },
@@ -291,7 +307,7 @@ describe("safe Node fallback executor", () => {
   it("requires verified Gradle and package-script markers and keeps tasks and scripts allowlisted", async () => {
     await withDirectory("piece-fallback-profiles-", async (workspace) => {
       await writeFile(join(workspace, "settings.gradle.kts"), "rootProject.name = \"fixture\"\n", "utf8");
-      await writeFakeCommand(workspace, "gradlew", "process.exit(0);");
+      await writeFakeGradleWrapper(workspace, "process.exit(0);");
       await writeFile(join(workspace, "package.json"), JSON.stringify({ scripts: { build: "echo build" } }), "utf8");
 
       const gradle = await planPieceFallback({
@@ -385,7 +401,7 @@ describe("safe Node fallback executor", () => {
       await mkdir(bin);
       await writeFile(join(workspace, "settings.gradle.kts"), "rootProject.name = \"fixture\"\n", "utf8");
       await writeFile(join(workspace, "package.json"), JSON.stringify({ scripts: { build: "echo build" } }), "utf8");
-      await writeFakeCommand(workspace, "gradlew", "process.stdout.write(JSON.stringify(process.argv.slice(2))); ");
+      await writeFakeGradleWrapper(workspace, "process.stdout.write(JSON.stringify(process.argv.slice(2))); ");
       await writeFakeCommand(bin, "npm", "process.stdout.write(JSON.stringify(process.argv.slice(2))); ");
 
       const gradle = await executePieceFallback({

@@ -464,7 +464,7 @@ export function createNodeVirtualFileSystem(options = {}) {
       return isAbsolute(path) ? path : resolve(cwd, path);
     },
     relativePath(path) {
-      return relative(cwd, this.toAbsolutePath(path)) || ".";
+      return (relative(cwd, this.toAbsolutePath(path)) || ".").replaceAll("\\", "/");
     },
     async readText(path) {
       return readFile(this.toAbsolutePath(path), "utf8");

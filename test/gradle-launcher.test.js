@@ -30,7 +30,8 @@ describe("Gradle launcher", () => {
         "/c",
         '""C:\\Program Files\\Piece\\gradlew.bat" "check" "--project-cache-dir" "C:\\cache with spaces""'
       ],
-      cwd: "C:\\Program Files\\Piece"
+      cwd: "C:\\Program Files\\Piece",
+      windowsVerbatimArguments: true
     });
 
     expect(createGradleInvocation(["check"], { platform: "linux", packageRoot: "/opt/piece" })).toEqual({

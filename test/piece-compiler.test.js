@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { transform } from "esbuild";
 import { describe, expect, it } from "vitest";
 import { compilePieceApp as compileNodePieceApp, createNodeEsbuildBuildEngine, createNodeVirtualFileSystem } from "piece-compiler/node";
@@ -1639,7 +1640,7 @@ export function UserCard() {
     const fileSystem = createNodeVirtualFileSystem({ cwd: process.cwd() });
 
     expect(fileSystem.kind).toBe("node");
-    expect(fileSystem.toAbsolutePath("src/index.js")).toBe(`${process.cwd()}/src/index.js`);
+    expect(fileSystem.toAbsolutePath("src/index.js")).toBe(resolve(process.cwd(), "src", "index.js"));
     expect(fileSystem.relativePath(`${process.cwd()}/src/index.js`)).toBe("src/index.js");
   });
 
