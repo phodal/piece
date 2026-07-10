@@ -62,7 +62,7 @@ The core vocabulary is intentionally small:
 ## What Works Today
 
 - A language-neutral package, target, action, artifact, graph, fallback, and cache model in `src/core/`.
-- JavaScript, TypeScript, JSX, and TSX extraction, plus browser preview feedback with virtual modules and incremental rebuild metrics.
+- JavaScript, TypeScript, JSX, and TSX extraction, plus browser preview feedback with virtual modules, browser-safe single-declaration incremental extraction, and rebuild metrics.
 - JS/TS compile actions through a Node-hosted esbuild language rule, so React and TSX are adapters, not the product boundary.
 - Go extraction through a Node-hosted Go AST analyzer, package-local companion graph edges, safe package-scope selection, package-view `.pic` output, `go list -json` identity, and same-package `go build` / `go test` feedback.
 - Kotlin analysis through the JVM backend, with PSI, guarded Analysis API coverage, Gradle/KMP project-model discovery, source-set fallback metadata, and Gradle-backed JVM compile feedback.
@@ -145,7 +145,7 @@ npm run language:compile:smoke
 npm run pages:build
 ```
 
-For the deeper architecture and roadmap, see [docs/architecture.md](./docs/architecture.md) and [docs/roadmap.md](./docs/roadmap.md).
+For the deeper architecture and roadmap, see [docs/architecture.md](./docs/architecture.md), [docs/incremental-feedback-architecture.md](./docs/incremental-feedback-architecture.md), and [docs/roadmap.md](./docs/roadmap.md).
 
 ## License
 

@@ -10,8 +10,27 @@ npm run preview
 > a 420-row mock dataset, utility functions, and several UI components) instead of the
 > original 620 mechanically-duplicated `DetailBlock` components. The numbers below predate
 > that change and are kept as a historical record; they no longer reflect the current
-> fixture (which is ~683 lines / ~71KB / 37 slices / 61 edges). Re-run `npm run preview` and
+> fixture (which is ~687 lines / ~71KB / 38 slices / 61 edges). Re-run `npm run preview` and
 > click `Run Benchmark` / `Sample Edit` for current numbers.
+
+## Current browser feedback contract — July 10, 2026
+
+The current workbench exposes 50, 420, and 2,000-order fixtures. The large
+fixture is 313,440 source bytes, 2,267 lines, 38 slices, and 61 graph edges.
+These measurements came from the in-app browser after the browser-safe fallback
+extractor was moved onto the single-declaration incremental path.
+
+| Scenario | Piece total | Piece e2e | Full `esbuild-wasm` | Comparable speedup | Cache |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `UserCard` edit, 2,000 orders | 2.7ms | 5.3ms | 69.0ms | 25.6x compile / 13.0x e2e | miss |
+| Unrelated `cacheProbe` edit, same fixture | 0.4ms | 2.1ms | 69.0ms baseline | 172.5x compile / 32.9x e2e | hit |
+
+`Run Benchmark` intentionally measures the full build only on demand. Normal
+editing never waits for that baseline. The comparison is valid for the
+piece-targeted feedback boundary, not a claim that Piece is faster than esbuild
+for cold, whole-file production bundles. See
+[`docs/incremental-feedback-architecture.md`](../docs/incremental-feedback-architecture.md)
+for the architecture and research basis.
 
 The fixture is a 3,154-line TSX file with 124,267 source bytes and 628 declaration slices. After JSX intrinsic/text filtering, the selected `UserCard` closure graph has 11 target-relevant edges. The right pane is an iframe running the compiled HTML output. The comparison baseline is a full `esbuild-wasm` browser build of the same source file and preview entry.
 
