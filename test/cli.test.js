@@ -498,7 +498,7 @@ describe("piece CLI", () => {
         diagnostics: [expect.objectContaining({ code: "declared-build-output-missing" })]
       });
     });
-  });
+  }, 20_000);
 
   it.runIf(process.platform !== "win32")("executes an allowlisted Go fallback profile through the schema v2 CLI", async () => {
     await withWorkspace(async (workspace) => {

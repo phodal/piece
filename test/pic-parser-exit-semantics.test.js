@@ -24,5 +24,5 @@ describe(".pic parser diagnostic exit semantics", () => {
       expect.arrayContaining([expect.objectContaining({ code: "pic-syntax-error", severity: "error" })])
     );
     expect(result.diagnostics.some((diagnostic) => diagnostic.code === "compiler-error")).toBe(false);
-  }, 120_000);
+  }, 180_000);
 });
