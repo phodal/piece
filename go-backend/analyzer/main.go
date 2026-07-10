@@ -105,6 +105,14 @@ type manifest struct {
 	Diagnostics       []diagnostic    `json:"diagnostics"`
 }
 
+// batchInput lets a host write sources into one temporary directory while
+// retaining the original path identities in the emitted manifests. It avoids
+// spawning `go run` once for every source file in a package-sized analysis.
+type batchInput struct {
+	File string `json:"file"`
+	Path string `json:"path"`
+}
+
 type analysisBackend struct {
 	Requested      string `json:"requested"`
 	Actual         string `json:"actual"`
@@ -134,7 +142,12 @@ var predeclared = map[string]bool{
 func main() {
 	sourceFile := flag.String("file", "", "Go source file to analyze")
 	hostPath := flag.String("path", "", "Host-visible source path")
+	batchFile := flag.String("batch", "", "JSON array of {file,path} source inputs to analyze")
 	flag.Parse()
+	if *batchFile != "" {
+		analyzeBatch(*batchFile)
+		return
+	}
 	if *sourceFile == "" {
 		fail("missing --file")
 	}
@@ -151,6 +164,40 @@ func main() {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(result); err != nil {
+		fail(err.Error())
+	}
+}
+
+func analyzeBatch(batchFile string) {
+	encodedInputs, err := os.ReadFile(batchFile)
+	if err != nil {
+		fail(err.Error())
+	}
+	inputs := []batchInput{}
+	if err := json.Unmarshal(encodedInputs, &inputs); err != nil {
+		fail(err.Error())
+	}
+	if len(inputs) == 0 {
+		fail("--batch must contain one or more source inputs")
+	}
+	results := make([]manifest, 0, len(inputs))
+	for _, input := range inputs {
+		if input.File == "" {
+			fail("--batch input is missing file")
+		}
+		sourceBytes, err := os.ReadFile(input.File)
+		if err != nil {
+			fail(err.Error())
+		}
+		filePath := input.Path
+		if filePath == "" {
+			filePath = input.File
+		}
+		results = append(results, analyze(filePath, string(sourceBytes)))
+	}
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(results); err != nil {
 		fail(err.Error())
 	}
 }

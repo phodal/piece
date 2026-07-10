@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { realpath, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { analyzePieceFile } from "./node.js";
+import { prepareNodeGoWorkspaceManifests } from "./node-language-compilers.js";
 
 const SOURCE_FILE_PATTERN = /\.(?:[cm]?[jt]sx?|go|kts?)$/i;
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".go", ".kt", ".kts"];
@@ -552,7 +553,49 @@ function projectSourceFingerprint(project, sourceEntries) {
   ]);
 }
 
-function fileAnalysisFingerprint({ workspaceRoot, project, filePath, language, sourceHash, projectSourceHash }) {
+function goPackageGroupKey(entry) {
+  const packageName = String(entry?.source ?? "").match(/^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)/m)?.[1];
+  // A malformed package declaration must not accidentally share an analysis
+  // group with another source. The normal extractor will retain its diagnostic.
+  return packageName ? `${dirname(entry.filePath)}:${packageName}` : `${dirname(entry.filePath)}:invalid:${entry.filePath}`;
+}
+
+function nativeGroupKey(entry) {
+  const language = languageForFile(entry.filePath);
+  return language === "go" ? `go:${goPackageGroupKey(entry)}` : undefined;
+}
+
+function nativeGroupSourceHashes(project, sourceEntries, projectSourceHash) {
+  const groups = new Map();
+  for (const entry of sourceEntries) {
+    if (entry.error) continue;
+    const group = nativeGroupKey(entry);
+    if (!group) continue;
+    const entries = groups.get(group) ?? [];
+    entries.push(entry);
+    groups.set(group, entries);
+  }
+  const hashes = new Map();
+  for (const [group, entries] of groups) {
+    const hash = workspaceFingerprint([
+      "piece-workspace-native-group-v1",
+      project.id,
+      project.root,
+      group,
+      ...entries
+        .slice()
+        .sort((left, right) => left.filePath.localeCompare(right.filePath))
+        .flatMap((entry) => [entry.filePath, entry.sourceHash])
+    ]);
+    for (const entry of entries) hashes.set(entry.filePath, hash);
+  }
+  return {
+    hashes,
+    fallbackHash: projectSourceHash
+  };
+}
+
+function fileAnalysisFingerprint({ workspaceRoot, project, filePath, language, sourceHash, projectSourceHash, nativeGroupHash }) {
   return workspaceFingerprint([
     "piece-workspace-file-analysis-v1",
     workspaceRoot,
@@ -562,9 +605,9 @@ function fileAnalysisFingerprint({ workspaceRoot, project, filePath, language, s
     filePath,
     language,
     sourceHash,
-    // Go/Kotlin declaration extraction reads project companions. Reusing one
-    // of those files is safe only when every companion input is unchanged.
-    language === "go" || language === "kotlin" ? projectSourceHash : "current-file"
+    // Kotlin extraction currently reads every project companion. Go batches
+    // are package-scoped, so only their own package group needs invalidation.
+    language === "go" ? nativeGroupHash ?? projectSourceHash : language === "kotlin" ? projectSourceHash : "current-file"
   ]);
 }
 
@@ -581,10 +624,53 @@ async function analyzeWorkspaceProject({ project, workspaceRoot, analyzeFile, ca
   const sourceFiles = await projectSourceFiles(project);
   const sourceEntries = await mapWithConcurrency(sourceFiles, concurrency, (filePath) => readWorkspaceSource(filePath));
   const sourceFingerprint = projectSourceFingerprint(project, sourceEntries);
+  const nativeScopeHashes = nativeGroupSourceHashes(project, sourceEntries, sourceFingerprint).hashes;
   const files = new Array(sourceEntries.length);
   const fileFallbackReasons = new Array(sourceEntries.length);
   let reusedFileCount = 0;
   let freshFileAnalysisCount = 0;
+  let nativeBatchCount = 0;
+  let nativeBatchFileCount = 0;
+
+  const cacheKeyForEntry = (entry) => {
+    const language = languageForFile(entry.filePath);
+    return fileAnalysisFingerprint({
+      workspaceRoot,
+      project,
+      filePath: entry.filePath,
+      language,
+      sourceHash: entry.sourceHash,
+      projectSourceHash: sourceFingerprint,
+      nativeGroupHash: nativeScopeHashes.get(entry.filePath)
+    });
+  };
+
+  const goBatchManifests = new Map();
+  if (analyzeFile === analyzePieceFile) {
+    const goGroups = new Map();
+    for (const entry of sourceEntries) {
+      if (entry.error || languageForFile(entry.filePath) !== "go") continue;
+      const group = nativeGroupKey(entry);
+      const entries = goGroups.get(group) ?? [];
+      entries.push(entry);
+      goGroups.set(group, entries);
+    }
+    for (const entries of goGroups.values()) {
+      if (entries.every((entry) => cache?.get(entry.filePath)?.key === cacheKeyForEntry(entry))) continue;
+      let batch;
+      try {
+        batch = await prepareNodeGoWorkspaceManifests({ files: entries, cwd: workspaceRoot });
+      } catch {
+        // Preserve the established per-file extractor as the fail-closed
+        // fallback when a package batch host cannot be prepared.
+        batch = undefined;
+      }
+      if (!batch?.manifests || batch.manifests.size !== entries.length) continue;
+      for (const [filePath, manifest] of batch.manifests) goBatchManifests.set(filePath, manifest);
+      nativeBatchCount += batch.batchCount ?? 1;
+      nativeBatchFileCount += batch.sourceFileCount ?? entries.length;
+    }
+  }
 
   const analyzeEntry = async (entry, index) => {
     const language = languageForFile(entry.filePath);
@@ -594,14 +680,7 @@ async function analyzeWorkspaceProject({ project, workspaceRoot, analyzeFile, ca
       files[index] = { filePath: entry.filePath, language, status: "error", diagnostics: [diagnostic] };
       return;
     }
-    const cacheKey = fileAnalysisFingerprint({
-      workspaceRoot,
-      project,
-      filePath: entry.filePath,
-      language,
-      sourceHash: entry.sourceHash,
-      projectSourceHash: sourceFingerprint
-    });
+    const cacheKey = cacheKeyForEntry(entry);
     const cached = cache?.get(entry.filePath);
     if (cached?.key === cacheKey) {
       files[index] = {
@@ -616,10 +695,23 @@ async function analyzeWorkspaceProject({ project, workspaceRoot, analyzeFile, ca
       return;
     }
     const languageInputs = language === "go" || language === "kotlin" ? { sourceFiles, sourceRoots: project.sourceRoots } : {};
+    const batchManifest = language === "go" ? goBatchManifests.get(entry.filePath) : undefined;
+    const declarationExtractor = batchManifest
+      ? {
+          name: "go-package-batch-declaration-extractor",
+          extract({ filePath }) {
+            if (filePath !== entry.filePath) {
+              throw new Error(`Go package batch manifest does not match '${filePath}'.`);
+            }
+            return batchManifest;
+          }
+        }
+      : undefined;
     try {
       const analysis = await analyzeFile({
         ...project.analysisOptions,
         ...languageInputs,
+        ...(declarationExtractor ? { declarationExtractor } : {}),
         cwd: workspaceRoot,
         filePath: entry.filePath,
         source: entry.source
@@ -635,8 +727,9 @@ async function analyzeWorkspaceProject({ project, workspaceRoot, analyzeFile, ca
   };
 
   // TypeScript/JavaScript extraction is file-local, so safely parallelize it
-  // with a bounded pool. Native Go/Kotlin paths create project-aware host work;
-  // keep them serialized until their package/source-set batch backends exist.
+  // with a bounded pool. Go package batches are prepared above and then fed
+  // through the ordinary per-file core pipeline; Kotlin remains serialized
+  // until its source-set backend is available.
   const fileLocalEntries = sourceEntries
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry }) => !entry.error && !["go", "kotlin"].includes(languageForFile(entry.filePath)));
@@ -665,6 +758,8 @@ async function analyzeWorkspaceProject({ project, workspaceRoot, analyzeFile, ca
       analyzedFileCount: files.filter((file) => file.status === "analyzed").length,
       freshFileAnalysisCount,
       reusedFileCount,
+      nativeBatchCount,
+      nativeBatchFileCount,
       analysisErrorCount: files.filter((file) => file.status === "error").length,
       sliceCount: files.reduce((total, file) => total + (file.analysis?.manifest?.slices?.length ?? 0), 0)
     }
@@ -729,6 +824,8 @@ async function analyzePieceWorkspaceWithCache(options, cache) {
       analyzedFileCount: projects.reduce((total, project) => total + project.metrics.analyzedFileCount, 0),
       freshFileAnalysisCount: projects.reduce((total, project) => total + project.metrics.freshFileAnalysisCount, 0),
       reusedFileCount: projects.reduce((total, project) => total + project.metrics.reusedFileCount, 0),
+      nativeBatchCount: projects.reduce((total, project) => total + (project.metrics.nativeBatchCount ?? 0), 0),
+      nativeBatchFileCount: projects.reduce((total, project) => total + (project.metrics.nativeBatchFileCount ?? 0), 0),
       analysisErrorCount: projects.reduce((total, project) => total + project.metrics.analysisErrorCount, 0)
     }
   };

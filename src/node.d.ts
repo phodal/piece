@@ -450,6 +450,33 @@ export interface NodeGoDeclarationExtractorOptions extends NodeActionRunnerPolic
   readonly declarationExtractor?: PieceDeclarationExtractor;
 }
 
+/** One already-read Go source used by the internal package batch boundary. */
+export interface NodeGoWorkspaceSourceInput {
+  readonly filePath: string;
+  readonly source: string;
+}
+
+/**
+ * Native Go package batch inputs. This remains a read-only analysis helper;
+ * workspace configuration never forwards executable tool controls here.
+ */
+export interface NodeGoWorkspaceManifestBatchOptions extends NodeActionRunnerPolicyOptions {
+  readonly files: readonly NodeGoWorkspaceSourceInput[];
+  readonly cwd?: string;
+  readonly goCommand?: string;
+  readonly modulePath?: string;
+  readonly goModulePath?: string;
+  readonly goList?: boolean;
+  readonly env?: Record<string, string | undefined>;
+}
+
+export interface NodeGoWorkspaceManifestBatchResult {
+  readonly manifests: ReadonlyMap<string, PieceFileManifest>;
+  readonly sourceFileCount: number;
+  readonly batchCount: number;
+  readonly goList?: PieceGoListMetadata;
+}
+
 export interface KotlinPieceCompileResult extends PieceLanguageCompileResult {
   readonly language: "kotlin";
   readonly backend: "kotlin-jvm";
@@ -481,6 +508,9 @@ export function mergePieceDslFiles(options?: MergePieceDslFilesOptions): Promise
 export function generateKotlinPieceDslFile(options?: GenerateKotlinPieceDslFileOptions): Promise<KotlinPieceDslGenerationResult>;
 export function createNodeGoDeclarationExtractor(options?: NodeGoDeclarationExtractorOptions): PieceDeclarationExtractor;
 export function createNodeKotlinPsiDeclarationExtractor(options?: NodeKotlinPsiDeclarationExtractorOptions): PieceDeclarationExtractor;
+export function prepareNodeGoWorkspaceManifests(
+  options: NodeGoWorkspaceManifestBatchOptions
+): Promise<NodeGoWorkspaceManifestBatchResult | undefined>;
 
 /** A configuration or containment failure raised before workspace analysis starts. */
 export class PieceWorkspaceError extends Error {
@@ -592,6 +622,10 @@ export interface PieceWorkspaceProject {
     readonly freshFileAnalysisCount: number;
     /** Successfully analyzed files reused by a PieceWorkspaceSession. */
     readonly reusedFileCount: number;
+    /** Native Go package batches started for this revision. */
+    readonly nativeBatchCount: number;
+    /** Native source files covered by those batches. */
+    readonly nativeBatchFileCount: number;
     readonly analysisErrorCount: number;
     readonly sliceCount: number;
   };
@@ -634,6 +668,8 @@ export interface PieceWorkspaceAnalysis {
     readonly analyzedFileCount: number;
     readonly freshFileAnalysisCount: number;
     readonly reusedFileCount: number;
+    readonly nativeBatchCount: number;
+    readonly nativeBatchFileCount: number;
     readonly analysisErrorCount: number;
   };
 }

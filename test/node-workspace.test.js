@@ -1,8 +1,11 @@
+import { spawnSync } from "node:child_process";
 import { access, chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PieceWorkspaceError, analyzePieceWorkspace, createPieceWorkspaceSession, planPieceWorkspaceBuild } from "../src/node-workspace.js";
+
+const GO_AVAILABLE = spawnSync("go", ["version"], { stdio: "ignore" }).status === 0;
 
 async function withWorkspace(callback) {
   const root = await mkdtemp(join(tmpdir(), "piece-workspace-test-"));
@@ -93,6 +96,78 @@ describe("Node workspace orchestration", () => {
       expect(calls.filter((call) => call.filePath.endsWith(".kt")).every((call) => call.sourceFiles.length === 2)).toBe(true);
     });
   });
+
+  it.runIf(GO_AVAILABLE)("batches Go package analysis once per changed package group", async () => {
+    await withWorkspace(async (root) => {
+      const firstFile = await writeSource(root, "go/src/First.go", "package demo\n\nfunc First() int { return Second() }\n");
+      await writeSource(root, "go/src/Second.go", "package demo\n\nfunc Second() int { return 2 }\n");
+      const session = createPieceWorkspaceSession({
+        workspaceRoot: root,
+        projects: [{ id: "go", root: "go", sourceRoots: ["src"] }]
+      });
+
+      const initial = await session.analyze();
+      const unchanged = await session.analyze();
+      await writeFile(firstFile, "package demo\n\nfunc First() int { return Second() + 1 }\n", "utf8");
+      const edited = await session.analyze();
+
+      expect(initial.metrics).toMatchObject({
+        freshFileAnalysisCount: 2,
+        reusedFileCount: 0,
+        nativeBatchCount: 1,
+        nativeBatchFileCount: 2
+      });
+      expect(unchanged.metrics).toMatchObject({
+        freshFileAnalysisCount: 0,
+        reusedFileCount: 2,
+        nativeBatchCount: 0,
+        nativeBatchFileCount: 0
+      });
+      expect(edited.metrics).toMatchObject({
+        freshFileAnalysisCount: 2,
+        reusedFileCount: 0,
+        nativeBatchCount: 1,
+        nativeBatchFileCount: 2
+      });
+      expect(edited.projects[0].files.map((file) => file.analysis.manifest.parser)).toEqual([
+        "go-ast-declaration-extractor",
+        "go-ast-declaration-extractor"
+      ]);
+      const firstAnalysis = initial.projects[0].files.find((file) => file.filePath.endsWith("/First.go"));
+      expect(firstAnalysis).toBeDefined();
+      expect(firstAnalysis.analysis.manifest.importBindings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ local: "Second", imported: "Second", source: expect.stringMatching(/\/go\/src\/Second\.go$/), kind: "named" })
+        ])
+      );
+    });
+  }, 30_000);
+
+  it.runIf(GO_AVAILABLE)("keeps an unchanged Go package batch cached across an unrelated file edit", async () => {
+    await withWorkspace(async (root) => {
+      await writeSource(root, "mixed/src/Logic.go", "package mixed\n\nfunc Answer() int { return 42 }\n");
+      const webFile = await writeSource(root, "mixed/src/View.ts", "export const view = 'one';\n");
+      const session = createPieceWorkspaceSession({
+        workspaceRoot: root,
+        projects: [{ id: "mixed", root: "mixed", sourceRoots: ["src"] }]
+      });
+
+      const initial = await session.analyze();
+      await writeFile(webFile, "export const view = 'two';\n", "utf8");
+      const edited = await session.analyze();
+
+      expect(initial.metrics).toMatchObject({ freshFileAnalysisCount: 2, nativeBatchCount: 1, nativeBatchFileCount: 1 });
+      expect(edited.metrics).toMatchObject({
+        freshFileAnalysisCount: 1,
+        reusedFileCount: 1,
+        nativeBatchCount: 0,
+        nativeBatchFileCount: 0
+      });
+      expect(edited.projects[0].files.find((file) => file.filePath.endsWith("/Logic.go"))?.analysis.manifest.parser).toBe(
+        "go-ast-declaration-extractor"
+      );
+    });
+  }, 30_000);
 
   it("aggregates explicitly configured projects and emits stable dependency-first fallback batches", async () => {
     await withWorkspace(async (root) => {

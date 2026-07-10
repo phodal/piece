@@ -489,6 +489,66 @@ async function runGoAstAnalyzer({ filePath, source, goCommand = "go", env, actio
   }
 }
 
+/**
+ * Analyze a package group through one Go host invocation. The standalone Go
+ * analyzer still returns one manifest per file, but writing all inputs and
+ * passing `--batch` removes the former one-`go run`-per-primary/companion
+ * quadratic launcher pattern.
+ */
+async function runGoAstAnalyzerBatch({ files = [], goCommand = "go", env, actionRunner }) {
+  if (!Array.isArray(files) || files.length === 0) {
+    return { manifests: new Map() };
+  }
+  const workspaceInfo = await prepareWorkspace("piece-go-analyzer-batch-");
+  const workspace = workspaceInfo.path;
+  try {
+    const inputDirectory = join(workspace, "inputs");
+    await mkdir(inputDirectory, { recursive: true });
+    const inputs = [];
+    for (const [index, file] of files.entries()) {
+      const filePath = String(file?.filePath ?? "");
+      if (!filePath) {
+        return { error: new TypeError("Go batch inputs require filePath.") };
+      }
+      const sourceFile = join(inputDirectory, `${index}-${sourceBasename(filePath, "Source.go")}`);
+      await writeFile(sourceFile, String(file?.source ?? ""), "utf8");
+      inputs.push({ file: sourceFile, path: filePath });
+    }
+    const batchFile = join(workspace, "inputs.json");
+    await writeFile(batchFile, `${JSON.stringify(inputs)}\n`, "utf8");
+    const command = await runCommand(goCommand, ["run", GO_ANALYZER_PATH, "--batch", batchFile], {
+      cwd: workspace,
+      env,
+      ...actionRunner
+    });
+    if (command.exitCode !== 0) {
+      return { command };
+    }
+    let decoded;
+    try {
+      decoded = JSON.parse(command.stdout);
+    } catch (error) {
+      return { command, error };
+    }
+    if (!Array.isArray(decoded) || decoded.length !== files.length) {
+      return { command, error: new TypeError("Go AST batch analyzer returned an invalid manifest list.") };
+    }
+    const manifests = new Map();
+    for (const [index, manifest] of decoded.entries()) {
+      const expectedPath = String(files[index]?.filePath ?? "");
+      if (!manifest || typeof manifest !== "object" || manifest.filePath !== expectedPath || manifests.has(expectedPath)) {
+        return { command, error: new TypeError("Go AST batch analyzer returned a manifest with an unexpected file path.") };
+      }
+      manifests.set(expectedPath, manifest);
+    }
+    return { command, manifests };
+  } finally {
+    if (workspaceInfo.temporary) {
+      await cleanupWorkspace(workspace, false);
+    }
+  }
+}
+
 async function collectGoCompanionBindings({ companions = [], goCommand = "go", env, actionRunner }) {
   const bindings = [];
   const declarations = [];
@@ -531,6 +591,22 @@ function attachGoCompanionBindings(manifest, companionBindings, companionDiagnos
     ...manifest,
     importBindings: uniqueGoImportBindings([...(manifest.importBindings ?? []), ...companionBindings]),
     diagnostics: [...(manifest.diagnostics ?? []), ...companionDiagnostics]
+  };
+}
+
+function goCompanionDataFromManifests(manifests = []) {
+  const bindings = [];
+  const declarations = [];
+  const diagnostics = [];
+  for (const manifest of manifests) {
+    bindings.push(...(manifest?.slices ?? []).map(goCompanionBindingFromSlice).filter(Boolean));
+    declarations.push(...(manifest?.slices ?? []).map(goPackageScopeDeclarationFromSlice).filter(Boolean));
+    diagnostics.push(...(manifest?.diagnostics ?? []));
+  }
+  return {
+    bindings: uniqueGoImportBindings(bindings),
+    declarations: declarations.sort(compareStableJson),
+    diagnostics
   };
 }
 
@@ -622,6 +698,72 @@ async function collectGoListForSource({ filePath, source, companions = [], goCom
       await cleanupWorkspace(workspace, false);
     }
   }
+}
+
+/**
+ * Prepare native Go declaration manifests for one package group. It is used by
+ * workspace analysis only after a group cache miss; callers can fall back to
+ * createNodeGoDeclarationExtractor when this host batch cannot be produced.
+ */
+export async function prepareNodeGoWorkspaceManifests(options = {}) {
+  const files = (Array.isArray(options.files) ? options.files : [])
+    .filter((file) => isGoSourcePath(file?.filePath))
+    .map((file) => ({ filePath: String(file.filePath), source: String(file.source ?? "") }));
+  if (files.length === 0) {
+    return { manifests: new Map(), sourceFileCount: 0, batchCount: 0 };
+  }
+  const actionRunner = actionRunnerOptionsFor(options);
+  const goCommand = options.goCommand ?? "go";
+  const batch = await runGoAstAnalyzerBatch({ files, goCommand, env: options.env, actionRunner });
+  if (!batch.manifests || batch.manifests.size !== files.length) {
+    return undefined;
+  }
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const groupHash = hashParts(files.flatMap((file) => [file.filePath, stableTextHash(file.source)]));
+  let goListResult;
+  if (options.goList !== false) {
+    const [primary, ...companions] = files;
+    goListResult = await collectGoListForSource({
+      filePath: primary.filePath,
+      source: primary.source,
+      companions,
+      goCommand,
+      modulePath: options.modulePath ?? options.goModulePath ?? `piece.local/workspace-${groupHash.slice(0, 16)}`,
+      env: options.env,
+      actionRunner,
+      cwd
+    });
+  }
+  const manifests = new Map();
+  for (const primary of files) {
+    const baseManifest = batch.manifests.get(primary.filePath);
+    if (!baseManifest) return undefined;
+    const companions = files.filter((candidate) => candidate.filePath !== primary.filePath);
+    const companionData = goCompanionDataFromManifests(companions.map((companion) => batch.manifests.get(companion.filePath)));
+    let manifest = attachGoCompanionBindings(baseManifest, companionData.bindings, companionData.diagnostics);
+    if (goListResult) {
+      const packageScope = createGoPackageScope({
+        filePath: primary.filePath,
+        source: primary.source,
+        companions,
+        declarations: companionData.declarations
+      });
+      const toolchain = createGoListToolchainMetadata(goListResult.goList, packageScope);
+      manifest = {
+        ...manifest,
+        toolchain,
+        toolchains: [toolchain],
+        diagnostics: [...(manifest.diagnostics ?? []), ...goListManifestDiagnostics(goListResult.command, goListResult.goList)]
+      };
+    }
+    manifests.set(primary.filePath, manifest);
+  }
+  return {
+    manifests,
+    sourceFileCount: files.length,
+    batchCount: 1,
+    ...(goListResult ? { goList: goListResult.goList } : {})
+  };
 }
 
 function isKotlinSourcePath(path) {
