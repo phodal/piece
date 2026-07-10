@@ -20,6 +20,11 @@ const LOCAL_ACTION_CACHE_KEY_ALGORITHM = "sha256";
 const ACTION_CACHE_LOCK_TIMEOUT_MS = 15_000;
 const ACTION_CACHE_LOCK_RETRY_MS = 25;
 const ACTION_CACHE_LOCK_STALE_MS = 60_000;
+// The JVM parser deliberately exits 1 after writing a report for user-facing
+// syntax/model diagnostics. Keep that alternate success channel tightly
+// bounded and tied to the fresh private temporary workspace.
+const PIC_DSL_DIAGNOSTIC_REPORT_MAX_BYTES = 4 * 1024 * 1024;
+const PIC_DSL_USER_DIAGNOSTIC_CODES = new Set(["pic-syntax-error", "pic-model-error"]);
 
 function durationSince(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
@@ -2244,6 +2249,39 @@ function errorPicDslReport({ filePath, source, commands }) {
   };
 }
 
+function isExpectedPicDslDiagnosticReport(report, { filePath, source }) {
+  if (!report || typeof report !== "object" || Array.isArray(report)) return false;
+  if (report.version !== 1 || report.parser !== "antlr-pic-parser" || report.filePath !== filePath || report.source !== source || report.piecePackage !== null) {
+    return false;
+  }
+  if (!Array.isArray(report.diagnostics) || report.diagnostics.length === 0) return false;
+  return report.diagnostics.every((diagnostic) => {
+    if (!diagnostic || typeof diagnostic !== "object" || Array.isArray(diagnostic)) return false;
+    if (!PIC_DSL_USER_DIAGNOSTIC_CODES.has(diagnostic.code) || diagnostic.severity !== "error" || typeof diagnostic.message !== "string") {
+      return false;
+    }
+    return (
+      (diagnostic.line === undefined || (Number.isInteger(diagnostic.line) && diagnostic.line >= 1)) &&
+      (diagnostic.column === undefined || (Number.isInteger(diagnostic.column) && diagnostic.column >= 1))
+    );
+  });
+}
+
+async function readExpectedPicDslDiagnosticReport(outputReport, expected, backendCommand) {
+  // Only the parser's documented diagnostics exit status may use a report from
+  // a failed action. Timeouts, cancellation, output truncation, spawn errors,
+  // and arbitrary nonzero statuses remain infrastructure failures.
+  if (backendCommand?.exitCode !== 1 || backendCommand?.errorCode) return undefined;
+  try {
+    const info = await lstat(outputReport);
+    if (!info.isFile() || info.size <= 0 || info.size > PIC_DSL_DIAGNOSTIC_REPORT_MAX_BYTES) return undefined;
+    const report = JSON.parse(await readFile(outputReport, "utf8"));
+    return isExpectedPicDslDiagnosticReport(report, expected) ? report : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function errorKotlinPicGenerationReport({ filePath, source, commands }) {
   return {
     version: 1,
@@ -2288,6 +2326,8 @@ export async function parsePieceDslFile(options = {}) {
     if (canUseNodeActionOutput(backendCommand) && (await pathExists(outputReport))) {
       return readJsonFile(outputReport);
     }
+    const diagnosticReport = await readExpectedPicDslDiagnosticReport(outputReport, { filePath, source }, backendCommand);
+    if (diagnosticReport) return diagnosticReport;
     return errorPicDslReport({ filePath, source, commands: [backendCommand] });
   } finally {
     await cleanupWorkspace(hostWorkspace, false);
