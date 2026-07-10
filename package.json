@@ -48,6 +48,7 @@
     "language:project-model:smoke": "node scripts/smoke-kotlin-gradle-project-model.mjs",
     "language:compile:smoke": "node scripts/smoke-language-compilers.mjs",
     "benchmark:kotlin-piece": "node scripts/benchmark-kotlin-piece.mjs",
+    "benchmark:workspace-session": "node scripts/benchmark-workspace-session.mjs",
     "preview:build": "node preview/build.mjs",
     "preview": "npm run preview:build && node preview/serve.mjs",
     "pages:build": "npm run preview:build && npm run core:wasm:build && node scripts/build-pages.mjs",

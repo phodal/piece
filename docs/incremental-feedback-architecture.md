@@ -23,6 +23,12 @@ The browser workbench has 50, 420, and 2,000 order fixtures. Its `Sample Edit`
 changes the selected target; `Run 10 Cached Edits` changes an unrelated slice;
 and `Run Benchmark` measures the whole-file baseline separately.
 
+For workspace-scale evidence, `npm run benchmark:workspace-session` covers
+file count, slices per file, edit position, and consecutive edits against a
+fresh-analysis baseline. See
+[Workspace Session Benchmark](./workspace-session-benchmark.md) for options
+and the JSON report contract.
+
 ## Query-shaped model
 
 The current implementation is deliberately small, but it follows a
