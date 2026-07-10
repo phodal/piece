@@ -21,8 +21,17 @@
             </div>
           </div>
           <div class="actions">
+            <label class="fixture-size" for="fixture-size">
+              Orders
+              <select id="fixture-size">
+                <option value="50">50</option>
+                <option value="420" selected>420</option>
+                <option value="2000">2,000</option>
+              </select>
+            </label>
             <button id="run-benchmark" type="button">Run Benchmark</button>
             <button id="apply-sample-edit" type="button">Sample Edit</button>
+            <button id="run-edit-sequence" type="button">Run 10 Cached Edits</button>
           </div>
         </header>
         <div class="code-editor">

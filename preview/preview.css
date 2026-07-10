@@ -120,6 +120,23 @@ button:hover {
   justify-content: flex-end;
 }
 
+.fixture-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fixture-size select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  padding: 7px 6px;
+}
+
 .target-chip {
   flex: 0 0 auto;
   border: 1px solid #bfdbfe;

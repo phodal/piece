@@ -22,8 +22,10 @@ const iframe = document.querySelector<HTMLIFrameElement>("#preview")!;
 const status = document.querySelector<HTMLElement>("#status")!;
 const target = document.querySelector<HTMLElement>("#target")!;
 const metricsGrid = document.querySelector<HTMLElement>("#metrics-grid")!;
+const fixtureSizeSelect = document.querySelector<HTMLSelectElement>("#fixture-size")!;
 const runBenchmarkButton = document.querySelector<HTMLButtonElement>("#run-benchmark")!;
 const sampleEditButton = document.querySelector<HTMLButtonElement>("#apply-sample-edit")!;
+const runEditSequenceButton = document.querySelector<HTMLButtonElement>("#run-edit-sequence")!;
 
 let esbuildReady = false;
 let currentAnalysis: any;
@@ -34,6 +36,7 @@ let debounceTimer = 0;
 let editorView: EditorView;
 let suppressEditorRebuild = false;
 let latestRebuildVersion = 0;
+let editSequenceRunning = false;
 const declarationExtractor = createFallbackDeclarationExtractor();
 const textEncoder = new TextEncoder();
 
@@ -79,8 +82,8 @@ function buildSampleOrders(count: number) {
 // Mirrors a realistic ops dashboard: a handful of hand-authored components and
 // helpers operating over a sizable embedded sample dataset, instead of a
 // mechanically repeated block of near-identical throwaway components.
-function createRealisticFixture() {
-  const sampleOrders = buildSampleOrders(420);
+function createRealisticFixture(orderCount = 420) {
+  const sampleOrders = buildSampleOrders(orderCount);
 
   return `import * as React from "react";
 
@@ -324,9 +327,13 @@ export function UserCard(props: UserCardProps) {
     <article className="user-card" style={{ borderColor: color }}>
       <h1>{props.user.name}</h1>
       <p data-testid="status-label" style={{ color }}>{statusLabelMap[props.user.status]}</p>
-      <strong data-testid="score">Score: {formatScore(props.user.score)}</strong>
+      <strong data-testid="score">Score 00: {formatScore(props.user.score)}</strong>
     </article>
   );
+}
+
+function cacheProbe() {
+  return "Cache probe 00";
 }
 
 export default function DashboardPage() {
@@ -391,7 +398,7 @@ const previewEditorTheme = EditorView.theme({
 
 function createEditor() {
   return new EditorView({
-    doc: createRealisticFixture(),
+    doc: createRealisticFixture(Number(fixtureSizeSelect.value)),
     parent: editorHost,
     extensions: [
       basicSetup,
@@ -422,6 +429,7 @@ function renderMetrics(metrics: MetricRecord) {
     metric("speedup", metrics.speedup ?? "-", "good"),
     metric("e2e speedup", metrics.e2eSpeedup ?? "-"),
     metric("cache", metrics.cache ?? "-"),
+    metric("reconcile", metrics.diffMs ?? "-"),
     metric("version", metrics.version ?? "-"),
     metric("analyze", metrics.analyzeMs ?? "-"),
     metric("closure", metrics.closureMs ?? "-"),
@@ -433,6 +441,10 @@ function renderMetrics(metrics: MetricRecord) {
     metric("shape changes", metrics.publicShapeChanges ?? "-"),
     metric("artifact reuse", metrics.reusedArtifacts ?? "-"),
     metric("invalidated", metrics.invalidatedArtifacts ?? "-"),
+    metric("sequence edits", metrics.sequenceEdits ?? "-"),
+    metric("sequence cache hits", metrics.sequenceCacheHits ?? "-"),
+    metric("sequence diff p50", metrics.sequenceDiffP50 ?? "-"),
+    metric("sequence diff p95", metrics.sequenceDiffP95 ?? "-"),
     metric("slices", metrics.slices ?? "-"),
     metric("edges", metrics.edges ?? "-")
   ].join("");
@@ -587,7 +599,8 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
       dirtyPieces: 0,
       publicShapeChanges: 0,
       reusedArtifacts: 0,
-      invalidatedArtifacts: 0
+      invalidatedArtifacts: 0,
+      diffMs: 0
     };
 
     if (mode === "edit" && previousAnalysis && currentSource) {
@@ -605,7 +618,8 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
         dirtyPieces: editResult.reconciliation.dirtyPieces.length,
         publicShapeChanges: editResult.reconciliation.publicShapeChangedPieces.length,
         reusedArtifacts: editResult.reconciliation.reusedArtifactIds.length,
-        invalidatedArtifacts: editResult.reconciliation.invalidatedArtifactIds.length
+        invalidatedArtifacts: editResult.reconciliation.invalidatedArtifactIds.length,
+        diffMs: editResult.metrics.phases.diffMs
       };
     }
 
@@ -617,7 +631,7 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
       analysisWorkMs = result.analysis.metrics.totalMs;
     }
 
-    const fullTotalMs = await buildFullEsbuild(source);
+    const fullTotalMs = mode === "benchmark" ? await buildFullEsbuild(source) : undefined;
     if (rebuildVersion !== latestRebuildVersion) {
       return;
     }
@@ -628,13 +642,13 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
     iframe.srcdoc = iframeSrcDoc(result.preview.bundle?.code ?? "");
     const pieceTotalMs = result.preview.metrics.totalMs;
     const pieceE2EMs = Math.round(((reuseAnalysis ? 0 : analysisWorkMs) + pieceTotalMs) * 1000) / 1000;
-    const speedup = fullTotalMs > 0 ? `${(fullTotalMs / Math.max(pieceTotalMs, 0.001)).toFixed(2)}x` : "-";
-    const e2eSpeedup = fullTotalMs > 0 ? `${(fullTotalMs / Math.max(pieceE2EMs, 0.001)).toFixed(2)}x` : "-";
+    const speedup = fullTotalMs && fullTotalMs > 0 ? `${(fullTotalMs / Math.max(pieceTotalMs, 0.001)).toFixed(2)}x` : "-";
+    const e2eSpeedup = fullTotalMs && fullTotalMs > 0 ? `${(fullTotalMs / Math.max(pieceE2EMs, 0.001)).toFixed(2)}x` : "-";
     lastMetrics = {
       version: rebuildVersion,
       pieceTotalMs,
       pieceE2EMs,
-      fullTotalMs,
+      fullTotalMs: fullTotalMs ?? "-",
       speedup,
       e2eSpeedup,
       cache: result.preview.metrics.cache.status,
@@ -649,7 +663,7 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
       edges: result.analysis.metrics.edgeCount
     };
     renderMetrics(lastMetrics);
-    status.textContent = `${mode}: piece=${pieceTotalMs}ms, full=${fullTotalMs}ms, speedup=${speedup}, e2e=${e2eSpeedup}`;
+    status.textContent = `${mode}: piece=${pieceTotalMs}ms, full=${fullTotalMs === undefined ? "not measured" : `${fullTotalMs}ms`}, speedup=${speedup}, e2e=${e2eSpeedup}`;
     target.textContent = `target: ${targetName}`;
     (window as any).__piecePreview = {
       version: rebuildVersion,
@@ -658,12 +672,14 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
       analysis: result.analysis,
       preview: result.preview
     };
+    return lastMetrics;
   } catch (error) {
     if (rebuildVersion !== latestRebuildVersion) {
       return;
     }
     console.error(error);
     status.textContent = error instanceof Error ? error.message : String(error);
+    return undefined;
   }
 }
 
@@ -674,19 +690,87 @@ function scheduleRebuild() {
   }, 250);
 }
 
+function nextMarkerVersion(source: string, pattern: RegExp, render: (version: string) => string) {
+  return source.replace(pattern, (_match, version) => render(String((Number(version) + 1) % 100).padStart(2, "0")));
+}
+
 function applySampleEdit() {
   const source = getEditorSource();
   const cursor = editorView.state.selection.main.head;
-  const next = source
-    .replace("Active account", "Active account - browser edited")
-    .replace("Score: {formatScore(props.user.score)}", "Live score: {formatScore(props.user.score + 1)}");
+  const next = nextMarkerVersion(source, /Score (\d{2}):/, (version) => `Score ${version}:`);
+  if (next === source) {
+    status.textContent = "Sample edit marker is missing from the current source.";
+    return;
+  }
   setEditorSource(next, cursor);
   void rebuild(next, "edit");
+}
+
+function percentile(values: number[], quantile: number) {
+  if (values.length === 0) {
+    return "-";
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * quantile) - 1);
+  return `${sorted[index].toFixed(3)}ms`;
+}
+
+async function runEditSequence() {
+  if (editSequenceRunning) {
+    return;
+  }
+
+  editSequenceRunning = true;
+  runEditSequenceButton.disabled = true;
+  try {
+    let source = getEditorSource();
+    const samples: MetricRecord[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      const next = nextMarkerVersion(source, /Cache probe (\d{2})/, (version) => `Cache probe ${version}`);
+      if (next === source) {
+        status.textContent = "Cached-edit marker is missing from the current source.";
+        return;
+      }
+      setEditorSource(next, editorView.state.selection.main.head);
+      const metrics = await rebuild(next, "edit");
+      if (!metrics) {
+        return;
+      }
+      samples.push(metrics);
+      source = next;
+    }
+
+    const diffTimes = samples.map((sample) => sample.diffMs).filter((value): value is number => typeof value === "number");
+    const cacheHits = samples.filter((sample) => sample.cache === "hit").length;
+    lastMetrics = {
+      ...lastMetrics,
+      sequenceEdits: samples.length,
+      sequenceCacheHits: `${cacheHits}/${samples.length}`,
+      sequenceDiffP50: percentile(diffTimes, 0.5),
+      sequenceDiffP95: percentile(diffTimes, 0.95)
+    };
+    renderMetrics(lastMetrics);
+    status.textContent = `cached edit sequence: ${samples.length} edits, ${cacheHits}/${samples.length} runtime cache hits, diff p50=${lastMetrics.sequenceDiffP50}`;
+  } finally {
+    editSequenceRunning = false;
+    runEditSequenceButton.disabled = false;
+  }
+}
+
+function resetFixture() {
+  const source = createRealisticFixture(Number(fixtureSizeSelect.value));
+  currentAnalysis = undefined;
+  currentPreview = undefined;
+  currentSource = "";
+  setEditorSource(source, 0);
+  void rebuild(source, "initial");
 }
 
 editorView = createEditor();
 updateEditorStatus(editorView);
 runBenchmarkButton.addEventListener("click", () => void rebuild(getEditorSource(), "benchmark"));
 sampleEditButton.addEventListener("click", applySampleEdit);
+runEditSequenceButton.addEventListener("click", () => void runEditSequence());
+fixtureSizeSelect.addEventListener("change", resetFixture);
 
 void rebuild(getEditorSource(), "initial");
