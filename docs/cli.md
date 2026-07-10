@@ -23,6 +23,14 @@ non-mutating result shape as `piece plan`, with `requestedCommand` and
 parses the selected configuration and, for schema v2, checks every declared
 project root and source root without analyzing sources or invoking a profile.
 
+`piece doctor [project]` remains a capability report for schema v1. With a
+schema v2 configuration, it also uses the non-mutating fallback planner for
+each selected project's build and check profile. It verifies required markers
+and the configured command under that profile's controlled `PATH`; a missing
+wrapper, marker, package manager, or Go tool makes doctor exit `1`. Omitting a
+project checks every configured project, so doctor does not require
+`defaultProject`.
+
 | Exit code | Meaning |
 | --- | --- |
 | `0` | The requested analysis or configured project task succeeded. |

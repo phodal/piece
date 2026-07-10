@@ -40,6 +40,13 @@ async function withWorkspace(callback) {
 }
 
 async function writeFakeCommand(directory, name, program) {
+  if (process.platform === "win32") {
+    const programPath = join(directory, `${name}.fake.js`);
+    const commandPath = join(directory, `${name}.cmd`);
+    await writeFile(programPath, `${program}\n`, "utf8");
+    await writeFile(commandPath, `@echo off\r\n"${process.execPath}" "${programPath}" %*\r\n`, "utf8");
+    return commandPath;
+  }
   const path = join(directory, name);
   await writeFile(path, `#!${process.execPath}\n${program}\n`, "utf8");
   await chmod(path, 0o755);
@@ -330,6 +337,53 @@ describe("piece CLI", () => {
       const dryRun = await invokePiece(["build", "web", "--dry-run", "--workspace", workspace, "--format", "json"]);
       expect(dryRun.exitCode).toBe(0);
       expect(JSON.parse(dryRun.stdout)).toMatchObject({ command: "plan", task: "build", requestedCommand: "build", dryRun: true });
+      await expect(readFile(logPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("checks selected v2 profile markers and controlled tool paths without executing tasks", async () => {
+    await withWorkspace(async (workspace) => {
+      const bin = join(workspace, "bin");
+      const logPath = join(workspace, "task.log");
+      await mkdir(bin);
+      const npm = await writeFakeCommand(bin, "npm", 'require("node:fs").appendFileSync(process.env.PIECE_CLI_LOG, "executed\\n");');
+      await writeProject(workspace, "packages/shared");
+      await writeProject(workspace, "apps/web");
+      const config = workspaceConfig({ bin, logPath });
+      await writeFile(join(workspace, "piece.config.json"), `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+      const healthy = await invokePiece(["doctor", "web", "--workspace", workspace, "--format", "json"]);
+      expect(healthy.exitCode).toBe(0);
+      const healthyBody = JSON.parse(healthy.stdout);
+      expect(healthyBody).toMatchObject({
+        command: "doctor",
+        status: "success",
+        profileChecks: { selection: { projectId: "web", projects: ["web"] } }
+      });
+      expect(healthyBody.profileChecks.profiles).toHaveLength(2);
+      expect(healthyBody.profileChecks.profiles).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ task: "build", profile: "typescript", status: "ready", tool: { status: "available", command: "npm", path: npm } }),
+          expect.objectContaining({ task: "check", profile: "typescript", status: "ready", tool: { status: "available", command: "npm", path: npm } })
+        ])
+      );
+      await expect(readFile(logPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+
+      const missingTool = structuredClone(config);
+      for (const task of [missingTool.projects[1].build, missingTool.projects[1].check]) {
+        task.policy.env.PATH = join(workspace, "missing-bin");
+      }
+      await writeFile(join(workspace, "piece.config.json"), `${JSON.stringify(missingTool, null, 2)}\n`, "utf8");
+      const unavailable = await invokePiece(["doctor", "web", "--workspace", workspace, "--format", "json"]);
+      expect(unavailable.exitCode).toBe(1);
+      const unavailableBody = JSON.parse(unavailable.stdout);
+      expect(unavailableBody.profileChecks.profiles.map((profile) => profile.status)).toEqual(["failed", "failed"]);
+      expect(unavailableBody.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "doctor-fallback-tool-missing", projectId: "web", task: "build" }),
+          expect.objectContaining({ code: "doctor-fallback-tool-missing", projectId: "web", task: "check" })
+        ])
+      );
       await expect(readFile(logPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     });
   });

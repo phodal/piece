@@ -660,6 +660,53 @@ export async function validatePieceWorkspaceCliConfig({ workspace, config }) {
   };
 }
 
+/**
+ * Inspect configured fallback profiles without source analysis or native task
+ * execution. This is the narrow v2 doctor surface: marker/allowlist checks
+ * come from the same planner used by build, check, and plan.
+ */
+export async function inspectPieceWorkspaceCliProfiles({ workspace, config, projectId }) {
+  const preflight = await preflightWorkspaceConfig(workspace, config);
+  const selectedProjects = projectId
+    ? config.projects.filter((project) => project.id === projectId)
+    : [...config.projects];
+  if (selectedProjects.length === 0) {
+    configError("workspace-project-not-found", `Requested project '${projectId}' is not declared.`);
+  }
+  const profiles = await Promise.all(
+    selectedProjects.flatMap((project) =>
+      ["build", "check"].map(async (taskName) => {
+        const task = project[taskName];
+        const result = await planPieceFallback({
+          workspaceRoot: preflight.roots.get(project.id),
+          analysis: { feedbackScope: { level: "project", fallbackRequired: true, reasons: [] } },
+          request: { ...task.request, mode: "plan", level: "project" },
+          policy: task.policy
+        });
+        return {
+          projectId: project.id,
+          task: taskName,
+          profile: task.request.profile,
+          execution: fallbackExecutionSummary(result, preflight.workspaceRoot),
+          diagnostics: (result.diagnostics ?? []).map((diagnostic) => ({
+            ...normalizedDiagnostic(diagnostic, project.id),
+            task: taskName
+          }))
+        };
+      })
+    )
+  );
+  return {
+    workspaceRoot: preflight.workspaceRoot,
+    selection: {
+      ...(projectId ? { projectId, provenance: "argument" } : { projectId: null, provenance: "all-configured-projects" }),
+      projects: selectedProjects.map((project) => project.id)
+    },
+    profiles,
+    diagnostics: profiles.flatMap((profile) => profile.diagnostics)
+  };
+}
+
 function workspaceSelection({ requestedProjectId, projectId, plan }) {
   return {
     projectId: requestedProjectId,

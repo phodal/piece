@@ -3,7 +3,9 @@ import { constants } from "node:fs";
 import { delimiter, dirname, basename, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyzePieceFile } from "../node.js";
+import { createNodeActionEnvironment, resolveWindowsPathCommand } from "../node-action-runner.js";
 import {
+  inspectPieceWorkspaceCliProfiles,
   PieceWorkspaceCliConfigError,
   normalizePieceWorkspaceCliConfig,
   planPieceWorkspaceCliTask,
@@ -661,21 +663,64 @@ async function runConfigValidate(context) {
   };
 }
 
-async function findExecutable(command) {
-  const paths = String(process.env.PATH ?? "").split(delimiter).filter(Boolean);
-  const suffixes = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
+function environmentValue(environment, name) {
+  if (environment?.[name] !== undefined) return environment[name];
+  if (process.platform !== "win32") return undefined;
+  const expected = name.toUpperCase();
+  for (const [key, value] of Object.entries(environment ?? {})) {
+    if (key.toUpperCase() === expected) return value;
+  }
+  return undefined;
+}
+
+async function executablePath(path) {
+  try {
+    await access(path, process.platform === "win32" ? constants.F_OK : constants.X_OK);
+    return path;
+  } catch {
+    return undefined;
+  }
+}
+
+async function findExecutable(command, environment = process.env) {
+  if (typeof command !== "string" || command.length === 0) return undefined;
+  if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
+    return executablePath(command);
+  }
+  if (process.platform === "win32") {
+    const resolved = await resolveWindowsPathCommand(command, { environment });
+    if (resolved !== command) return resolved;
+  }
+  const paths = String(environmentValue(environment, "PATH") ?? "").split(delimiter).filter(Boolean);
+  const suffixes = process.platform === "win32" ? [".exe", ".cmd", ".bat", ".com", ""] : [""];
   for (const directory of paths) {
     for (const suffix of suffixes) {
       const candidate = join(directory, `${command}${suffix}`);
-      try {
-        await access(candidate, constants.X_OK);
-        return candidate;
-      } catch {
-        // Keep searching PATH; a later entry may be executable.
-      }
+      const executable = await executablePath(candidate);
+      if (executable) return executable;
     }
   }
   return undefined;
+}
+
+async function inspectConfiguredProfileTool(profileCheck, config) {
+  if (profileCheck.execution.status !== "planned" || !profileCheck.execution.plan) {
+    return { status: "not-checked" };
+  }
+  const project = config.projects.find((candidate) => candidate.id === profileCheck.projectId);
+  const task = project?.[profileCheck.task];
+  if (!task) {
+    return { status: "missing", command: profileCheck.execution.plan.command };
+  }
+  const environment = createNodeActionEnvironment({
+    inheritProcessEnv: false,
+    envAllowlist: task.policy.envAllowlist,
+    env: task.policy.env
+  });
+  const path = await findExecutable(profileCheck.execution.plan.command, environment);
+  return path
+    ? { status: "available", command: profileCheck.execution.plan.command, path }
+    : { status: "missing", command: profileCheck.execution.plan.command };
 }
 
 export function resolvePieceGradleWrapperPath({ platform = process.platform, packageRoot = PACKAGE_ROOT } = {}) {
@@ -683,18 +728,57 @@ export function resolvePieceGradleWrapperPath({ platform = process.platform, pac
   return path.join(packageRoot, platform === "win32" ? "gradlew.bat" : "gradlew");
 }
 
-async function runDoctor(context) {
+async function runDoctor(context, parsed) {
   const [go, java, gradle] = await Promise.all([findExecutable("go"), findExecutable("java"), findExecutable("gradle")]);
   const wrapper = resolvePieceGradleWrapperPath();
   const wrapperInfo = await existingPath(wrapper);
+  let profileChecks = [];
+  if (context.config.schemaVersion === 2) {
+    let inspection;
+    try {
+      inspection = await inspectPieceWorkspaceCliProfiles({
+        workspace: context.workspace,
+        config: context.config,
+        projectId: parsed.projectId
+      });
+    } catch (error) {
+      if (error instanceof PieceWorkspaceCliConfigError) {
+        throw new PieceCliUsageError(error.code, error.message, error);
+      }
+      throw error;
+    }
+    profileChecks = await Promise.all(
+      inspection.profiles.map(async (profile) => {
+        const tool = await inspectConfiguredProfileTool(profile, context.config);
+        const diagnostics = [...profile.diagnostics];
+        if (profile.execution.status === "planned" && tool.status === "missing") {
+          diagnostics.push({
+            code: "doctor-fallback-tool-missing",
+            severity: "error",
+            projectId: profile.projectId,
+            task: profile.task,
+            message: `Configured ${profile.profile} ${profile.task} command '${tool.command}' is not available in its controlled PATH.`
+          });
+        }
+        return {
+          ...profile,
+          status: profile.execution.status === "planned" && tool.status === "available" ? "ready" : "failed",
+          tool,
+          diagnostics
+        };
+      })
+    );
+  }
+  const diagnostics = profileChecks.flatMap((profile) => profile.diagnostics);
+  const status = profileChecks.every((profile) => profile.status === "ready") ? "success" : "failed";
   return {
     schemaVersion: PIECE_CLI_RESULT_SCHEMA_VERSION,
     command: "doctor",
-    status: "success",
-    exitCode: 0,
+    status,
+    exitCode: status === "success" ? 0 : 1,
     ...contextResultFields(context),
     capabilities: {
-      commandSurface: ["analyze", "build", "check", "doctor"],
+      commandSurface: ["analyze", "build", "check", "plan", "config", "doctor"],
       build: context.config.schemaVersion === 2 ? "configured-workspace-fallback-v2" : "requires-workspace-config-v2",
       watch: "not-available",
       workspaceOrchestration: context.config.schemaVersion === 2 ? "explicit-project-graph" : "not-configured",
@@ -713,7 +797,18 @@ async function runDoctor(context) {
         pieceGradleWrapper: wrapperInfo?.isFile() ? { status: "available", path: wrapper } : { status: "missing" }
       }
     },
-    diagnostics: []
+    ...(context.config.schemaVersion === 2
+      ? {
+          profileChecks: {
+            selection: {
+              ...(parsed.projectId ? { projectId: parsed.projectId, provenance: "argument" } : { projectId: null, provenance: "all-configured-projects" }),
+              projects: [...new Set(profileChecks.map((profile) => profile.projectId))]
+            },
+            profiles: profileChecks
+          }
+        }
+      : {}),
+    diagnostics
   };
 }
 
