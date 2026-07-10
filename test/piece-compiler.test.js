@@ -1664,6 +1664,28 @@ export function UserCard() {
     expect(editResult.analysis.snapshot.revision).toBe(previousAnalysis.snapshot.revision + 1);
   });
 
+  it("reuses unchanged declaration records when an equal-length incremental edit keeps their ranges stable", async () => {
+    const compiler = createPieceCompiler();
+    const previousSource = sampleSource();
+    const previousAnalysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: previousSource
+    });
+    const nextSource = previousSource.replace("props.user.id", "props.user.ID");
+    const editResult = await compiler.applyEdit({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: nextSource,
+      previousAnalysis,
+      changedRanges: [changedRange(previousSource, nextSource)]
+    });
+
+    const previousDeclarations = previousAnalysis.snapshot.declarations;
+    const nextDeclarations = editResult.analysis.snapshot.declarations;
+    expect(nextDeclarations["/repo/src/DashboardPage.tsx#function:UserCard"]).not.toBe(previousDeclarations["/repo/src/DashboardPage.tsx#function:UserCard"]);
+    expect(nextDeclarations["/repo/src/DashboardPage.tsx#function:OtherCard"]).toBe(previousDeclarations["/repo/src/DashboardPage.tsx#function:OtherCard"]);
+    expect(nextDeclarations["/repo/src/DashboardPage.tsx#value:statusColorMap"]).toBe(previousDeclarations["/repo/src/DashboardPage.tsx#value:statusColorMap"]);
+  });
+
   it("reconciles declaration snapshots with stable piece identities and artifact reuse", async () => {
     const compiler = createPieceCompiler();
     const previousSource = sampleSource();

@@ -47,18 +47,13 @@ function indexEdgesBySource(graph) {
   return index;
 }
 
-function createDeclarationRecord(slice, edgesBySource, previousDeclaration) {
-  const outgoingEdges = edgesBySource.get(slice.id) ?? [];
-  const dependencies = outgoingEdges.map((edge) => edge.to);
-  const runtimeDependencies = outgoingEdges.filter((edge) => edge.kind === "runtime").map((edge) => edge.to);
-  const typeDependencies = outgoingEdges.filter((edge) => edge.kind === "type").map((edge) => edge.to);
-
+function publicShapeHashForSlice(slice, previousDeclaration) {
   // The public shape hash is a pure function of the slice's own text (kind, name, export
   // metadata, and the signature-only source below). If the slice body hash is unchanged from
   // the previous declaration, the shape hash cannot have changed either, so reuse it instead of
   // re-hashing the (trimmed) source on every reconcile.
   const canReusePublicShapeHash = previousDeclaration && previousDeclaration.textHash === slice.hashes.bodyHash;
-  const publicShapeHash = canReusePublicShapeHash
+  return canReusePublicShapeHash
     ? previousDeclaration.publicShapeHash
     : stableTextHash(
         [
@@ -70,6 +65,52 @@ function createDeclarationRecord(slice, edgesBySource, previousDeclaration) {
           slicePublicShapeSource(slice)
         ].join("\u001f")
       );
+}
+
+function sourceRangesMatch(left, right) {
+  return left.startByte === right.startByte && left.endByte === right.endByte && left.startLine === right.startLine && left.endLine === right.endLine;
+}
+
+function outgoingEdgesMatchIds(outgoingEdges, expectedIds, kind) {
+  if (outgoingEdges.length === 0) {
+    return expectedIds.length === 0;
+  }
+  const currentIds = new Set();
+  for (const edge of outgoingEdges) {
+    if (!kind || edge.kind === kind) {
+      currentIds.add(edge.to);
+    }
+  }
+  return currentIds.size === expectedIds.length && expectedIds.every((id) => currentIds.has(id));
+}
+
+function declarationMatchesSlice(previousDeclaration, slice, publicShapeHash, outgoingEdges) {
+  return (
+    previousDeclaration &&
+    previousDeclaration.id === slice.id &&
+    previousDeclaration.filePath === slice.filePath &&
+    previousDeclaration.kind === slice.kind &&
+    previousDeclaration.name === slice.name &&
+    previousDeclaration.exportName === slice.exportName &&
+    previousDeclaration.textHash === slice.hashes.bodyHash &&
+    previousDeclaration.publicShapeHash === publicShapeHash &&
+    sourceRangesMatch(previousDeclaration.range, slice.range) &&
+    outgoingEdgesMatchIds(outgoingEdges, previousDeclaration.dependencyIds) &&
+    outgoingEdgesMatchIds(outgoingEdges, previousDeclaration.directRuntimeDependencyIds, "runtime") &&
+    outgoingEdgesMatchIds(outgoingEdges, previousDeclaration.directTypeDependencyIds, "type")
+  );
+}
+
+function dependencyHashForIds(dependencyIds, publicShapeHashes) {
+  return hashParts(
+    dependencyIds.map((id) => {
+      const publicShapeHash = publicShapeHashes.get(id);
+      return publicShapeHash ? `${id}:${publicShapeHash}` : id;
+    })
+  );
+}
+
+function createDeclarationRecord(slice, publicShapeHash, dependencyIds, runtimeDependencyIds, typeDependencyIds, dependencyHash, artifactCacheKey, deps = dependencyIds) {
 
   return {
     id: slice.id,
@@ -80,28 +121,50 @@ function createDeclarationRecord(slice, edgesBySource, previousDeclaration) {
     range: slice.range,
     textHash: slice.hashes.bodyHash,
     publicShapeHash,
-    deps: sortStrings(dependencies),
-    dependencyIds: sortStrings(dependencies),
-    directRuntimeDependencyIds: sortStrings(runtimeDependencies),
-    directTypeDependencyIds: sortStrings(typeDependencies)
+    deps,
+    dependencyIds,
+    directRuntimeDependencyIds: runtimeDependencyIds,
+    directTypeDependencyIds: typeDependencyIds,
+    dependencyHash,
+    artifactCacheKey
   };
 }
 
-function withDependencyHashes(declarations) {
-  const byDeclarationId = new Map(declarations.map((declaration) => [declaration.id, declaration]));
-  return declarations.map((declaration) => {
-    const dependencyHash = hashParts(
-      declaration.dependencyIds.map((id) => {
-        const dependency = byDeclarationId.get(id);
-        return dependency ? `${id}:${dependency.publicShapeHash}` : id;
-      })
-    );
-    const artifactCacheKey = hashParts([declaration.id, declaration.textHash, dependencyHash]);
-    return {
-      ...declaration,
+function createDeclarationRecords(slices, edgesBySource, previousDeclarations, cacheKeySalt) {
+  const publicShapeHashes = new Map();
+  for (const slice of slices) {
+    publicShapeHashes.set(slice.id, publicShapeHashForSlice(slice, previousDeclarations?.[slice.id]));
+  }
+
+  return slices.map((slice) => {
+    const previousDeclaration = previousDeclarations?.[slice.id];
+    const outgoingEdges = edgesBySource.get(slice.id) ?? [];
+    const publicShapeHash = publicShapeHashes.get(slice.id);
+    const canReuseDependencyFields = declarationMatchesSlice(previousDeclaration, slice, publicShapeHash, outgoingEdges);
+    const dependencyIds = canReuseDependencyFields ? previousDeclaration.dependencyIds : sortStrings(outgoingEdges.map((edge) => edge.to));
+    const runtimeDependencyIds = canReuseDependencyFields
+      ? previousDeclaration.directRuntimeDependencyIds
+      : sortStrings(outgoingEdges.filter((edge) => edge.kind === "runtime").map((edge) => edge.to));
+    const typeDependencyIds = canReuseDependencyFields
+      ? previousDeclaration.directTypeDependencyIds
+      : sortStrings(outgoingEdges.filter((edge) => edge.kind === "type").map((edge) => edge.to));
+    const dependencyHash = dependencyHashForIds(dependencyIds, publicShapeHashes);
+    const artifactCacheKey = hashParts([hashParts([slice.id, slice.hashes.bodyHash, dependencyHash]), ...cacheKeySalt]);
+
+    if (canReuseDependencyFields && previousDeclaration.dependencyHash === dependencyHash && previousDeclaration.artifactCacheKey === artifactCacheKey) {
+      return previousDeclaration;
+    }
+
+    return createDeclarationRecord(
+      slice,
+      publicShapeHash,
+      dependencyIds,
+      runtimeDependencyIds,
+      typeDependencyIds,
       dependencyHash,
-      artifactCacheKey
-    };
+      artifactCacheKey,
+      canReuseDependencyFields ? previousDeclaration.deps : [...dependencyIds]
+    );
   });
 }
 
@@ -193,12 +256,7 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
     feedbackScope.hashes.fallbackScopeHash
   ];
   const edgesBySource = indexEdgesBySource(analysis.graph);
-  const declarations = withDependencyHashes(
-    analysis.manifest.slices.map((slice) => createDeclarationRecord(slice, edgesBySource, previousDeclarations?.[slice.id]))
-  ).map((declaration) => ({
-    ...declaration,
-    artifactCacheKey: hashParts([declaration.artifactCacheKey, ...cacheKeySalt])
-  }));
+  const declarations = createDeclarationRecords(analysis.manifest.slices, edgesBySource, previousDeclarations, cacheKeySalt);
   const declarationRecord = objectFromEntries(declarations.map((declaration) => [declaration.id, declaration]));
   return {
     version: 1,
