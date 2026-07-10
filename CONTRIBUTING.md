@@ -14,9 +14,9 @@ The verification command runs type checks, unit tests, and an npm package dry ru
 ## Pull Request Guidelines
 
 - Keep changes focused on one behavior or API surface.
-- Add or update tests for parser, graph, preview, and incremental rebuild behavior.
+- Add or update tests for parser, graph, preview, incremental rebuild behavior, and any workspace/fallback execution path you change.
 - Keep public API changes reflected in `src/index.d.ts` and README examples.
-- Run `npm run verify` before opening a pull request.
+- Run `npm run verify` before opening a pull request. Changes to CLI packaging or workspace execution must also pass `npm run smoke:packed`.
 
 ## Commit Style
 

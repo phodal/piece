@@ -86,6 +86,8 @@
     }
   },
   "files": [
+    "CHANGELOG.md",
+    "SECURITY.md",
     "bin",
     "docs",
     "go-backend",

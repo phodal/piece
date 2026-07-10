@@ -72,6 +72,93 @@ function normalizeBins(packageJson) {
   return packageJson.bin && typeof packageJson.bin === "object" ? packageJson.bin : {};
 }
 
+function parseSingleJsonResult(stdout, label) {
+  const lines = stdout.trim().split(/\r?\n/).filter(Boolean);
+  assert(lines.length === 1, `${label} must emit exactly one JSON result line, received: ${stdout}`);
+  try {
+    return JSON.parse(lines[0]);
+  } catch (error) {
+    throw new Error(`${label} did not emit valid JSON: ${error?.message ?? String(error)}\n${stdout}`);
+  }
+}
+
+function typeScriptTask(script, outputs) {
+  return {
+    request: { profile: "typescript", script },
+    policy: {
+      profiles: {
+        typescript: { root: ".", allowScripts: [script], packageManager: "npm" }
+      },
+      // Keep the fixture cross-platform while retaining a controlled child
+      // environment. Missing names are simply not inherited by the runner.
+      envAllowlist: ["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "SystemRoot", "USERPROFILE", "PATHEXT"]
+    },
+    ...(outputs ? { outputs } : {})
+  };
+}
+
+async function writeWorkspaceProject(workspace, relativeRoot, name, source) {
+  const projectRoot = join(workspace, relativeRoot);
+  await mkdir(join(projectRoot, "src"), { recursive: true });
+  await writeFile(join(projectRoot, "src", "index.ts"), source, "utf8");
+  await writeFile(
+    join(projectRoot, "package.json"),
+    `${JSON.stringify(
+      {
+        name: `packed-piece-${name}`,
+        private: true,
+        type: "module",
+        scripts: { build: "node build.mjs", check: "node check.mjs" }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await writeFile(
+    join(projectRoot, "build.mjs"),
+    `import { mkdir, writeFile } from "node:fs/promises";\nawait mkdir("dist", { recursive: true });\nawait writeFile("dist/${name}.txt", "${name}\\n", "utf8");\n`,
+    "utf8"
+  );
+  await writeFile(join(projectRoot, "check.mjs"), "process.exit(0);\n", "utf8");
+  return projectRoot;
+}
+
+async function writeWorkspaceTaskFixture(fixtureDirectory) {
+  const workspace = join(fixtureDirectory, "workspace");
+  await writeWorkspaceProject(workspace, "packages/shared", "shared", 'export const shared = "ready";\n');
+  await writeWorkspaceProject(
+    workspace,
+    "apps/web",
+    "web",
+    'import { shared } from "../../../packages/shared/src/index";\nexport const web = shared;\n'
+  );
+  const config = {
+    schemaVersion: 2,
+    defaultProject: "web",
+    projects: [
+      {
+        id: "shared",
+        root: "packages/shared",
+        sourceRoots: ["src"],
+        dependsOn: [],
+        build: typeScriptTask("build", ["dist"]),
+        check: typeScriptTask("check")
+      },
+      {
+        id: "web",
+        root: "apps/web",
+        sourceRoots: ["src"],
+        dependsOn: ["shared"],
+        build: typeScriptTask("build", ["dist"]),
+        check: typeScriptTask("check")
+      }
+    ]
+  };
+  await writeFile(join(workspace, "piece.config.json"), `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  return workspace;
+}
+
 async function main() {
   const packageJson = JSON.parse(await readFile(join(PACKAGE_ROOT, "package.json"), "utf8"));
   assert(packageJson.name === PACKAGE_NAME, `Expected package name '${PACKAGE_NAME}', received '${packageJson.name}'.`);
@@ -117,12 +204,49 @@ async function main() {
       console.warn("Skipping CLI probe because package.json has no bin entry (--allow-missing-bin).");
     } else {
       const installedPackageRoot = join(fixtureDirectory, "node_modules", ...PACKAGE_NAME.split("/"));
+      let pieceEntrypoint;
       for (const [binName, binPath] of binEntries) {
         const entrypoint = join(installedPackageRoot, binPath);
         await access(entrypoint);
         await run(process.execPath, [entrypoint, "--help"], { cwd: fixtureDirectory });
+        if (binName === "piece") pieceEntrypoint = entrypoint;
         console.log(`CLI '${binName}' --help passed.`);
       }
+
+      assert(pieceEntrypoint, "Packed package must expose the 'piece' CLI for workspace task verification.");
+      await Promise.all([access(join(installedPackageRoot, "SECURITY.md")), access(join(installedPackageRoot, "CHANGELOG.md"))]);
+
+      const workspace = await writeWorkspaceTaskFixture(fixtureDirectory);
+      const build = await run(process.execPath, [pieceEntrypoint, "build", "--workspace", workspace, "--format", "json"], {
+        cwd: fixtureDirectory
+      });
+      assert(build.stderr === "", `Packed piece build wrote unexpected stderr: ${build.stderr}`);
+      const buildResult = parseSingleJsonResult(build.stdout, "Packed piece build");
+      assert(buildResult.status === "success" && buildResult.exitCode === 0, `Packed piece build did not succeed: ${build.stdout}`);
+      assert(
+        JSON.stringify(buildResult.selection?.closure) === JSON.stringify(["shared", "web"]),
+        `Packed piece build selected an unexpected closure: ${JSON.stringify(buildResult.selection)}`
+      );
+      assert(
+        buildResult.projects?.every((project) => project.execution?.status === "success" && project.execution?.outputVerification === "verified"),
+        `Packed piece build did not verify every declared output: ${build.stdout}`
+      );
+      await Promise.all([
+        access(join(workspace, "packages", "shared", "dist", "shared.txt")),
+        access(join(workspace, "apps", "web", "dist", "web.txt"))
+      ]);
+
+      const check = await run(process.execPath, [pieceEntrypoint, "check", "web", "--workspace", workspace, "--format", "json"], {
+        cwd: fixtureDirectory
+      });
+      assert(check.stderr === "", `Packed piece check wrote unexpected stderr: ${check.stderr}`);
+      const checkResult = parseSingleJsonResult(check.stdout, "Packed piece check");
+      assert(checkResult.status === "success" && checkResult.exitCode === 0, `Packed piece check did not succeed: ${check.stdout}`);
+      assert(
+        checkResult.projects?.every((project) => project.execution?.status === "success"),
+        `Packed piece check did not execute every configured project: ${check.stdout}`
+      );
+      console.log("Packed CLI schema v2 build/check passed.");
     }
 
     console.log(`Packed ${basename(tarball)} imports passed.`);

@@ -202,7 +202,7 @@ Kotlin can run on the Web in two supported ways: [Kotlin/JS](https://kotlinlang.
 Keep the implementation honest:
 
 - declaration graphs and default packages are still single-file first, while selected toolchain scopes can include same-package companion files and expose candidate or safely selected package-scope targets;
-- no workspace-wide dependency resolver yet;
+- Node hosts and the CLI can execute an explicitly declared workspace graph, but they do not discover monorepos or resolve package-manager aliases: only declared `dependsOn` edges and workspace-contained relative source imports participate, and each project runs a constrained native fallback task rather than a per-Piece compiler action;
 - no handwritten BUILD files;
 - generated `.pic` files and package targets are metadata first, with target-level `source` only emitted when a target belongs to a different source label than the package default, selected package-view `.pic` output only after the safe package-scope gate passes, override merging applied against the selected package view only when the Node host passes it explicitly, and merged override packages feeding action/snapshot package views only through an explicit mode;
 - unknown edges force fallback instead of pretending local feedback is safe;

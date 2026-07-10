@@ -116,33 +116,38 @@ npm install piece-compiler
 import { createPieceCompiler } from "piece-compiler";
 ```
 
-## CLI: Safe Single-File Analysis
+## CLI: Safe Feedback and Declared Workspace Tasks
 
-The initial `piece` CLI is a production-oriented feedback surface for analyzing
-one source file. It intentionally does **not** claim to build or watch an
-entire workspace yet.
+`piece` has two deliberately separate configuration surfaces: schema v1 for
+single-file feedback, and schema v2 for explicit workspace project tasks. It
+does not discover a monorepo or turn individual Piece declarations into
+compiler actions.
 
-From a local checkout, run `node bin/piece.js`; from an installed tarball or
-published release, run `npx piece`:
+From a local checkout, run `node bin/piece.js`. From an installed tarball or
+published release, the package is named `piece-compiler` while its executable
+is named `piece`:
 
 ```sh
 node bin/piece.js analyze src/App.tsx --format json
-npx piece doctor
+node bin/piece.js build web --format json
+npx --yes --package piece-compiler piece doctor
 ```
 
 `--workspace <path>` selects the workspace root, and `--no-color` makes human
 output suitable for logs. Human output goes to stderr; `--format json` writes a
-single stable `schemaVersion: 1` result to stdout.
+single stable CLI-result `schemaVersion: 1` document to stdout. That result
+schema is independent from the `piece.config.json` configuration schema.
 
 | Exit code | Meaning |
 | --- | --- |
-| `0` | Successful analysis or doctor report. |
-| `1` | Analysis failed or returned an error diagnostic. |
+| `0` | Successful analysis, declared build/check, or doctor report. |
+| `1` | Analysis, native task, dependency, or declared-output verification failed. |
 | `2` | Invalid CLI usage, configuration, or workspace-contained path. |
 | `4` | Infrastructure failure such as an unreadable workspace or config. |
 
 The only configuration filename is `piece.config.json`, located inside the
-workspace. Its first schema is intentionally narrow and rejects unknown keys:
+workspace. Schema v1 remains the intentionally narrow single-file surface for
+`piece analyze`:
 
 ```json
 {
@@ -155,9 +160,55 @@ workspace. Its first schema is intentionally narrow and rejects unknown keys:
 }
 ```
 
-All config and entry paths must remain inside the selected workspace. The JSON
-result records whether the workspace, configuration, entry, and source roots
-came from a flag, argument, config, or default.
+Schema v2 powers `piece build [project]` and `piece check [project]`. Every
+project explicitly declares both tasks; omitted project IDs use
+`defaultProject`. Dependencies run first, and a failed dependency blocks its
+dependents. This compact TypeScript project shows the shape:
+
+```json
+{
+  "schemaVersion": 2,
+  "defaultProject": "web",
+  "projects": [
+    {
+      "id": "web",
+      "root": "apps/web",
+      "sourceRoots": ["src"],
+      "dependsOn": [],
+      "build": {
+        "request": { "profile": "typescript", "script": "build" },
+        "policy": {
+          "profiles": {
+            "typescript": { "root": ".", "allowScripts": ["build"], "packageManager": "npm" }
+          },
+          "envAllowlist": ["PATH"]
+        },
+        "outputs": ["dist"]
+      },
+      "check": {
+        "request": { "profile": "typescript", "script": "check" },
+        "policy": {
+          "profiles": {
+            "typescript": { "root": ".", "allowScripts": ["check"], "packageManager": "npm" }
+          },
+          "envAllowlist": ["PATH"]
+        }
+      }
+    }
+  ]
+}
+```
+
+Schema v2 builds/checks only declared projects, declared `dependsOn` edges, and
+workspace-contained relative source imports. It executes one strict native Go,
+Gradle, or package-script profile per project task; workspace build cache reuse
+is deliberately bypassed. `outputs` is optional for a build, but when supplied
+each output must exist and realpath inside its project after success.
+
+Configuration paths must remain inside the selected workspace. The JSON result
+records workspace, config, and invocation provenance. See
+[the CLI reference](./docs/cli.md) for the full schema, profile markers,
+trust boundary, and output-verification rules.
 
 ## Repository Map
 
@@ -180,6 +231,7 @@ grammar/
 
 docs/
   architecture.md       design model and single-file Bazel mapping
+  cli.md                schema v1/v2 CLI and native-task boundary
   roadmap.md            Kotlin and .pic roadmap
 ```
 
@@ -210,8 +262,8 @@ through `prepublishOnly`:
 npm run release:verify
 ```
 
-It verifies source tests, installs and probes the packed tarball (including the
-CLI), and runs the Go/Kotlin/DSL language smoke suite. Do not use
+It verifies source tests, installs and runs schema v2 build/check from the
+packed tarball, and runs the Go/Kotlin/DSL language smoke suite. Do not use
 `npm publish --ignore-scripts`, which bypasses this local release gate.
 
 For the deeper architecture and roadmap, see [docs/architecture.md](./docs/architecture.md), [docs/incremental-feedback-architecture.md](./docs/incremental-feedback-architecture.md), and [docs/roadmap.md](./docs/roadmap.md).
