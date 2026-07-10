@@ -7,7 +7,7 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 import { createPieceActionCacheRecord, explainPieceActionCacheStatus } from "./core/action-cache.js";
-import { hashParts, stableTextHash } from "./core/hash.js";
+import { PIECE_FINGERPRINT_VERSION, hashParts, stableTextHash } from "./core/hash.js";
 import { mergePiecePackages, piecePackageToPicDsl } from "./core/pic-dsl.js";
 import { createGoDeclarationExtractor } from "./languages/go/declaration-extractor.js";
 import { canUseNodeActionOutput, isNodeActionFailure, runNodeAction } from "./node-action-runner.js";
@@ -15,7 +15,9 @@ import { resolveNodeGradleCommand, resolveNodeGradleWrapperPath } from "./node-g
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const GO_ANALYZER_PATH = join(PACKAGE_ROOT, "go-backend", "analyzer", "main.go");
-const LOCAL_ACTION_CACHE_SCHEMA_VERSION = 2;
+// v3 deliberately drops v2 entries because their core fingerprint inputs used
+// the retired short hash format.
+const LOCAL_ACTION_CACHE_SCHEMA_VERSION = 3;
 const LOCAL_ACTION_CACHE_KEY_ALGORITHM = "sha256";
 const ACTION_CACHE_LOCK_TIMEOUT_MS = 15_000;
 const ACTION_CACHE_LOCK_RETRY_MS = 25;
@@ -978,6 +980,7 @@ function secureLocalActionCacheIdentity(baseRecord, options, source) {
       payload: {
         schema: "piece-local-action-cache",
         schemaVersion: LOCAL_ACTION_CACHE_SCHEMA_VERSION,
+        fingerprintVersion: PIECE_FINGERPRINT_VERSION,
         keyAlgorithm: LOCAL_ACTION_CACHE_KEY_ALGORITHM,
         action: baseRecord.action,
         artifact: baseRecord.artifact,
@@ -1066,6 +1069,7 @@ function isCurrentLocalActionCacheRecord(record) {
   return (
     record?.version === LOCAL_ACTION_CACHE_SCHEMA_VERSION &&
     record?.cacheSchemaVersion === LOCAL_ACTION_CACHE_SCHEMA_VERSION &&
+    record?.fingerprintVersion === PIECE_FINGERPRINT_VERSION &&
     record?.keyAlgorithm === LOCAL_ACTION_CACHE_KEY_ALGORITHM &&
     isSha256Digest(record?.key)
   );
@@ -1075,6 +1079,7 @@ function isCurrentLocalActionCacheStore(store) {
   return (
     store?.version === LOCAL_ACTION_CACHE_SCHEMA_VERSION &&
     store?.schemaVersion === LOCAL_ACTION_CACHE_SCHEMA_VERSION &&
+    store?.fingerprintVersion === PIECE_FINGERPRINT_VERSION &&
     store?.keyAlgorithm === LOCAL_ACTION_CACHE_KEY_ALGORITHM
   );
 }
@@ -1714,6 +1719,7 @@ async function persistLocalActionCacheRecord(storePath, record, result, actionCa
     await writeLocalActionCacheStoreAtomically(storePath, {
       version: LOCAL_ACTION_CACHE_SCHEMA_VERSION,
       schemaVersion: LOCAL_ACTION_CACHE_SCHEMA_VERSION,
+      fingerprintVersion: PIECE_FINGERPRINT_VERSION,
       keyAlgorithm: LOCAL_ACTION_CACHE_KEY_ALGORITHM,
       kind: "piece-action-cache-store",
       updatedAt: recordForResult.result.updatedAt,

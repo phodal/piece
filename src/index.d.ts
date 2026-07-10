@@ -682,6 +682,8 @@ export interface PieceToolchainMetadata {
 
 export interface PieceActionCacheMetadata {
   readonly version: 1;
+  /** Hashes are SHA-256, domain-separated fingerprints as of v2. */
+  readonly fingerprintVersion: 2;
   readonly compilerOptionsHash: string;
   readonly dependencyArtifactsHash: string;
   readonly toolchainInputsHash: string;
@@ -719,11 +721,12 @@ export interface PieceCompileActionCacheRecordResult {
 }
 
 export interface PieceCompileActionCacheRecord {
-  readonly version: 1 | 2;
+  readonly version: 1 | 2 | 3;
+  readonly fingerprintVersion: 2;
   readonly kind: "piece-action-cache-record";
   readonly key: string;
   /** Present on Node-local cache records that use the secure v2 schema. */
-  readonly cacheSchemaVersion?: 2;
+  readonly cacheSchemaVersion?: 2 | 3;
   /** Present on Node-local cache records that use a cryptographic storage key. */
   readonly keyAlgorithm?: "sha256" | (string & {});
   /** Legacy short key retained for diagnostics only; it is never used for v2 reuse. */
@@ -932,6 +935,8 @@ export interface PieceSnapshotArtifact {
 
 export interface PieceSnapshot {
   readonly version: 1;
+  /** Older snapshots are invalidated rather than reused across hash upgrades. */
+  readonly fingerprintVersion: 2;
   readonly revision: number;
   readonly filePath: string;
   readonly sourceHash: string;

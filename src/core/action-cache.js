@@ -1,4 +1,4 @@
-import { hashParts, stableTextHash } from "./hash.js";
+import { PIECE_FINGERPRINT_VERSION, hashParts, stableTextHash } from "./hash.js";
 
 function stableStringify(value) {
   if (value === null || typeof value !== "object") {
@@ -77,6 +77,7 @@ export function createPieceActionCacheMetadata(options = {}) {
 
   return {
     version: 1,
+    fingerprintVersion: PIECE_FINGERPRINT_VERSION,
     compilerOptionsHash,
     dependencyArtifactsHash,
     toolchainInputsHash,
@@ -193,6 +194,7 @@ export function createPieceActionCacheRecord(options = {}) {
 
   return {
     version: 1,
+    fingerprintVersion: PIECE_FINGERPRINT_VERSION,
     kind: "piece-action-cache-record",
     key,
     action: {
@@ -304,7 +306,9 @@ export function explainPieceActionCacheStatus(options = {}) {
       ]
     };
   }
-  const matchedRecord = localRecords.find((candidate) => candidate.key === record.key);
+  const matchedRecord = localRecords.find(
+    (candidate) => candidate.key === record.key && candidate.fingerprintVersion === PIECE_FINGERPRINT_VERSION
+  );
   if (matchedRecord && missReasons.length === 0) {
     return {
       ...base,
@@ -318,7 +322,13 @@ export function explainPieceActionCacheStatus(options = {}) {
     status: "miss",
     reasons: [
       ...missReasons,
-      actionCacheReason("local-record-not-found", "info", "No local action-cache record matched this compile action identity.")
+      actionCacheReason(
+        localRecords.some((candidate) => candidate.key === record.key) ? "local-record-fingerprint-version-miss" : "local-record-not-found",
+        "info",
+        localRecords.some((candidate) => candidate.key === record.key)
+          ? "A local action-cache record used an older fingerprint version and was invalidated."
+          : "No local action-cache record matched this compile action identity."
+      )
     ]
   };
 }

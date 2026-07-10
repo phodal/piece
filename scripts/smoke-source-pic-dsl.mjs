@@ -1,4 +1,5 @@
 import { analyzePieceFile, parsePieceDslFile, piecePackageToPicDsl } from "../src/node.js";
+import { stableTextHash } from "../src/core/hash.js";
 
 const typescriptSource = `import { Tag } from "antd";
 
@@ -213,6 +214,11 @@ assert(
   })}`
 );
 assert(goAnalysis.manifest.parser === "go-ast-declaration-extractor", `Expected Node Go analysis to use Go AST backend: ${goAnalysis.manifest.parser}`);
+const goRenderGreeting = goAnalysis.manifest.slices.find((slice) => slice.name === "RenderGreeting");
+assert(
+  goRenderGreeting?.hashes?.bodyHash === stableTextHash(goRenderGreeting.source),
+  `Go AST backend did not emit the shared v2 text fingerprint: ${JSON.stringify(goRenderGreeting?.hashes)}`
+);
 assert(goAnalysis.manifest.analysisBackend?.actual === "go-ast", `Expected Go-owned analysis backend metadata: ${JSON.stringify(goAnalysis.manifest.analysisBackend)}`);
 assert(goAnalysis.manifest.toolchain?.kind === "go-list", `Expected Go analysis to include go-list metadata: ${JSON.stringify(goAnalysis.manifest.toolchain)}`);
 assert(goAnalysis.manifest.toolchain?.goList?.packageHash, `Expected Go list package hash: ${JSON.stringify(goAnalysis.manifest.toolchain)}`);

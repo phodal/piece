@@ -1,4 +1,4 @@
-import { hashParts, stableTextHash } from "./hash.js";
+import { PIECE_FINGERPRINT_VERSION, hashParts, stableTextHash } from "./hash.js";
 import { reversePieceGraph } from "./slice-graph.js";
 import { explainPieceFeedbackScope } from "./feedback-scope.js";
 import { createPieceActionCacheMetadata } from "./action-cache.js";
@@ -246,8 +246,11 @@ function previewTargetsAffectedByDirtyPieces(reverseGraph, previewTargets, dirty
 export function createPieceSnapshot({ analysis, artifacts, version = 1, compilerOptionsHash = "", compilerOptions, dependencyArtifacts, actionCache, previousDeclarations }) {
   const projectModelHash = analysis.manifest.projectModel?.analysisScope?.hashes?.scopeHash ?? analysis.manifest.projectModel?.hashes?.modelHash ?? "";
   const feedbackScope = analysis.feedbackScope ?? explainPieceFeedbackScope({ manifest: analysis.manifest, graph: analysis.graph });
+  const suppliedActionCache = actionCache ?? analysis.actionCache;
   const resolvedActionCache =
-    actionCache ?? analysis.actionCache ?? createPieceActionCacheMetadata({ compilerOptionsHash, compilerOptions, dependencyArtifacts });
+    suppliedActionCache?.fingerprintVersion === PIECE_FINGERPRINT_VERSION
+      ? suppliedActionCache
+      : createPieceActionCacheMetadata({ compilerOptionsHash, compilerOptions, dependencyArtifacts });
   const cacheKeySalt = [
     resolvedActionCache.compilerOptionsHash,
     resolvedActionCache.dependencyArtifactsHash,
@@ -260,6 +263,7 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
   const declarationRecord = objectFromEntries(declarations.map((declaration) => [declaration.id, declaration]));
   return {
     version: 1,
+    fingerprintVersion: PIECE_FINGERPRINT_VERSION,
     revision: version,
     filePath: analysis.filePath,
     sourceHash: stableTextHash(analysis.manifest.source),
@@ -281,7 +285,8 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
 
 export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRanges = [], artifacts, compilerOptionsHash = "", compilerOptions, dependencyArtifacts, actionCache }) {
   const previous = previousSnapshot;
-  const previousDeclarations = previous?.declarations ?? {};
+  const fingerprintChanged = previous && previous.fingerprintVersion !== PIECE_FINGERPRINT_VERSION;
+  const previousDeclarations = fingerprintChanged ? {} : previous?.declarations ?? {};
   const nextSnapshot = createPieceSnapshot({
     analysis,
     artifacts,
@@ -334,8 +339,8 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
     }
   }
 
-  const changedHeaders = previous.headerHash !== nextSnapshot.headerHash;
-  const changedEffects = previous.effectHash !== nextSnapshot.effectHash;
+  const changedHeaders = fingerprintChanged || previous.headerHash !== nextSnapshot.headerHash;
+  const changedEffects = fingerprintChanged || previous.effectHash !== nextSnapshot.effectHash;
   // Build the reverse dependency graph once and reuse it for both the public-shape dirty
   // propagation below and the preview-target lookup further down, instead of rebuilding it twice.
   const reverseGraph = reversePieceGraph(analysis.graph);

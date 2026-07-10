@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -602,10 +604,7 @@ func clamp(value, min, max int) int {
 }
 
 func stableTextHash(value string) string {
-	hash := uint32(0x811c9dc5)
-	for _, char := range value {
-		hash ^= uint32(char)
-		hash *= 0x01000193
-	}
-	return strings.ToLower(strconv.FormatUint(uint64(hash), 36))
+	framed := fmt.Sprintf("piece-text-v2\x00%d\x00%s", len(value), value)
+	digest := sha256.Sum256([]byte(framed))
+	return hex.EncodeToString(digest[:])
 }

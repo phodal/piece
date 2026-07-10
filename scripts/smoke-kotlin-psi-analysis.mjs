@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { analyzeKotlinPieceFile, analyzePieceFile, createNodeKotlinPsiDeclarationExtractor } from "../src/node.js";
+import { stableTextHash } from "../src/core/hash.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -86,6 +87,11 @@ assert(
       ["class", "Greeter", true]
     ]),
   `Unexpected Kotlin PSI slices: ${JSON.stringify(manifest.slices.map((slice) => [slice.kind, slice.name, slice.preview.previewable]))}`
+);
+const kotlinGreeting = manifest.slices.find((slice) => slice.name === "renderGreeting");
+assert(
+  kotlinGreeting?.hashes?.bodyHash === stableTextHash(kotlinGreeting.source),
+  `Kotlin PSI did not emit the shared v2 text fingerprint: ${JSON.stringify(kotlinGreeting?.hashes)}`
 );
 
 const analysis = await analyzePieceFile({

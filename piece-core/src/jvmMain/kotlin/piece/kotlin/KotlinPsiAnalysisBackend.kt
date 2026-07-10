@@ -6,6 +6,7 @@ import org.jetbrains.kotlin.psi.KtImportDirective
 import piece.extract.SourceFile
 import piece.model.PieceSourceRange
 import piece.model.PieceTargetKind
+import java.security.MessageDigest
 
 private const val DEFAULT_KOTLIN_PSI_PARSER_NAME = "kotlin-psi-declaration-extractor"
 
@@ -599,12 +600,11 @@ private fun declarationSignature(source: String): String {
 }
 
 private fun stableTextHash(value: String): String {
-    var hash = 0x811c9dc5L
-    for (char in value) {
-        hash = (hash xor char.code.toLong()) and 0xffffffffL
-        hash = (hash * 0x01000193L) and 0xffffffffL
-    }
-    return java.lang.Long.toString(hash, 36)
+    val bytes = value.toByteArray(Charsets.UTF_8)
+    val framed = "piece-text-v2\u0000${bytes.size}\u0000$value"
+    return MessageDigest.getInstance("SHA-256")
+        .digest(framed.toByteArray(Charsets.UTF_8))
+        .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 }
 
 private fun KotlinPsiManifestSlice.toJson(): String = buildKotlinPsiJsonObject {

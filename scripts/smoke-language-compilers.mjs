@@ -210,11 +210,13 @@ try {
   const goActionCacheStore = JSON.parse(await readFile(goActionCacheStorePath, "utf8"));
   const storedRecord = goActionCacheStore.records?.[goAppStatus.compileAction.actionCache.record.key];
   if (
-    goActionCacheStore.version !== 2 ||
-    goActionCacheStore.schemaVersion !== 2 ||
+    goActionCacheStore.version !== 3 ||
+    goActionCacheStore.schemaVersion !== 3 ||
+    goActionCacheStore.fingerprintVersion !== 2 ||
     goActionCacheStore.keyAlgorithm !== "sha256" ||
-    storedRecord?.version !== 2 ||
-    storedRecord?.cacheSchemaVersion !== 2 ||
+    storedRecord?.version !== 3 ||
+    storedRecord?.cacheSchemaVersion !== 3 ||
+    storedRecord?.fingerprintVersion !== 2 ||
     storedRecord?.keyAlgorithm !== "sha256" ||
     storedRecord?.kind !== "piece-action-cache-record" ||
     storedRecord.result?.status !== "success" ||
@@ -349,11 +351,13 @@ try {
   const tsActionCacheStore = JSON.parse(await readFile(tsActionCacheStorePath, "utf8"));
   const tsStoredRecord = tsActionCacheStore.records?.[tsAppStatus.compileAction.actionCache.record.key];
   if (
-    tsActionCacheStore.version !== 2 ||
-    tsActionCacheStore.schemaVersion !== 2 ||
+    tsActionCacheStore.version !== 3 ||
+    tsActionCacheStore.schemaVersion !== 3 ||
+    tsActionCacheStore.fingerprintVersion !== 2 ||
     tsActionCacheStore.keyAlgorithm !== "sha256" ||
-    tsStoredRecord?.version !== 2 ||
-    tsStoredRecord?.cacheSchemaVersion !== 2 ||
+    tsStoredRecord?.version !== 3 ||
+    tsStoredRecord?.cacheSchemaVersion !== 3 ||
+    tsStoredRecord?.fingerprintVersion !== 2 ||
     tsStoredRecord?.keyAlgorithm !== "sha256" ||
     tsStoredRecord?.kind !== "piece-action-cache-record" ||
     tsStoredRecord.result?.status !== "success" ||
@@ -539,11 +543,13 @@ try {
   const simpleKotlinActionCacheStore = JSON.parse(await readFile(simpleKotlinActionCacheStorePath, "utf8"));
   const simpleKotlinStoredRecord = simpleKotlinActionCacheStore.records?.[simpleKotlinResult.actionCache.record.key];
   if (
-    simpleKotlinActionCacheStore.version !== 2 ||
-    simpleKotlinActionCacheStore.schemaVersion !== 2 ||
+    simpleKotlinActionCacheStore.version !== 3 ||
+    simpleKotlinActionCacheStore.schemaVersion !== 3 ||
+    simpleKotlinActionCacheStore.fingerprintVersion !== 2 ||
     simpleKotlinActionCacheStore.keyAlgorithm !== "sha256" ||
-    simpleKotlinStoredRecord?.version !== 2 ||
-    simpleKotlinStoredRecord?.cacheSchemaVersion !== 2 ||
+    simpleKotlinStoredRecord?.version !== 3 ||
+    simpleKotlinStoredRecord?.cacheSchemaVersion !== 3 ||
+    simpleKotlinStoredRecord?.fingerprintVersion !== 2 ||
     simpleKotlinStoredRecord?.keyAlgorithm !== "sha256" ||
     simpleKotlinStoredRecord?.kind !== "piece-action-cache-record" ||
     simpleKotlinStoredRecord.result?.status !== "success" ||

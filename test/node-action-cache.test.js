@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { compilePieceAction } from "piece-compiler/node";
-import { stableTextHash } from "../src/core/hash.js";
+import { legacyStableTextHash, stableTextHash } from "../src/core/hash.js";
 
 function fixture(name, value = 1) {
   const filePath = `/repo/src/${name}.ts`;
@@ -145,7 +145,7 @@ describe("Node local action cache", () => {
     }
   });
 
-  it("treats a v1 local store as a miss and replaces it with the secure v2 schema", async () => {
+  it("treats an older local store as a miss and replaces it with the fingerprint v3 schema", async () => {
     const root = await mkdtemp(join(tmpdir(), "piece-node-cache-v1-"));
     const storePath = join(root, "cache", "action-cache.json");
     try {
@@ -162,10 +162,11 @@ describe("Node local action cache", () => {
       expect(result.actionCache.status).toBe("miss");
       expect(result.actionCache.execution.skipped).toBe(false);
       expect(result.actionCache.reasons).toContainEqual(expect.objectContaining({ code: "action-cache-store-schema-miss" }));
-      expect(store).toMatchObject({ version: 2, schemaVersion: 2, keyAlgorithm: "sha256" });
+      expect(store).toMatchObject({ version: 3, schemaVersion: 3, fingerprintVersion: 2, keyAlgorithm: "sha256" });
       expect(store.records[result.actionCache.record.key]).toMatchObject({
-        version: 2,
-        cacheSchemaVersion: 2,
+        version: 3,
+        cacheSchemaVersion: 3,
+        fingerprintVersion: 2,
         keyAlgorithm: "sha256"
       });
     } finally {
@@ -173,7 +174,7 @@ describe("Node local action cache", () => {
     }
   });
 
-  it("uses raw source in the v2 key instead of wrapping the legacy FNV source hash", async () => {
+  it("uses raw source in the secure key and does not inherit a legacy FNV collision", async () => {
     const root = await mkdtemp(join(tmpdir(), "piece-node-cache-key-"));
     const firstSource = "export const greet = () => 1; // 1ff4dw1-76f\n";
     const secondSource = "export const greet = () => 1; // yfiuuu-n56\n";
@@ -181,12 +182,13 @@ describe("Node local action cache", () => {
       // This is a deterministic collision for the v1 32-bit FNV-derived
       // source hash. The rest of the action identity remains identical.
       expect(firstSource).not.toBe(secondSource);
-      expect(stableTextHash(firstSource)).toBe(stableTextHash(secondSource));
+      expect(legacyStableTextHash(firstSource)).toBe(legacyStableTextHash(secondSource));
+      expect(stableTextHash(firstSource)).not.toBe(stableTextHash(secondSource));
 
       const first = await compileFixture(root, "greet", 1, { source: firstSource });
       const second = await compileFixture(root, "greet", 1, { source: secondSource });
 
-      expect(first.actionCache.record.legacyKey).toBe(second.actionCache.record.legacyKey);
+      expect(first.actionCache.record.legacyKey).not.toBe(second.actionCache.record.legacyKey);
       expect(first.actionCache.record.key).toMatch(/^[a-f0-9]{64}$/);
       expect(second.actionCache.record.key).toMatch(/^[a-f0-9]{64}$/);
       expect(first.actionCache.record.key).not.toBe(second.actionCache.record.key);
@@ -201,13 +203,14 @@ describe("Node local action cache", () => {
       const results = await Promise.all(Array.from({ length: 8 }, (_, index) => compileFixture(root, `target${index}`, index)));
       const store = await readStore(root);
 
-      expect(store).toMatchObject({ version: 2, schemaVersion: 2, keyAlgorithm: "sha256" });
+      expect(store).toMatchObject({ version: 3, schemaVersion: 3, fingerprintVersion: 2, keyAlgorithm: "sha256" });
       expect(Object.keys(store.records)).toHaveLength(results.length);
       for (const result of results) {
         expect(result.actionCache.persistence).toMatchObject({ status: "stored", recordKey: result.actionCache.record.key });
         expect(store.records[result.actionCache.record.key]).toMatchObject({
-          version: 2,
-          cacheSchemaVersion: 2,
+          version: 3,
+          cacheSchemaVersion: 3,
+          fingerprintVersion: 2,
           keyAlgorithm: "sha256",
           result: { status: "success" }
         });

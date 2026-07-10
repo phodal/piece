@@ -1734,6 +1734,21 @@ export function UserCard() {
     expect(reconciliation.reusedArtifactIds.map((id) => id.split("#")[1])).toEqual(["function:OtherCard", "value:statusColorMap"]);
   });
 
+  it("invalidates a legacy snapshot instead of reusing pre-v2 fingerprints", async () => {
+    const compiler = createPieceCompiler();
+    const analysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: sampleSource()
+    });
+    const legacySnapshot = { ...analysis.snapshot, fingerprintVersion: 1 };
+    const reconciliation = reconcilePieceSnapshot({ previousSnapshot: legacySnapshot, analysis });
+
+    expect(reconciliation.changedPieces).toEqual(Object.keys(analysis.snapshot.declarations).sort());
+    expect(reconciliation.reusedArtifactIds).toEqual([]);
+    expect(reconciliation.invalidatedArtifactIds).toEqual(Object.keys(analysis.snapshot.artifacts).sort());
+    expect(reconciliation.changedHeaders).toBe(true);
+  });
+
   it("keeps touched pieces from both declaration coordinate spaces across insertions and deletions", async () => {
     const compiler = createPieceCompiler();
     const previousSource = sampleSource();
