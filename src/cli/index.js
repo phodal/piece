@@ -3,12 +3,13 @@ import { constants } from "node:fs";
 import { delimiter, dirname, basename, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyzePieceFile } from "../node.js";
+import { PieceWorkspaceCliConfigError, normalizePieceWorkspaceCliConfig, runPieceWorkspaceCliTask } from "./workspace.js";
 
 export const PIECE_CLI_RESULT_SCHEMA_VERSION = 1;
 export const PIECE_CONFIG_FILE_NAME = "piece.config.json";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const CONFIG_KEYS = new Set([
+const V1_CONFIG_KEYS = new Set([
   "schemaVersion",
   "entry",
   "sourceRoots",
@@ -82,8 +83,18 @@ function normalizeConfig(value) {
   if (!isPlainObject(value)) {
     throw new PieceCliUsageError("invalid-config", "piece.config.json must contain a JSON object.");
   }
+  if (value.schemaVersion === 2) {
+    try {
+      return normalizePieceWorkspaceCliConfig(value);
+    } catch (error) {
+      if (error instanceof PieceWorkspaceCliConfigError) {
+        throw new PieceCliUsageError(error.code, error.message, error);
+      }
+      throw error;
+    }
+  }
   for (const key of Object.keys(value)) {
-    if (!CONFIG_KEYS.has(key)) {
+    if (!V1_CONFIG_KEYS.has(key)) {
       throw new PieceCliUsageError("unknown-config-key", `piece.config.json contains unsupported key '${key}'.`);
     }
   }
@@ -208,7 +219,7 @@ export function parsePieceCliArguments(argv = []) {
     throw new PieceCliUsageError("missing-command", "A command is required. Run 'piece --help' for usage.");
   }
   const [command, ...argumentsAfterCommand] = positionals;
-  if (!["analyze", "doctor"].includes(command)) {
+  if (!["analyze", "doctor", "build", "check"].includes(command)) {
     throw new PieceCliUsageError("unknown-command", `Unknown command '${command}'.`);
   }
   if (command === "doctor" && argumentsAfterCommand.length > 0) {
@@ -217,10 +228,14 @@ export function parsePieceCliArguments(argv = []) {
   if (command === "analyze" && argumentsAfterCommand.length > 1) {
     throw new PieceCliUsageError("unexpected-argument", "piece analyze accepts exactly one optional entry path.");
   }
+  if (["build", "check"].includes(command) && argumentsAfterCommand.length > 1) {
+    throw new PieceCliUsageError("unexpected-argument", `piece ${command} accepts at most one optional project id.`);
+  }
   return {
     ...options,
     command,
-    entry: argumentsAfterCommand[0]
+    entry: command === "analyze" ? argumentsAfterCommand[0] : undefined,
+    projectId: ["build", "check"].includes(command) ? argumentsAfterCommand[0] : undefined
   };
 }
 
@@ -307,6 +322,9 @@ async function loadConfig(workspace, configOption) {
 }
 
 async function validateConfiguredWorkspacePaths(workspace, config) {
+  if (config.schemaVersion !== 1) {
+    return;
+  }
   const configuredPaths = [
     ...(config.entry ? [{ value: config.entry, label: "config.entry" }] : []),
     ...(config.sourceRoots ?? []).map((value) => ({ value, label: "config.sourceRoots" }))
@@ -470,6 +488,12 @@ async function resolveSourceRoots(context, entry) {
 }
 
 async function runAnalyze(parsed, context) {
+  if (context.config.schemaVersion !== 1) {
+    throw new PieceCliUsageError(
+      "single-file-analysis-requires-config-v1",
+      "piece analyze uses the schemaVersion 1 single-file configuration. Use piece build or piece check for a schemaVersion 2 workspace configuration."
+    );
+  }
   const entry = await readEntry(context, parsed);
   const sourceRoots = await resolveSourceRoots(context, entry);
   let analysis;
@@ -531,6 +555,32 @@ async function runAnalyze(parsed, context) {
   return result;
 }
 
+async function runWorkspaceCommand(parsed, context) {
+  if (context.config.schemaVersion !== 2) {
+    throw new PieceCliUsageError(
+      "workspace-build-requires-config-v2",
+      `piece ${parsed.command} requires a schemaVersion 2 configuration with explicit projects.`
+    );
+  }
+  try {
+    const result = await runPieceWorkspaceCliTask({
+      command: parsed.command,
+      workspace: context.workspace,
+      config: context.config,
+      projectId: parsed.projectId
+    });
+    return {
+      ...result,
+      ...contextResultFields(context)
+    };
+  } catch (error) {
+    if (error instanceof PieceWorkspaceCliConfigError) {
+      throw new PieceCliUsageError(error.code, error.message, error);
+    }
+    throw error;
+  }
+}
+
 async function findExecutable(command) {
   const paths = String(process.env.PATH ?? "").split(delimiter).filter(Boolean);
   const suffixes = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
@@ -564,11 +614,11 @@ async function runDoctor(context) {
     exitCode: 0,
     ...contextResultFields(context),
     capabilities: {
-      commandSurface: ["analyze", "doctor"],
-      build: "not-available",
+      commandSurface: ["analyze", "build", "check", "doctor"],
+      build: context.config.schemaVersion === 2 ? "configured-workspace-fallback-v2" : "requires-workspace-config-v2",
       watch: "not-available",
-      workspaceOrchestration: "not-available",
-      scope: "single-file-feedback"
+      workspaceOrchestration: context.config.schemaVersion === 2 ? "explicit-project-graph" : "not-configured",
+      scope: context.config.schemaVersion === 2 ? "declared-workspace-project-graph" : "single-file-feedback"
     },
     runtime: {
       node: {
@@ -598,7 +648,7 @@ async function packageVersion() {
 }
 
 export function pieceCliHelpText() {
-  return `Piece CLI — safe single-file feedback analysis\n\nUsage:\n  piece analyze <entry> [options]\n  piece doctor [options]\n\nCommands:\n  analyze <entry>  Analyze one source file inside the selected workspace.\n  doctor           Report the available local runtime and toolchain capabilities.\n\nOptions:\n  --workspace <path>       Workspace root (default: current directory).\n  --config <path>          Configuration file, named ${PIECE_CONFIG_FILE_NAME}.\n  --format <human|json>    Result format (default: human).\n  --no-color               Disable color output.\n  -h, --help               Show this help text.\n  -v, --version            Show the installed Piece version.\n\nThe first CLI release intentionally has no build or watch command. It is a\nsingle-file feedback surface; workspace build orchestration is not available yet.\n`;
+  return `Piece CLI — safe feedback analysis and declared workspace tasks\n\nUsage:\n  piece analyze <entry> [options]\n  piece build [project] [options]\n  piece check [project] [options]\n  piece doctor [options]\n\nCommands:\n  analyze <entry>  Analyze one source file with a schemaVersion 1 config.\n  build [project]  Execute a schemaVersion 2 project's native fallback build and its declared dependency closure.\n  check [project]  Execute a schemaVersion 2 project's native fallback check and its declared dependency closure.\n  doctor           Report the available local runtime and toolchain capabilities.\n\nOptions:\n  --workspace <path>       Workspace root (default: current directory).\n  --config <path>          Configuration file, named ${PIECE_CONFIG_FILE_NAME}.\n  --format <human|json>    Result format (default: human).\n  --no-color               Disable color output.\n  -h, --help               Show this help text.\n  -v, --version            Show the installed Piece version.\n\nWorkspace build/check use only explicit, allowlisted native fallback profiles.\nThey cover the declared project graph; Piece's per-file analysis is evidence,\nnot a claim that a single Piece action built an entire workspace project.\n`;
 }
 
 function humanResult(result) {
@@ -614,6 +664,10 @@ function humanResult(result) {
   }
   if (result.command === "doctor") {
     return `piece doctor succeeded\nscope: ${result.capabilities.scope}\nworkspace orchestration: ${result.capabilities.workspaceOrchestration}\nnode: ${result.runtime.node.version}\n`;
+  }
+  if (result.command === "build" || result.command === "check") {
+    const failedProjects = result.projects.filter((project) => project.execution.status !== "success").map((project) => project.id);
+    return `piece ${result.command} ${result.status}\nproject: ${result.selection.projectId}\nclosure: ${result.selection.closure.join(", ")}\nprojects: ${result.projects.length}\n${failedProjects.length > 0 ? `failed projects: ${failedProjects.join(", ")}\n` : ""}`;
   }
   return `${JSON.stringify(result)}\n`;
 }
@@ -669,7 +723,12 @@ export async function runPieceCli(argv = [], options = {}) {
       return 0;
     }
     context = await resolveCliContext(parsed, cwd);
-    const result = parsed.command === "analyze" ? await runAnalyze(parsed, context) : await runDoctor(context);
+    const result =
+      parsed.command === "analyze"
+        ? await runAnalyze(parsed, context)
+        : parsed.command === "build" || parsed.command === "check"
+          ? await runWorkspaceCommand(parsed, context)
+          : await runDoctor(context);
     emitResult(result, format, io);
     return result.exitCode;
   } catch (error) {
