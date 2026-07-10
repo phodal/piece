@@ -42,6 +42,43 @@ function slicePublicShapeSource(slice) {
   return source;
 }
 
+function normalizedStableId(slice) {
+  return typeof slice.stableId === "string" && slice.stableId.trim().length > 0 ? slice.stableId.trim() : undefined;
+}
+
+function sourceWithNormalizedSliceName(slice, source = slice.source) {
+  if (!slice.name) return undefined;
+  const escapedName = String(slice.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return String(source).replace(
+    new RegExp(`(^|[^A-Za-z0-9_$])${escapedName}(?=$|[^A-Za-z0-9_$])`, "g"),
+    (_, prefix) => `${prefix}__piece_rename__`
+  );
+}
+
+function renameFingerprintForSlice(slice) {
+  const normalizedSource = sourceWithNormalizedSliceName(slice);
+  if (!normalizedSource) return undefined;
+  // Replace the declaration name and any self-references, but retain every
+  // other source token. A pair is accepted only when this fingerprint is
+  // unique on both sides of the reconciliation.
+  return stableTextHash(["piece-rename-v1", slice.kind, normalizedSource].join("\u001f"));
+}
+
+function renamePublicShapeHashForSlice(slice) {
+  const normalizedPublicShape = sourceWithNormalizedSliceName(slice, slicePublicShapeSource(slice));
+  if (!normalizedPublicShape) return undefined;
+  return stableTextHash(
+    [
+      "piece-rename-public-shape-v1",
+      slice.kind,
+      slice.exportName ?? "",
+      slice.isDefaultExport ? "default" : "",
+      slice.preview.previewable ? "previewable" : "",
+      normalizedPublicShape
+    ].join("\u001f")
+  );
+}
+
 function publicShapeHashForSlice(slice, previousDeclaration) {
   // The public shape hash is a pure function of the slice's own text (kind, name, export
   // metadata, and the signature-only source below). If the slice body hash is unchanged from
@@ -79,7 +116,7 @@ function outgoingEdgesMatchIds(outgoingEdges, expectedIds, kind) {
   return currentIds.size === expectedIds.length && expectedIds.every((id) => currentIds.has(id));
 }
 
-function declarationMatchesSlice(previousDeclaration, slice, publicShapeHash, outgoingEdges) {
+function declarationMatchesSlice(previousDeclaration, slice, publicShapeHash, outgoingEdges, stableId, renameFingerprint, renamePublicShapeHash) {
   return (
     previousDeclaration &&
     previousDeclaration.id === slice.id &&
@@ -89,6 +126,9 @@ function declarationMatchesSlice(previousDeclaration, slice, publicShapeHash, ou
     previousDeclaration.exportName === slice.exportName &&
     previousDeclaration.textHash === slice.hashes.bodyHash &&
     previousDeclaration.publicShapeHash === publicShapeHash &&
+    previousDeclaration.stableId === stableId &&
+    previousDeclaration.renameFingerprint === renameFingerprint &&
+    previousDeclaration.renamePublicShapeHash === renamePublicShapeHash &&
     sourceRangesMatch(previousDeclaration.range, slice.range) &&
     outgoingEdgesMatchIds(outgoingEdges, previousDeclaration.dependencyIds) &&
     outgoingEdgesMatchIds(outgoingEdges, previousDeclaration.directRuntimeDependencyIds, "runtime") &&
@@ -105,7 +145,19 @@ function dependencyHashForIds(dependencyIds, publicShapeHashes) {
   );
 }
 
-function createDeclarationRecord(slice, publicShapeHash, dependencyIds, runtimeDependencyIds, typeDependencyIds, dependencyHash, artifactCacheKey, deps = dependencyIds) {
+function createDeclarationRecord(
+  slice,
+  publicShapeHash,
+  stableId,
+  renameFingerprint,
+  renamePublicShapeHash,
+  dependencyIds,
+  runtimeDependencyIds,
+  typeDependencyIds,
+  dependencyHash,
+  artifactCacheKey,
+  deps = dependencyIds
+) {
 
   return {
     id: slice.id,
@@ -116,6 +168,9 @@ function createDeclarationRecord(slice, publicShapeHash, dependencyIds, runtimeD
     range: slice.range,
     textHash: slice.hashes.bodyHash,
     publicShapeHash,
+    ...(stableId ? { stableId } : {}),
+    ...(renameFingerprint ? { renameFingerprint } : {}),
+    ...(renamePublicShapeHash ? { renamePublicShapeHash } : {}),
     deps,
     dependencyIds,
     directRuntimeDependencyIds: runtimeDependencyIds,
@@ -135,7 +190,18 @@ function createDeclarationRecords(slices, edgesBySource, previousDeclarations, c
     const previousDeclaration = previousDeclarations?.[slice.id];
     const outgoingEdges = edgesBySource.get(slice.id) ?? [];
     const publicShapeHash = publicShapeHashes.get(slice.id);
-    const canReuseDependencyFields = declarationMatchesSlice(previousDeclaration, slice, publicShapeHash, outgoingEdges);
+    const stableId = normalizedStableId(slice);
+    const renameFingerprint = renameFingerprintForSlice(slice);
+    const renamePublicShapeHash = renamePublicShapeHashForSlice(slice);
+    const canReuseDependencyFields = declarationMatchesSlice(
+      previousDeclaration,
+      slice,
+      publicShapeHash,
+      outgoingEdges,
+      stableId,
+      renameFingerprint,
+      renamePublicShapeHash
+    );
     const dependencyIds = canReuseDependencyFields ? previousDeclaration.dependencyIds : sortStrings(outgoingEdges.map((edge) => edge.to));
     const runtimeDependencyIds = canReuseDependencyFields
       ? previousDeclaration.directRuntimeDependencyIds
@@ -153,6 +219,9 @@ function createDeclarationRecords(slices, edgesBySource, previousDeclarations, c
     return createDeclarationRecord(
       slice,
       publicShapeHash,
+      stableId,
+      renameFingerprint,
+      renamePublicShapeHash,
       dependencyIds,
       runtimeDependencyIds,
       typeDependencyIds,
@@ -227,6 +296,58 @@ function rangesOverlap(left, right) {
 
 function declarationOverlapsRanges(declaration, ranges) {
   return declaration && ranges.some((range) => rangesOverlap(declaration.range, range));
+}
+
+function renameIdentityKey(declaration) {
+  if (declaration.stableId) {
+    return `stable:${declaration.filePath}:${declaration.kind}:${declaration.stableId}`;
+  }
+  if (declaration.renameFingerprint) {
+    return `structural:${declaration.filePath}:${declaration.kind}:${declaration.renameFingerprint}`;
+  }
+  return undefined;
+}
+
+function findRenamedDeclarationPairs(previousDeclarations, nextDeclarations) {
+  const previousOnly = Object.values(previousDeclarations).filter((declaration) => !nextDeclarations[declaration.id]);
+  const nextOnly = Object.values(nextDeclarations).filter((declaration) => !previousDeclarations[declaration.id]);
+  const previousByIdentity = new Map();
+  const nextByIdentity = new Map();
+  for (const declaration of previousOnly) {
+    const key = renameIdentityKey(declaration);
+    if (!key) continue;
+    const declarations = previousByIdentity.get(key) ?? [];
+    declarations.push(declaration);
+    previousByIdentity.set(key, declarations);
+  }
+  for (const declaration of nextOnly) {
+    const key = renameIdentityKey(declaration);
+    if (!key) continue;
+    const declarations = nextByIdentity.get(key) ?? [];
+    declarations.push(declaration);
+    nextByIdentity.set(key, declarations);
+  }
+  const pairs = [];
+  for (const [key, before] of previousByIdentity) {
+    const after = nextByIdentity.get(key);
+    // Structural fingerprints are an optimization only when they cannot
+    // ambiguously identify a sibling declaration on either side.
+    if (before.length !== 1 || after?.length !== 1) continue;
+    pairs.push({
+      from: before[0].id,
+      to: after[0].id,
+      reason: key.startsWith("stable:") ? "stable-id" : "structural-fingerprint"
+    });
+  }
+  return pairs.sort((left, right) => `${left.from}:${left.to}`.localeCompare(`${right.from}:${right.to}`));
+}
+
+function renamePreservesPublicShape(before, after) {
+  return (
+    before.kind === after.kind &&
+    Boolean(before.renamePublicShapeHash) &&
+    before.renamePublicShapeHash === after.renamePublicShapeHash
+  );
 }
 
 function reverseDependents(reverseGraph, seedIds) {
@@ -338,6 +459,7 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
       snapshot: nextSnapshot,
       touchedPieces: changedPieces,
       changedPieces,
+      renamedPieces: [],
       publicShapeChangedPieces: changedPieces,
       dirtyPieces: changedPieces,
       affectedTargets: [...analysis.previewTargets],
@@ -350,24 +472,38 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
 
   const nextDeclarations = nextSnapshot.declarations;
   const allDeclarationIds = sortStrings([...Object.keys(previousDeclarations), ...Object.keys(nextDeclarations)]);
+  const renamedPieces = findRenamedDeclarationPairs(previousDeclarations, nextDeclarations);
+  const renamedByPreviousId = new Map(renamedPieces.map((rename) => [rename.from, rename]));
+  const renamedByNextId = new Map(renamedPieces.map((rename) => [rename.to, rename]));
   const touchedPieces = [];
   const changedPieces = new Set();
   const publicShapeChangedPieces = new Set();
 
-  for (const id of allDeclarationIds) {
-    const before = previousDeclarations[id];
-    const after = nextDeclarations[id];
-    // Declarations can move or disappear after an insertion/deletion, so check both
-    // coordinate spaces while traversing the union that is already needed for the diff.
+  const compareDeclarations = (before, after, id, rename) => {
+    // Declarations can move or disappear after an insertion/deletion, so check
+    // both coordinate spaces. A paired rename reports the current identity.
     if (declarationOverlapsRanges(before, changedRanges) || declarationOverlapsRanges(after, changedRanges)) {
       touchedPieces.push(id);
     }
-    if (!before || !after || before.textHash !== after.textHash) {
+    if (rename || !before || !after || before.textHash !== after.textHash) {
       changedPieces.add(id);
     }
-    if (!before || !after || before.publicShapeHash !== after.publicShapeHash) {
+    const publicShapeChanged = rename
+      ? before.publicShapeHash !== after.publicShapeHash && !renamePreservesPublicShape(before, after)
+      : !before || !after || before.publicShapeHash !== after.publicShapeHash;
+    if (publicShapeChanged) {
       publicShapeChangedPieces.add(id);
     }
+  };
+
+  for (const rename of renamedPieces) {
+    compareDeclarations(previousDeclarations[rename.from], nextDeclarations[rename.to], rename.to, rename);
+  }
+  for (const id of allDeclarationIds) {
+    if (renamedByPreviousId.has(id) || renamedByNextId.has(id)) continue;
+    const before = previousDeclarations[id];
+    const after = nextDeclarations[id];
+    compareDeclarations(before, after, id);
   }
 
   const changedHeaders = fingerprintChanged || previous.headerHash !== nextSnapshot.headerHash;
@@ -402,8 +538,9 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
     previousRevision: previous.revision,
     nextRevision: nextSnapshot.revision,
     snapshot: nextSnapshot,
-    touchedPieces,
+    touchedPieces: sortStrings(touchedPieces),
     changedPieces: [...changedPieces].sort(),
+    renamedPieces,
     publicShapeChangedPieces: [...publicShapeChangedPieces].sort(),
     dirtyPieces: [...dirtyPieces].sort(),
     affectedTargets: changedHeaders || changedEffects ? [...analysis.previewTargets] : previewTargetsAffectedByDirtyPieces(reverseGraph, analysis.previewTargets, dirtyPieces),

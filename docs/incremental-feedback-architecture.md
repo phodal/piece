@@ -30,7 +30,7 @@ query-oriented layout:
 
 ```text
 Source revision
-  -> declaration(file, stable piece id)
+  -> declaration(file, piece id or host stable id)
   -> outgoing edges(piece)
   -> feedback scope(file, graph)
   -> closure(target, graph, scope)
@@ -42,7 +42,12 @@ Each layer has a stable identity or fingerprint. A revision changes only the
 input declaration when the changed range remains inside one declaration. The
 snapshot reconciler then compares fingerprints, propagates public-shape changes
 through reverse edges, and retains declaration records whose content,
-dependencies, and source range did not change.
+dependencies, and source range did not change. A host may provide a `stableId`
+when a declaration is renamed. Without one, the reconciler pairs a removal and
+addition only when their name-normalized structural fingerprint is unique in
+the same file and kind; ambiguous candidates remain a removal plus an
+addition. A pairing never hides a public-shape change: exports, default-export
+state, and preview eligibility still propagate through reverse edges.
 
 The browser-safe fallback extractor participates in this path too. It is not
 allowed to perform an incremental update if an edit crosses a declaration
@@ -56,7 +61,7 @@ take the normal whole-file analysis path.
 | [Acar et al., *A Library for Self-Adjusting Computation* (2006)](https://www.cs.cmu.edu/~guyb/papers/ABBHT06.pdf) | Dynamic dependency graphs plus memoization reuse affected work instead of re-running everything. | Slice graph + snapshot reconciliation + artifact identity. |
 | [Acar et al., *An Experimental Analysis of Self-Adjusting Computation* (2009)](https://www.cs.cmu.edu/~blelloch/papers/ABBHT09.pdf) | Reuse is valuable only when change propagation is bounded and stable. | Keep fallback gates; never turn an unsafe file into a piece cache hit. |
 | [Hammer et al., *ADAPTON* (2014)](https://www.cs.umd.edu/~mwh/papers/adapton-submit.pdf) | Evaluate only demanded outputs and retain a demanded computation graph. | Build only the selected preview closure; unrelated edit sequences reuse its runtime bundle. |
-| [Hammer et al., *Incremental Computation with Names* (2015)](https://arxiv.org/abs/1503.07792) | Stable names let work survive across revisions. | `filePath#kind:name` is the first-level piece key; record reuse requires matching content, dependencies, and range. |
+| [Hammer et al., *Incremental Computation with Names* (2015)](https://arxiv.org/abs/1503.07792) | Stable names let work survive across revisions. | `filePath#kind:name` is the first-level piece key; a host `stableId` or a unique structural match can conservatively bridge a rename, while record reuse still requires matching content, dependencies, and range. |
 | [Mokhov, Mitchell, Peyton Jones, *Build Systems à la Carte* (2018)](https://doi.org/10.1145/3236774) | Separate dependency scheduling, rebuild policy, early cutoff, and persistence. | The package/action model stays separate from preview demand and local artifact reuse. |
 | [rustc incremental query design](https://rustc-dev-guide.rust-lang.org/queries/incremental-compilation-in-detail.html) | Pure query results need stable fingerprints; expensive values should be persisted selectively. | Closure and artifact cache keys are fingerprints, while raw source and unsafe scope force invalidation. |
 

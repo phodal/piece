@@ -380,6 +380,8 @@ export interface PieceSourceRange {
 
 export interface PieceSlice {
   readonly id: string;
+  /** Optional host-supplied identity that survives a declaration rename. */
+  readonly stableId?: string;
   readonly filePath: string;
   readonly kind: PieceSliceKind;
   readonly name?: string;
@@ -909,6 +911,11 @@ export interface PieceFileAnalysis {
 
 export interface PieceDeclarationRecord {
   readonly id: string;
+  readonly stableId?: string;
+  /** Internal structural identity used only when unique on both revisions. */
+  readonly renameFingerprint?: string;
+  /** Internal public-shape identity with the declaration name normalized. */
+  readonly renamePublicShapeHash?: string;
   readonly filePath: string;
   readonly kind: PieceSliceKind;
   readonly name?: string;
@@ -986,6 +993,7 @@ export interface PieceReconcileResult {
   readonly snapshot: PieceSnapshot;
   readonly touchedPieces: readonly string[];
   readonly changedPieces: readonly string[];
+  readonly renamedPieces: readonly { readonly from: string; readonly to: string; readonly reason: "stable-id" | "structural-fingerprint" }[];
   readonly publicShapeChangedPieces: readonly string[];
   readonly dirtyPieces: readonly string[];
   readonly affectedTargets: readonly string[];

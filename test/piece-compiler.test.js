@@ -1730,6 +1730,133 @@ export function UserCard() {
     );
   });
 
+  it("pairs an unambiguous internal rename without marking downstream pieces public-shape dirty", async () => {
+    const compiler = createPieceCompiler();
+    const previousSource = `function helper() {
+  return "ready";
+}
+
+function render() {
+  return helper();
+}
+
+export function Preview() {
+  return <div>{render()}</div>;
+}
+`;
+    const nextSource = previousSource.replaceAll("helper", "compute");
+    const previousAnalysis = await compiler.analyzeFile({ filePath: "/repo/src/Rename.tsx", source: previousSource });
+    const nextAnalysis = await compiler.analyzeFile({ filePath: "/repo/src/Rename.tsx", source: nextSource });
+
+    const reconciliation = reconcilePieceSnapshot({
+      previousSnapshot: previousAnalysis.snapshot,
+      analysis: nextAnalysis,
+      changedRanges: [changedRange(previousSource, nextSource)]
+    });
+
+    expect(reconciliation.renamedPieces).toEqual([
+      {
+        from: "/repo/src/Rename.tsx#function:helper",
+        to: "/repo/src/Rename.tsx#function:compute",
+        reason: "structural-fingerprint"
+      }
+    ]);
+    expect(reconciliation.changedPieces.map((id) => id.split("#")[1])).toEqual(["function:compute", "function:render"]);
+    expect(reconciliation.publicShapeChangedPieces).toEqual([]);
+    expect(reconciliation.dirtyPieces.map((id) => id.split("#")[1])).toEqual(["function:compute", "function:render"]);
+  });
+
+  it("does not pair ambiguous structural rename candidates", async () => {
+    const compiler = createPieceCompiler();
+    const previousSource = `function first() { return 1; }
+function second() { return 1; }
+`;
+    const nextSource = `function third() { return 1; }
+function fourth() { return 1; }
+`;
+    const duplicateStructuralSource = "function __piece_duplicate__() { return 1; }";
+    const withAmbiguousStructuralFingerprint = (analysis) => ({
+      ...analysis,
+      manifest: {
+        ...analysis.manifest,
+        // Simulate two extractor results whose structure fingerprint is equal.
+        // Reconciliation must decline to guess a pairing in that situation.
+        slices: analysis.manifest.slices.map((slice) => ({ ...slice, source: duplicateStructuralSource }))
+      }
+    });
+    const previousAnalysis = withAmbiguousStructuralFingerprint(
+      await compiler.analyzeFile({ filePath: "/repo/src/Ambiguous.ts", source: previousSource })
+    );
+    const nextAnalysis = withAmbiguousStructuralFingerprint(
+      await compiler.analyzeFile({ filePath: "/repo/src/Ambiguous.ts", source: nextSource })
+    );
+
+    const reconciliation = reconcilePieceSnapshot({ previousSnapshot: createPieceSnapshot({ analysis: previousAnalysis }), analysis: nextAnalysis });
+
+    expect(reconciliation.renamedPieces).toEqual([]);
+    expect(reconciliation.changedPieces.map((id) => id.split("#")[1])).toEqual(
+      expect.arrayContaining(["function:first", "function:second", "function:third", "function:fourth"])
+    );
+  });
+
+  it("uses an explicit stable ID when a rename also changes the implementation", async () => {
+    const compiler = createPieceCompiler();
+    const previousSource = `function helper() {
+  return 1;
+}
+`;
+    const nextSource = `function compute() {
+  return 2;
+}
+`;
+    const withStableId = (analysis) => ({
+      ...analysis,
+      manifest: {
+        ...analysis.manifest,
+        slices: analysis.manifest.slices.map((slice) => ({ ...slice, stableId: "stable-helper" }))
+      }
+    });
+    const previousAnalysis = withStableId(await compiler.analyzeFile({ filePath: "/repo/src/StableRename.ts", source: previousSource }));
+    const nextAnalysis = withStableId(await compiler.analyzeFile({ filePath: "/repo/src/StableRename.ts", source: nextSource }));
+
+    const reconciliation = reconcilePieceSnapshot({ previousSnapshot: createPieceSnapshot({ analysis: previousAnalysis }), analysis: nextAnalysis });
+
+    expect(reconciliation.renamedPieces).toEqual([
+      {
+        from: "/repo/src/StableRename.ts#function:helper",
+        to: "/repo/src/StableRename.ts#function:compute",
+        reason: "stable-id"
+      }
+    ]);
+    expect(reconciliation.publicShapeChangedPieces).toEqual([]);
+  });
+
+  it("keeps public-shape invalidation when a rename changes preview eligibility", async () => {
+    const compiler = createPieceCompiler();
+    const previousSource = `function helper() {
+  return "ready";
+}
+
+function render() {
+  return helper();
+}
+`;
+    const nextSource = previousSource.replaceAll("helper", "Helper");
+    const previousAnalysis = await compiler.analyzeFile({ filePath: "/repo/src/PreviewRename.ts", source: previousSource });
+    const nextAnalysis = await compiler.analyzeFile({ filePath: "/repo/src/PreviewRename.ts", source: nextSource });
+
+    const reconciliation = reconcilePieceSnapshot({ previousSnapshot: previousAnalysis.snapshot, analysis: nextAnalysis });
+
+    expect(reconciliation.renamedPieces).toEqual([
+      {
+        from: "/repo/src/PreviewRename.ts#function:helper",
+        to: "/repo/src/PreviewRename.ts#function:Helper",
+        reason: "structural-fingerprint"
+      }
+    ]);
+    expect(reconciliation.publicShapeChangedPieces).toEqual(["/repo/src/PreviewRename.ts#function:Helper"]);
+  });
+
   it("reconciles declaration snapshots with stable piece identities and artifact reuse", async () => {
     const compiler = createPieceCompiler();
     const previousSource = sampleSource();
