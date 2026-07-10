@@ -2,7 +2,7 @@ import { access, chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PieceWorkspaceError, analyzePieceWorkspace, planPieceWorkspaceBuild } from "../src/node-workspace.js";
+import { PieceWorkspaceError, analyzePieceWorkspace, createPieceWorkspaceSession, planPieceWorkspaceBuild } from "../src/node-workspace.js";
 
 async function withWorkspace(callback) {
   const root = await mkdtemp(join(tmpdir(), "piece-workspace-test-"));
@@ -21,6 +21,79 @@ async function writeSource(root, relativePath, source) {
 }
 
 describe("Node workspace orchestration", () => {
+  it("reuses SHA-compatible file-local analysis through a workspace session and only recomputes edits", async () => {
+    await withWorkspace(async (root) => {
+      const firstFile = await writeSource(root, "app/src/First.ts", "export const first = 1;\n");
+      await writeSource(root, "app/src/Second.ts", "export const second = 2;\n");
+      const calls = [];
+      const analyzeFile = async ({ filePath, source }) => {
+        calls.push({ filePath, source });
+        return { manifest: { slices: [] }, graph: { edges: [] }, feedbackScope: { fallbackRequired: false } };
+      };
+      const session = createPieceWorkspaceSession({
+        workspaceRoot: root,
+        projects: [{ id: "app", root: "app", sourceRoots: ["src"] }],
+        analyzeFile,
+        analysisConcurrency: 2
+      });
+
+      const initial = await session.analyze();
+      const unchanged = await session.analyze();
+      await writeFile(firstFile, "export const first = 3;\n", "utf8");
+      const edited = await session.analyze();
+
+      expect(initial.metrics).toMatchObject({ freshFileAnalysisCount: 2, reusedFileCount: 0 });
+      expect(unchanged.metrics).toMatchObject({ freshFileAnalysisCount: 0, reusedFileCount: 2 });
+      expect(edited.metrics).toMatchObject({ freshFileAnalysisCount: 1, reusedFileCount: 1 });
+      expect(calls.map((call) => call.filePath.split("/").at(-1))).toEqual(["First.ts", "Second.ts", "First.ts"]);
+      expect(calls.at(-1)).toMatchObject({ source: "export const first = 3;\n" });
+    });
+  });
+
+  it("bounds file-local analysis concurrency and invalidates a Kotlin companion set together", async () => {
+    await withWorkspace(async (root) => {
+      const firstKotlinFile = await writeSource(root, "kotlin/src/First.kt", "fun first() = second()\n");
+      await writeSource(root, "kotlin/src/Second.kt", "fun second() = 2\n");
+      await writeSource(root, "web/src/One.ts", "export const one = 1;\n");
+      await writeSource(root, "web/src/Two.ts", "export const two = 2;\n");
+      await writeSource(root, "web/src/Three.ts", "export const three = 3;\n");
+      let activeTypeScript = 0;
+      let peakTypeScript = 0;
+      const calls = [];
+      const analyzeFile = async ({ filePath, sourceFiles }) => {
+        calls.push({ filePath, sourceFiles: [...(sourceFiles ?? [])] });
+        if (filePath.endsWith(".ts")) {
+          activeTypeScript += 1;
+          peakTypeScript = Math.max(peakTypeScript, activeTypeScript);
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 15));
+          activeTypeScript -= 1;
+        }
+        return { manifest: { slices: [] }, graph: { edges: [] }, feedbackScope: { fallbackRequired: false } };
+      };
+      const session = createPieceWorkspaceSession({
+        workspaceRoot: root,
+        projects: [
+          { id: "kotlin", root: "kotlin", sourceRoots: ["src"] },
+          { id: "web", root: "web", sourceRoots: ["src"] }
+        ],
+        analyzeFile,
+        analysisConcurrency: 2
+      });
+
+      const initial = await session.analyze();
+      const unchanged = await session.analyze();
+      await writeFile(firstKotlinFile, "fun first() = second() + 1\n", "utf8");
+      const kotlinEdited = await session.analyze();
+
+      expect(peakTypeScript).toBe(2);
+      expect(initial.metrics).toMatchObject({ freshFileAnalysisCount: 5, reusedFileCount: 0 });
+      expect(unchanged.metrics).toMatchObject({ freshFileAnalysisCount: 0, reusedFileCount: 5 });
+      expect(kotlinEdited.metrics).toMatchObject({ freshFileAnalysisCount: 2, reusedFileCount: 3 });
+      expect(calls.filter((call) => call.filePath.endsWith(".kt"))).toHaveLength(4);
+      expect(calls.filter((call) => call.filePath.endsWith(".kt")).every((call) => call.sourceFiles.length === 2)).toBe(true);
+    });
+  });
+
   it("aggregates explicitly configured projects and emits stable dependency-first fallback batches", async () => {
     await withWorkspace(async (root) => {
       const sharedFile = await writeSource(root, "packages/shared/src/shared.ts", 'export const shared = "ready";\n');

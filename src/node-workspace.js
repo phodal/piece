@@ -15,6 +15,8 @@ const WORKSPACE_ANALYSIS_OPTION_FIELDS = new Set(["compilerOptions", "globals", 
 const WORKSPACE_SCOPE_SELECTIONS = new Set(["current-file", "safe"]);
 const MAX_WORKSPACE_ANALYSIS_OPTION_DEPTH = 32;
 const MAX_WORKSPACE_ANALYSIS_OPTION_ENTRIES = 10_000;
+const DEFAULT_WORKSPACE_ANALYSIS_CONCURRENCY = 8;
+const MAX_WORKSPACE_ANALYSIS_CONCURRENCY = 64;
 
 /** A configuration or containment error raised before workspace analysis begins. */
 export class PieceWorkspaceError extends Error {
@@ -334,10 +336,7 @@ async function resolveProject(project, workspaceRoot) {
 }
 
 async function projectSourceFiles(project) {
-  const discovered = [];
-  for (const sourceRoot of project.sourceRoots) {
-    discovered.push(...(await collectSourceFiles(sourceRoot)));
-  }
+  const discovered = (await Promise.all(project.sourceRoots.map((sourceRoot) => collectSourceFiles(sourceRoot)))).flat();
   return sortedUnique([...discovered, ...project.explicitFiles]);
 }
 
@@ -497,11 +496,182 @@ function buildWorkspaceProjectGraph(workspaceRoot, projects) {
   };
 }
 
-/**
- * Analyze only explicitly configured projects. It never discovers a monorepo,
- * and it never turns a semantic Piece target into a workspace compiler action.
- */
-export async function analyzePieceWorkspace(options = {}) {
+function workspaceAnalysisConcurrency(value) {
+  if (value === undefined) return DEFAULT_WORKSPACE_ANALYSIS_CONCURRENCY;
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new PieceWorkspaceError("invalid-workspace-analysis-concurrency", "analysisConcurrency must be a positive safe integer.");
+  }
+  return Math.min(value, MAX_WORKSPACE_ANALYSIS_CONCURRENCY);
+}
+
+async function mapWithConcurrency(entries, concurrency, mapper) {
+  const results = new Array(entries.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), entries.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < entries.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(entries[index], index);
+      }
+    })
+  );
+  return results;
+}
+
+function canonicalWorkspaceData(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalWorkspaceData(entry)).join(",")}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalWorkspaceData(value[key])}`)
+    .join(",")}}`;
+}
+
+function workspaceFingerprint(parts) {
+  const hash = createHash("sha256");
+  for (const part of parts) {
+    const value = String(part ?? "");
+    hash.update(String(Buffer.byteLength(value, "utf8")), "utf8");
+    hash.update(":", "utf8");
+    hash.update(value, "utf8");
+  }
+  return hash.digest("hex");
+}
+
+function projectSourceFingerprint(project, sourceEntries) {
+  return workspaceFingerprint([
+    "piece-workspace-project-source-v1",
+    project.id,
+    project.root,
+    project.language,
+    canonicalWorkspaceData(project.analysisOptions),
+    ...project.sourceRoots,
+    ...sourceEntries.flatMap((entry) => [entry.filePath, entry.sourceHash ?? `read-error:${entry.error?.code ?? "unknown"}`])
+  ]);
+}
+
+function fileAnalysisFingerprint({ workspaceRoot, project, filePath, language, sourceHash, projectSourceHash }) {
+  return workspaceFingerprint([
+    "piece-workspace-file-analysis-v1",
+    workspaceRoot,
+    project.id,
+    project.root,
+    canonicalWorkspaceData(project.analysisOptions),
+    filePath,
+    language,
+    sourceHash,
+    // Go/Kotlin declaration extraction reads project companions. Reusing one
+    // of those files is safe only when every companion input is unchanged.
+    language === "go" || language === "kotlin" ? projectSourceHash : "current-file"
+  ]);
+}
+
+async function readWorkspaceSource(filePath) {
+  try {
+    const source = await readFile(filePath, "utf8");
+    return { filePath, source, sourceHash: sourceTextHash(source) };
+  } catch (error) {
+    return { filePath, error };
+  }
+}
+
+async function analyzeWorkspaceProject({ project, workspaceRoot, analyzeFile, cache, concurrency, fileAnalysisConcurrency }) {
+  const sourceFiles = await projectSourceFiles(project);
+  const sourceEntries = await mapWithConcurrency(sourceFiles, concurrency, (filePath) => readWorkspaceSource(filePath));
+  const sourceFingerprint = projectSourceFingerprint(project, sourceEntries);
+  const files = new Array(sourceEntries.length);
+  const fileFallbackReasons = new Array(sourceEntries.length);
+  let reusedFileCount = 0;
+  let freshFileAnalysisCount = 0;
+
+  const analyzeEntry = async (entry, index) => {
+    const language = languageForFile(entry.filePath);
+    if (entry.error) {
+      const diagnostic = analysisDiagnostic(entry.error, entry.filePath);
+      fileFallbackReasons[index] = fallbackReason("workspace-file-read-failed", diagnostic.message, { filePath: entry.filePath });
+      files[index] = { filePath: entry.filePath, language, status: "error", diagnostics: [diagnostic] };
+      return;
+    }
+    const cacheKey = fileAnalysisFingerprint({
+      workspaceRoot,
+      project,
+      filePath: entry.filePath,
+      language,
+      sourceHash: entry.sourceHash,
+      projectSourceHash: sourceFingerprint
+    });
+    const cached = cache?.get(entry.filePath);
+    if (cached?.key === cacheKey) {
+      files[index] = {
+        filePath: entry.filePath,
+        language,
+        sourceHash: entry.sourceHash,
+        status: "analyzed",
+        analysis: cached.analysis,
+        diagnostics: []
+      };
+      reusedFileCount += 1;
+      return;
+    }
+    const languageInputs = language === "go" || language === "kotlin" ? { sourceFiles, sourceRoots: project.sourceRoots } : {};
+    try {
+      const analysis = await analyzeFile({
+        ...project.analysisOptions,
+        ...languageInputs,
+        cwd: workspaceRoot,
+        filePath: entry.filePath,
+        source: entry.source
+      });
+      files[index] = { filePath: entry.filePath, language, sourceHash: entry.sourceHash, status: "analyzed", analysis, diagnostics: [] };
+      freshFileAnalysisCount += 1;
+      cache?.set(entry.filePath, { key: cacheKey, analysis });
+    } catch (error) {
+      const diagnostic = analysisDiagnostic(error, entry.filePath);
+      fileFallbackReasons[index] = fallbackReason("workspace-file-analysis-failed", diagnostic.message, { filePath: entry.filePath });
+      files[index] = { filePath: entry.filePath, language, sourceHash: entry.sourceHash, status: "error", diagnostics: [diagnostic] };
+    }
+  };
+
+  // TypeScript/JavaScript extraction is file-local, so safely parallelize it
+  // with a bounded pool. Native Go/Kotlin paths create project-aware host work;
+  // keep them serialized until their package/source-set batch backends exist.
+  const fileLocalEntries = sourceEntries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => !entry.error && !["go", "kotlin"].includes(languageForFile(entry.filePath)));
+  await mapWithConcurrency(fileLocalEntries, fileAnalysisConcurrency, ({ entry, index }) => analyzeEntry(entry, index));
+  for (const [index, entry] of sourceEntries.entries()) {
+    if (entry.error || !["go", "kotlin"].includes(languageForFile(entry.filePath))) continue;
+    await analyzeEntry(entry, index);
+  }
+  // Read failures were deliberately excluded from the bounded analysis pool.
+  for (const [index, entry] of sourceEntries.entries()) {
+    if (entry.error) await analyzeEntry(entry, index);
+  }
+
+  return {
+    id: project.id,
+    root: project.root,
+    sourceRoots: project.sourceRoots,
+    sourceFiles,
+    language: project.language,
+    dependsOn: project.dependsOn,
+    fallback: project.fallback,
+    files,
+    fallbackReasons: fileFallbackReasons.filter(Boolean),
+    metrics: {
+      sourceFileCount: sourceFiles.length,
+      analyzedFileCount: files.filter((file) => file.status === "analyzed").length,
+      freshFileAnalysisCount,
+      reusedFileCount,
+      analysisErrorCount: files.filter((file) => file.status === "error").length,
+      sliceCount: files.reduce((total, file) => total + (file.analysis?.manifest?.slices?.length ?? 0), 0)
+    }
+  };
+}
+
+async function analyzePieceWorkspaceWithCache(options, cache) {
   const workspaceRootOption = nonEmptyString(options.workspaceRoot, "workspaceRoot");
   const requestedRoot = resolve(options.cwd ?? process.cwd(), workspaceRootOption);
   const rootInfo = await existingPath(requestedRoot, "workspace root");
@@ -530,57 +700,15 @@ export async function analyzePieceWorkspace(options = {}) {
   if (typeof analyzeFile !== "function") {
     throw new PieceWorkspaceError("invalid-workspace-analyzer", "analyzeFile must be a function.");
   }
+  const concurrency = workspaceAnalysisConcurrency(options.analysisConcurrency);
+  // A caller-supplied analyzer may have stateful host behavior. Preserve the
+  // historical sequential default for it unless the caller explicitly opts
+  // into a concurrency limit; the built-in file-local analyzer is parallel by
+  // default.
+  const fileAnalysisConcurrency = analyzeFile === analyzePieceFile || options.analysisConcurrency !== undefined ? concurrency : 1;
   const projects = [];
   for (const project of resolvedProjects.sort((left, right) => left.id.localeCompare(right.id))) {
-    const sourceFiles = await projectSourceFiles(project);
-    const files = [];
-    const fallbackReasons = [];
-    for (const filePath of sourceFiles) {
-      let source;
-      let sourceHash;
-      try {
-        source = await readFile(filePath, "utf8");
-        sourceHash = sourceTextHash(source);
-      } catch (error) {
-        const diagnostic = analysisDiagnostic(error, filePath);
-        files.push({ filePath, language: languageForFile(filePath), status: "error", diagnostics: [diagnostic] });
-        fallbackReasons.push(fallbackReason("workspace-file-read-failed", diagnostic.message, { filePath }));
-        continue;
-      }
-      const language = languageForFile(filePath);
-      const languageInputs = language === "go" || language === "kotlin" ? { sourceFiles, sourceRoots: project.sourceRoots } : {};
-      try {
-        const analysis = await analyzeFile({
-          ...project.analysisOptions,
-          ...languageInputs,
-          cwd: workspaceRoot,
-          filePath,
-          source
-        });
-        files.push({ filePath, language, sourceHash, status: "analyzed", analysis, diagnostics: [] });
-      } catch (error) {
-        const diagnostic = analysisDiagnostic(error, filePath);
-        files.push({ filePath, language, sourceHash, status: "error", diagnostics: [diagnostic] });
-        fallbackReasons.push(fallbackReason("workspace-file-analysis-failed", diagnostic.message, { filePath }));
-      }
-    }
-    projects.push({
-      id: project.id,
-      root: project.root,
-      sourceRoots: project.sourceRoots,
-      sourceFiles,
-      language: project.language,
-      dependsOn: project.dependsOn,
-      fallback: project.fallback,
-      files,
-      fallbackReasons,
-      metrics: {
-        sourceFileCount: sourceFiles.length,
-        analyzedFileCount: files.filter((file) => file.status === "analyzed").length,
-        analysisErrorCount: files.filter((file) => file.status === "error").length,
-        sliceCount: files.reduce((total, file) => total + (file.analysis?.manifest?.slices?.length ?? 0), 0)
-      }
-    });
+    projects.push(await analyzeWorkspaceProject({ project, workspaceRoot, analyzeFile, cache, concurrency, fileAnalysisConcurrency }));
   }
   const projectGraph = buildWorkspaceProjectGraph(workspaceRoot, projects);
   const reasonsByProject = projectGraph.fallbackReasons;
@@ -599,9 +727,19 @@ export async function analyzePieceWorkspace(options = {}) {
       projectCount: projects.length,
       sourceFileCount: projects.reduce((total, project) => total + project.metrics.sourceFileCount, 0),
       analyzedFileCount: projects.reduce((total, project) => total + project.metrics.analyzedFileCount, 0),
+      freshFileAnalysisCount: projects.reduce((total, project) => total + project.metrics.freshFileAnalysisCount, 0),
+      reusedFileCount: projects.reduce((total, project) => total + project.metrics.reusedFileCount, 0),
       analysisErrorCount: projects.reduce((total, project) => total + project.metrics.analysisErrorCount, 0)
     }
   };
+}
+
+/**
+ * Analyze only explicitly configured projects. It never discovers a monorepo,
+ * and it never turns a semantic Piece target into a workspace compiler action.
+ */
+export async function analyzePieceWorkspace(options = {}) {
+  return analyzePieceWorkspaceWithCache(options);
 }
 
 function projectMap(workspace) {
@@ -950,10 +1088,38 @@ export function planPieceWorkspaceBuild(workspace, options = {}) {
   };
 }
 
+/**
+ * Keep a revision-local workspace analysis cache for editor, watch, and daemon
+ * callers. Cache entries are keyed by source SHA-256 plus all relevant analysis
+ * inputs, so every returned workspace remains equivalent to a clean analysis.
+ */
+export function createPieceWorkspaceSession(defaultOptions = {}) {
+  const cache = new Map();
+  let analyzeFile;
+  return {
+    async analyze(options = {}) {
+      const mergedOptions = { ...defaultOptions, ...options };
+      const nextAnalyzeFile = mergedOptions.analyzeFile ?? analyzePieceFile;
+      if (analyzeFile && analyzeFile !== nextAnalyzeFile) cache.clear();
+      analyzeFile = nextAnalyzeFile;
+      const workspace = await analyzePieceWorkspaceWithCache(mergedOptions, cache);
+      const liveFiles = new Set(workspace.projects.flatMap((project) => project.sourceFiles));
+      for (const filePath of cache.keys()) {
+        if (!liveFiles.has(filePath)) cache.delete(filePath);
+      }
+      return workspace;
+    },
+    clear() {
+      cache.clear();
+    }
+  };
+}
+
 export function createPieceWorkspaceCompiler(defaultOptions = {}) {
+  const session = createPieceWorkspaceSession(defaultOptions);
   return {
     analyze(options = {}) {
-      return analyzePieceWorkspace({ ...defaultOptions, ...options });
+      return session.analyze(options);
     },
     plan(workspace, options = {}) {
       return planPieceWorkspaceBuild(workspace, options);

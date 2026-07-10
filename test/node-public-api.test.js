@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   analyzePieceWorkspace,
   createPieceWorkspaceCompiler,
+  createPieceWorkspaceSession,
   executePieceFallback,
   planPieceFallback,
   planPieceWorkspaceBuild
@@ -24,6 +25,7 @@ describe("Node public API", () => {
     expect(typeof analyzePieceWorkspace).toBe("function");
     expect(typeof planPieceWorkspaceBuild).toBe("function");
     expect(typeof createPieceWorkspaceCompiler).toBe("function");
+    expect(typeof createPieceWorkspaceSession).toBe("function");
     expect(typeof planPieceFallback).toBe("function");
     expect(typeof executePieceFallback).toBe("function");
 

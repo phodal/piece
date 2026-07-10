@@ -540,6 +540,8 @@ export interface AnalyzePieceWorkspaceOptions {
   readonly cwd?: string;
   readonly projects: readonly PieceWorkspaceProjectOptions[];
   readonly analyzeFile?: PieceWorkspaceAnalyzeFile;
+  /** Upper bound for concurrent file-local JavaScript/TypeScript analysis. */
+  readonly analysisConcurrency?: number;
 }
 
 export interface PieceWorkspaceReason {
@@ -586,6 +588,10 @@ export interface PieceWorkspaceProject {
   readonly metrics: {
     readonly sourceFileCount: number;
     readonly analyzedFileCount: number;
+    /** Successfully analyzed files recomputed for this revision. */
+    readonly freshFileAnalysisCount: number;
+    /** Successfully analyzed files reused by a PieceWorkspaceSession. */
+    readonly reusedFileCount: number;
     readonly analysisErrorCount: number;
     readonly sliceCount: number;
   };
@@ -626,6 +632,8 @@ export interface PieceWorkspaceAnalysis {
     readonly projectCount: number;
     readonly sourceFileCount: number;
     readonly analyzedFileCount: number;
+    readonly freshFileAnalysisCount: number;
+    readonly reusedFileCount: number;
     readonly analysisErrorCount: number;
   };
 }
@@ -680,8 +688,16 @@ export interface PieceWorkspaceCompiler {
   plan(workspace: PieceWorkspaceAnalysis, options?: PlanPieceWorkspaceBuildOptions): PieceWorkspaceBuildPlan;
 }
 
+export interface PieceWorkspaceSession {
+  /** Analyze a new workspace revision, reusing only SHA-verified compatible file results. */
+  analyze(options?: PieceWorkspaceCompilerDefaults): Promise<PieceWorkspaceAnalysis>;
+  /** Discard all retained revision-local file analysis records. */
+  clear(): void;
+}
+
 export function analyzePieceWorkspace(options: AnalyzePieceWorkspaceOptions): Promise<PieceWorkspaceAnalysis>;
 export function planPieceWorkspaceBuild(workspace: PieceWorkspaceAnalysis, options?: PlanPieceWorkspaceBuildOptions): PieceWorkspaceBuildPlan;
+export function createPieceWorkspaceSession(defaultOptions?: PieceWorkspaceCompilerDefaults): PieceWorkspaceSession;
 export function createPieceWorkspaceCompiler(defaultOptions?: PieceWorkspaceCompilerDefaults): PieceWorkspaceCompiler;
 
 export type PieceFallbackProfile = "go" | "gradle" | "typescript";
