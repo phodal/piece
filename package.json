@@ -34,7 +34,8 @@
     "benchmark:kotlin-piece": "node scripts/benchmark-kotlin-piece.mjs",
     "preview:build": "node preview/build.mjs",
     "preview": "npm run preview:build && node preview/serve.mjs",
-    "pages:build": "npm run preview:build && npm run core:wasm:build && node scripts/build-pages.mjs"
+    "pages:build": "npm run preview:build && npm run core:wasm:build && node scripts/build-pages.mjs",
+    "sites:build": "npm run pages:build && node scripts/build-sites.mjs"
   },
   "keywords": [
     "go",
