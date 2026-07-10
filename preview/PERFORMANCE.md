@@ -6,6 +6,13 @@ Measured against the preview workbench served by:
 npm run preview
 ```
 
+> **Note:** the demo fixture was replaced with a more realistic "orders dashboard" (types,
+> a 420-row mock dataset, utility functions, and several UI components) instead of the
+> original 620 mechanically-duplicated `DetailBlock` components. The numbers below predate
+> that change and are kept as a historical record; they no longer reflect the current
+> fixture (which is ~683 lines / ~71KB / 37 slices / 61 edges). Re-run `npm run preview` and
+> click `Run Benchmark` / `Sample Edit` for current numbers.
+
 The fixture is a 3,154-line TSX file with 124,267 source bytes and 628 declaration slices. After JSX intrinsic/text filtering, the selected `UserCard` closure graph has 11 target-relevant edges. The right pane is an iframe running the compiled HTML output. The comparison baseline is a full `esbuild-wasm` browser build of the same source file and preview entry.
 
 ## July 2, 2026 Chrome Run

@@ -37,17 +37,257 @@ let latestRebuildVersion = 0;
 const declarationExtractor = createFallbackDeclarationExtractor();
 const textEncoder = new TextEncoder();
 
-function createLongFixture() {
-  const helpers: string[] = [];
-  for (let index = 0; index < 620; index += 1) {
-    helpers.push(`export function DetailBlock${index}(props: { value: number }) {
-  const normalized = props.value * ${index + 1};
-  return <div className="detail-row"><span>Metric ${index}</span><strong>{normalized}</strong></div>;
-}
-`);
+const ORDER_STATUSES = ["pending", "processing", "shipped", "delivered", "cancelled"];
+const ORDER_PRODUCTS = [
+  "Mechanical Keyboard",
+  "Ultrawide Monitor",
+  "Noise Cancelling Headset",
+  "Standing Desk",
+  "Ergonomic Chair",
+  "USB-C Dock",
+  "4K Webcam",
+  "Wireless Mouse"
+];
+const ORDER_CUSTOMERS = [
+  "Ada Lovelace",
+  "Grace Hopper",
+  "Alan Turing",
+  "Katherine Johnson",
+  "Margaret Hamilton",
+  "Radia Perlman",
+  "Barbara Liskov",
+  "Tim Berners-Lee"
+];
+
+function buildSampleOrders(count: number) {
+  const rows: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const status = ORDER_STATUSES[index % ORDER_STATUSES.length];
+    const product = ORDER_PRODUCTS[index % ORDER_PRODUCTS.length];
+    const customer = ORDER_CUSTOMERS[index % ORDER_CUSTOMERS.length];
+    const quantity = 1 + (index % 5);
+    const unitPrice = (19.99 + (index % 12) * 7.5).toFixed(2);
+    const month = 1 + (index % 6);
+    const day = 1 + (index % 27);
+    rows.push(
+      `  { id: "ORD-${1000 + index}", customer: "${customer}", product: "${product}", status: "${status}", quantity: ${quantity}, unitPrice: ${unitPrice}, placedAt: "2026-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}" }`
+    );
   }
+  return rows.join(",\n");
+}
+
+// Mirrors a realistic ops dashboard: a handful of hand-authored components and
+// helpers operating over a sizable embedded sample dataset, instead of a
+// mechanically repeated block of near-identical throwaway components.
+function createRealisticFixture() {
+  const sampleOrders = buildSampleOrders(420);
 
   return `import * as React from "react";
+
+export type OrderStatus = "pending" | "processing" | "shipped" | "delivered" | "cancelled";
+
+export interface Order {
+  id: string;
+  customer: string;
+  product: string;
+  status: OrderStatus;
+  quantity: number;
+  unitPrice: number;
+  placedAt: string;
+}
+
+export const SAMPLE_ORDERS: Order[] = [
+${sampleOrders}
+];
+
+export function formatCurrency(value: number) {
+  return "$" + value.toFixed(2);
+}
+
+export function formatDate(value: string) {
+  const date = new Date(value);
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+export function computeOrderTotal(order: Order) {
+  return order.quantity * order.unitPrice;
+}
+
+export function sumRevenue(orders: Order[]) {
+  let total = 0;
+  for (const order of orders) {
+    total += computeOrderTotal(order);
+  }
+  return total;
+}
+
+export function countByStatus(orders: Order[], status: OrderStatus) {
+  let count = 0;
+  for (const order of orders) {
+    if (order.status === status) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+export function sortOrdersByDate(orders: Order[]) {
+  return [...orders].sort(compareOrdersByDate);
+}
+
+function compareOrdersByDate(left: Order, right: Order) {
+  return right.placedAt.localeCompare(left.placedAt);
+}
+
+const STATUS_LABELS: { [key in OrderStatus]: string } = {
+  pending: "Pending",
+  processing: "Processing",
+  shipped: "Shipped",
+  delivered: "Delivered",
+  cancelled: "Cancelled"
+};
+
+const STATUS_COLORS: { [key in OrderStatus]: string } = {
+  pending: "#a45b00",
+  processing: "#1677ff",
+  shipped: "#7c3aed",
+  delivered: "#0f7a4f",
+  cancelled: "#b91c1c"
+};
+
+interface StatusBadgeProps {
+  status: OrderStatus;
+}
+
+export function StatusBadge(props: StatusBadgeProps) {
+  const color = STATUS_COLORS[props.status];
+  return (
+    <span className="status-badge" style={{ color, borderColor: color }}>
+      {STATUS_LABELS[props.status]}
+    </span>
+  );
+}
+
+interface StatCardProps {
+  label: string;
+  value: string;
+  tone: "up" | "down" | "neutral";
+}
+
+export function StatCard(props: StatCardProps) {
+  const className = "stat-card stat-" + props.tone;
+  return (
+    <div className={className}>
+      <span className="stat-label">{props.label}</span>
+      <strong className="stat-value">{props.value}</strong>
+    </div>
+  );
+}
+
+interface StatsPanelProps {
+  orders: Order[];
+}
+
+export function StatsPanel(props: StatsPanelProps) {
+  const revenue = sumRevenue(props.orders);
+  const openOrders = countByStatus(props.orders, "pending") + countByStatus(props.orders, "processing");
+  const delivered = countByStatus(props.orders, "delivered");
+  const cancelled = countByStatus(props.orders, "cancelled");
+  return (
+    <section className="stats-panel">
+      <StatCard label="Total revenue" value={formatCurrency(revenue)} tone="up" />
+      <StatCard label="Open orders" value={String(openOrders)} tone="neutral" />
+      <StatCard label="Delivered" value={String(delivered)} tone="up" />
+      <StatCard label="Cancelled" value={String(cancelled)} tone="down" />
+    </section>
+  );
+}
+
+interface OrderRowProps {
+  order: Order;
+}
+
+export function OrderRow(props: OrderRowProps) {
+  return (
+    <tr>
+      <td>{props.order.id}</td>
+      <td>{props.order.customer}</td>
+      <td>{props.order.product}</td>
+      <td><StatusBadge status={props.order.status} /></td>
+      <td>{props.order.quantity}</td>
+      <td>{formatCurrency(computeOrderTotal(props.order))}</td>
+      <td>{formatDate(props.order.placedAt)}</td>
+    </tr>
+  );
+}
+
+function renderOrderRow(order: Order) {
+  return <OrderRow key={order.id} order={order} />;
+}
+
+interface OrdersTableProps {
+  orders: Order[];
+}
+
+export function OrdersTable(props: OrdersTableProps) {
+  const sorted = sortOrdersByDate(props.orders);
+  const visible = sorted.slice(0, 25);
+  return (
+    <div className="orders-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Order</th>
+            <th>Customer</th>
+            <th>Product</th>
+            <th>Status</th>
+            <th>Qty</th>
+            <th>Total</th>
+            <th>Placed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visible.map(renderOrderRow)}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+interface FilterBarProps {
+  placeholder: string;
+}
+
+export function FilterBar(props: FilterBarProps) {
+  return (
+    <div className="filter-bar">
+      <input placeholder={props.placeholder} />
+    </div>
+  );
+}
+
+const NAV_ITEMS = ["Overview", "Orders", "Customers", "Inventory", "Reports", "Settings"];
+
+function renderNavItem(item: string, active: string) {
+  const className = item === active ? "nav-item active" : "nav-item";
+  return (
+    <a key={item} className={className} href={"#" + item.toLowerCase()}>
+      {item}
+    </a>
+  );
+}
+
+interface SidebarProps {
+  active: string;
+}
+
+export function Sidebar(props: SidebarProps) {
+  const items = [];
+  for (const item of NAV_ITEMS) {
+    items.push(renderNavItem(item, props.active));
+  }
+  return <nav className="sidebar">{items}</nav>;
+}
 
 type UserStatus = "active" | "disabled" | "paused";
 
@@ -89,15 +329,19 @@ export function UserCard(props: UserCardProps) {
   );
 }
 
-${helpers.join("\n")}
 export default function DashboardPage() {
   const user: User = { id: "u-1024", name: "Ada Lovelace", status: "active", score: 94 };
   return (
-    <main>
-      <UserCard user={user} />
-      <DetailBlock0 value={1} />
-      <DetailBlock1 value={2} />
-      <DetailBlock2 value={3} />
+    <main className="dashboard">
+      <Sidebar active="Overview" />
+      <div className="dashboard-content">
+        <header className="dashboard-header">
+          <UserCard user={user} />
+          <FilterBar placeholder="Search orders" />
+        </header>
+        <StatsPanel orders={SAMPLE_ORDERS} />
+        <OrdersTable orders={SAMPLE_ORDERS} />
+      </div>
     </main>
   );
 }
@@ -147,7 +391,7 @@ const previewEditorTheme = EditorView.theme({
 
 function createEditor() {
   return new EditorView({
-    doc: createLongFixture(),
+    doc: createRealisticFixture(),
     parent: editorHost,
     extensions: [
       basicSetup,
