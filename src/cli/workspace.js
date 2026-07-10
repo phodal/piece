@@ -624,31 +624,40 @@ export async function runPieceWorkspaceCliTask({ command, workspace, config, pro
   const configById = new Map(config.projects.map((project) => [project.id, project]));
   const actionStatuses = new Map();
   const projects = [];
+  const executePlannedAction = async (action) => {
+    const project = projectById.get(action.projectId);
+    const configProject = configById.get(action.projectId);
+    // A strongly-connected component cannot have a successful dependency
+    // before one of its members runs. Handle it before ordinary dependency
+    // failure propagation so the result preserves the planner's cycle
+    // diagnosis instead of misreporting every member as skipped.
+    if (action.scheduling === "cycle-fallback") {
+      return cycleProjectResult({ action, project, workspaceRoot: preflight.workspaceRoot });
+    }
+    const failedDependencies = action.dependsOn.filter((dependencyId) => actionStatuses.get(dependencyId) !== "success");
+    if (failedDependencies.length > 0) {
+      return skippedProjectResult({ action, project, workspaceRoot: preflight.workspaceRoot, dependencyIds: failedDependencies });
+    }
+    return executeWorkspaceAction({
+      action,
+      project,
+      configProject,
+      command,
+      workspaceRoot: preflight.workspaceRoot
+    });
+  };
   for (const batch of plan.batches) {
-    for (const action of batch.actions) {
-      const project = projectById.get(action.projectId);
-      const configProject = configById.get(action.projectId);
-      let projectResult;
-      // A strongly-connected component cannot have a successful dependency
-      // before one of its members runs. Handle it before ordinary dependency
-      // failure propagation so the result preserves the planner's cycle
-      // diagnosis instead of misreporting every member as skipped.
-      if (action.scheduling === "cycle-fallback") {
-        projectResult = cycleProjectResult({ action, project, workspaceRoot: preflight.workspaceRoot });
-      } else {
-        const failedDependencies = action.dependsOn.filter((dependencyId) => actionStatuses.get(dependencyId) !== "success");
-        if (failedDependencies.length > 0) {
-          projectResult = skippedProjectResult({ action, project, workspaceRoot: preflight.workspaceRoot, dependencyIds: failedDependencies });
-        } else {
-          projectResult = await executeWorkspaceAction({
-            action,
-            project,
-            configProject,
-            command,
-            workspaceRoot: preflight.workspaceRoot
-          });
-        }
+    let batchResults;
+    if (batch.parallelSafe) {
+      batchResults = await Promise.all(batch.actions.map((action) => executePlannedAction(action)));
+    } else {
+      batchResults = [];
+      for (const action of batch.actions) {
+        batchResults.push(await executePlannedAction(action));
       }
+    }
+    for (const [index, projectResult] of batchResults.entries()) {
+      const action = batch.actions[index];
       actionStatuses.set(action.id, projectResult.execution.status);
       projects.push(projectResult);
     }

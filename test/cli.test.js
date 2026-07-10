@@ -291,6 +291,53 @@ describe("piece CLI", () => {
     });
   });
 
+  it("runs independent topological workspace actions concurrently while retaining dependency order", async () => {
+    await withWorkspace(async (workspace) => {
+      const logPath = join(workspace, "parallel.log");
+      const delayedBuild = (project) =>
+        `node -e "const { appendFileSync } = require('node:fs'); const log = process.env.PIECE_PARALLEL_LOG; appendFileSync(log, '${project}:start:' + Date.now() + '\\n'); setTimeout(() => { appendFileSync(log, '${project}:end:' + Date.now() + '\\n'); }, 250);"`;
+      await writeProject(workspace, "a", { scripts: { build: delayedBuild("a"), check: "node -e \"process.exit(0)\"" } });
+      await writeProject(workspace, "b", { scripts: { build: delayedBuild("b"), check: "node -e \"process.exit(0)\"" } });
+      await writeProject(workspace, "app", { scripts: { build: delayedBuild("app"), check: "node -e \"process.exit(0)\"" } });
+      const task = (script) => ({
+        request: { profile: "typescript", script },
+        policy: {
+          profiles: { typescript: { root: ".", allowScripts: [script] } },
+          envAllowlist: ["PATH", "PIECE_PARALLEL_LOG"],
+          env: { PIECE_PARALLEL_LOG: logPath }
+        }
+      });
+      await writeFile(
+        join(workspace, "piece.config.json"),
+        `${JSON.stringify({
+          schemaVersion: 2,
+          defaultProject: "app",
+          projects: [
+            { id: "a", root: "a", sourceRoots: ["src"], dependsOn: [], build: task("build"), check: task("check") },
+            { id: "b", root: "b", sourceRoots: ["src"], dependsOn: [], build: task("build"), check: task("check") },
+            { id: "app", root: "app", sourceRoots: ["src"], dependsOn: ["a", "b"], build: task("build"), check: task("check") }
+          ]
+        })}\n`,
+        "utf8"
+      );
+
+      const result = await invokePiece(["build", "--workspace", workspace, "--format", "json"]);
+      expect(result.exitCode).toBe(0);
+      const events = (await readFile(logPath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => {
+          const [project, event, timestamp] = line.split(":");
+          return { project, event, timestamp: Number(timestamp) };
+        });
+      const time = (project, event) => events.find((entry) => entry.project === project && entry.event === event)?.timestamp;
+      expect(time("a", "start")).toBeLessThan(time("b", "end"));
+      expect(time("b", "start")).toBeLessThan(time("a", "end"));
+      expect(time("app", "start")).toBeGreaterThanOrEqual(Math.max(time("a", "end"), time("b", "end")));
+      expect(JSON.parse(result.stdout).projects.map((project) => project.id)).toEqual(["a", "b", "app"]);
+    });
+  });
+
   it.runIf(process.platform !== "win32")("blocks downstream projects after a configured fallback task fails and rejects missing declared outputs", async () => {
     await withWorkspace(async (workspace) => {
       const bin = join(workspace, "bin");
