@@ -1707,6 +1707,27 @@ export function UserCard() {
     expect(nextDeclarations["/repo/src/DashboardPage.tsx#function:UserCard"]).not.toBe(previousDeclarations["/repo/src/DashboardPage.tsx#function:UserCard"]);
     expect(nextDeclarations["/repo/src/DashboardPage.tsx#function:OtherCard"]).toBe(previousDeclarations["/repo/src/DashboardPage.tsx#function:OtherCard"]);
     expect(nextDeclarations["/repo/src/DashboardPage.tsx#value:statusColorMap"]).toBe(previousDeclarations["/repo/src/DashboardPage.tsx#value:statusColorMap"]);
+    expect(editResult.analysis.snapshot.artifacts["/repo/src/DashboardPage.tsx#function:OtherCard"]).toBe(
+      previousAnalysis.snapshot.artifacts["/repo/src/DashboardPage.tsx#function:OtherCard"]
+    );
+  });
+
+  it("reuses unchanged declaration and artifact maps without rematerializing their records", async () => {
+    const compiler = createPieceCompiler();
+    const analysis = await compiler.analyzeFile({
+      filePath: "/repo/src/DashboardPage.tsx",
+      source: sampleSource()
+    });
+    const previousSnapshot = createPieceSnapshot({ analysis });
+
+    const reconciliation = reconcilePieceSnapshot({ previousSnapshot, analysis });
+
+    expect(reconciliation.changedPieces).toEqual([]);
+    expect(reconciliation.snapshot.declarations).toBe(previousSnapshot.declarations);
+    expect(reconciliation.snapshot.artifacts).toBe(previousSnapshot.artifacts);
+    expect(reconciliation.snapshot.artifacts["/repo/src/DashboardPage.tsx#function:UserCard"]).toBe(
+      previousSnapshot.artifacts["/repo/src/DashboardPage.tsx#function:UserCard"]
+    );
   });
 
   it("reconciles declaration snapshots with stable piece identities and artifact reuse", async () => {

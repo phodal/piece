@@ -11,8 +11,16 @@ function byId(items) {
   return new Map(items.map((item) => [item.id, item]));
 }
 
-function objectFromEntries(entries) {
-  return Object.fromEntries([...entries].sort(([left], [right]) => left.localeCompare(right)));
+function objectFromEntriesReusing(entries, previous) {
+  const sortedEntries = [...entries].sort(([left], [right]) => left.localeCompare(right));
+  if (
+    previous &&
+    Object.keys(previous).length === sortedEntries.length &&
+    sortedEntries.every(([key, value]) => previous[key] === value)
+  ) {
+    return previous;
+  }
+  return Object.fromEntries(sortedEntries);
 }
 
 function slicePublicShapeSource(slice) {
@@ -155,42 +163,62 @@ function createDeclarationRecords(slices, edgesBySource, previousDeclarations, c
   });
 }
 
-function createDefaultArtifacts(declarations) {
-  return objectFromEntries(
-    declarations.map((declaration) => [
-      declaration.id,
-      {
-        version: 1,
-        id: declaration.id,
-        pieceId: declaration.id,
-        kind: "piece",
-        cacheKey: declaration.artifactCacheKey
-      }
-    ])
-  );
+function shallowRecordMatches(left, right) {
+  if (!left || !right) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length && leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && left[key] === right[key]);
 }
 
-function normalizeArtifacts(artifacts) {
-  if (!artifacts) {
-    return {};
+function defaultArtifactEntry(declaration, previousArtifacts) {
+  const previous = previousArtifacts?.[declaration.id];
+  if (
+    previous &&
+    Object.keys(previous).length === 5 &&
+    previous.version === 1 &&
+    previous.id === declaration.id &&
+    previous.pieceId === declaration.id &&
+    previous.kind === "piece" &&
+    previous.cacheKey === declaration.artifactCacheKey
+  ) {
+    return [declaration.id, previous];
   }
+  return [
+    declaration.id,
+    {
+      version: 1,
+      id: declaration.id,
+      pieceId: declaration.id,
+      kind: "piece",
+      cacheKey: declaration.artifactCacheKey
+    }
+  ];
+}
+
+function normalizedArtifactEntries(artifacts, previousArtifacts) {
+  if (!artifacts) return [];
   const entries = artifacts instanceof Map ? [...artifacts.entries()] : Array.isArray(artifacts) ? artifacts.map((artifact) => [artifact.id, artifact]) : Object.entries(artifacts);
-  return objectFromEntries(
-    entries.map(([key, artifact]) => {
-      const id = artifact?.id ?? key;
-      return [
-        id,
-        {
-          version: 1,
-          id,
-          pieceId: artifact?.pieceId ?? id,
-          kind: artifact?.kind ?? "piece",
-          cacheKey: artifact?.cacheKey ?? artifact?.hash ?? "",
-          metadata: artifact?.metadata
-        }
-      ];
-    })
-  );
+  return entries.map(([key, artifact]) => {
+    const id = artifact?.id ?? key;
+    const normalized = {
+      version: 1,
+      id,
+      pieceId: artifact?.pieceId ?? id,
+      kind: artifact?.kind ?? "piece",
+      cacheKey: artifact?.cacheKey ?? artifact?.hash ?? "",
+      metadata: artifact?.metadata
+    };
+    const previous = previousArtifacts?.[id];
+    return [id, shallowRecordMatches(previous, normalized) ? previous : normalized];
+  });
+}
+
+function createArtifacts(declarations, artifacts, previousArtifacts) {
+  const entries = new Map(declarations.map((declaration) => defaultArtifactEntry(declaration, previousArtifacts)));
+  for (const [id, artifact] of normalizedArtifactEntries(artifacts, previousArtifacts)) {
+    entries.set(id, artifact);
+  }
+  return objectFromEntriesReusing(entries, previousArtifacts);
 }
 
 function rangesOverlap(left, right) {
@@ -230,7 +258,19 @@ function previewTargetsAffectedByDirtyPieces(reverseGraph, previewTargets, dirty
   return previewTargets.filter((target) => candidates.has(target)).sort();
 }
 
-export function createPieceSnapshot({ analysis, artifacts, version = 1, compilerOptionsHash = "", compilerOptions, dependencyArtifacts, actionCache, previousDeclarations, graphIndexes }) {
+export function createPieceSnapshot({
+  analysis,
+  artifacts,
+  version = 1,
+  compilerOptionsHash = "",
+  compilerOptions,
+  dependencyArtifacts,
+  actionCache,
+  previousDeclarations,
+  previousArtifacts,
+  previousDeclarationRecord,
+  graphIndexes
+}) {
   const projectModelHash = analysis.manifest.projectModel?.analysisScope?.hashes?.scopeHash ?? analysis.manifest.projectModel?.hashes?.modelHash ?? "";
   const feedbackScope = analysis.feedbackScope ?? explainPieceFeedbackScope({ manifest: analysis.manifest, graph: analysis.graph });
   const suppliedActionCache = actionCache ?? analysis.actionCache;
@@ -247,7 +287,10 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
   ];
   const indexes = graphIndexes ?? indexPieceGraphEdges(analysis.graph);
   const declarations = createDeclarationRecords(analysis.manifest.slices, indexes.edgesBySource, previousDeclarations, cacheKeySalt);
-  const declarationRecord = objectFromEntries(declarations.map((declaration) => [declaration.id, declaration]));
+  const declarationRecord = objectFromEntriesReusing(
+    declarations.map((declaration) => [declaration.id, declaration]),
+    previousDeclarationRecord
+  );
   return {
     version: 1,
     fingerprintVersion: PIECE_FINGERPRINT_VERSION,
@@ -263,10 +306,7 @@ export function createPieceSnapshot({ analysis, artifacts, version = 1, compiler
     graph: analysis.graph,
     previewTargets: [...analysis.previewTargets],
     ...(analysis.actionPackage ? { actionPackage: analysis.actionPackage } : {}),
-    artifacts: {
-      ...createDefaultArtifacts(declarations),
-      ...normalizeArtifacts(artifacts)
-    }
+    artifacts: createArtifacts(declarations, artifacts, previousArtifacts)
   };
 }
 
@@ -284,6 +324,8 @@ export function reconcilePieceSnapshot({ previousSnapshot, analysis, changedRang
     dependencyArtifacts,
     actionCache,
     previousDeclarations,
+    previousArtifacts: fingerprintChanged ? {} : previous?.artifacts,
+    previousDeclarationRecord: fingerprintChanged ? {} : previous?.declarations,
     graphIndexes
   });
 
