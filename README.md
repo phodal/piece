@@ -130,6 +130,8 @@ is named `piece`:
 ```sh
 node bin/piece.js analyze src/App.tsx --format json
 node bin/piece.js build web --format json
+node bin/piece.js plan build web --format json
+node bin/piece.js config validate --format json
 npx --yes --package piece-compiler piece doctor
 ```
 
@@ -163,7 +165,11 @@ workspace. Schema v1 remains the intentionally narrow single-file surface for
 Schema v2 powers `piece build [project]` and `piece check [project]`. Every
 project explicitly declares both tasks; omitted project IDs use
 `defaultProject`. Dependencies run first, and a failed dependency blocks its
-dependents. This compact TypeScript project shows the shape:
+dependents. Use `piece plan <build|check> [project]` or `piece build/check
+--dry-run` to preflight the same closure, policy, and marker files without
+starting a native task. `piece config validate` checks declared project and
+source-root paths without analyzing or executing them. This compact TypeScript
+project shows the shape:
 
 ```json
 {

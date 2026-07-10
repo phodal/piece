@@ -289,6 +289,49 @@ describe("piece CLI", () => {
       ]);
       expect(JSON.parse(noDeclaredOutputs.stdout).scope.guarantees).not.toContain("declared-build-outputs-verified-on-success");
     });
+  }, 20_000);
+
+  it("validates configuration and prints non-mutating workspace plans", async () => {
+    await withWorkspace(async (workspace) => {
+      const bin = join(workspace, "bin");
+      const logPath = join(workspace, "task.log");
+      await mkdir(bin);
+      await writeFakeCommand(bin, "npm", 'require("node:fs").appendFileSync(process.env.PIECE_CLI_LOG, "executed\\n");');
+      await writeProject(workspace, "packages/shared");
+      await writeProject(workspace, "apps/web");
+      await writeFile(join(workspace, "piece.config.json"), `${JSON.stringify(workspaceConfig({ bin, logPath }), null, 2)}\n`, "utf8");
+
+      const validation = await invokePiece(["config", "validate", "--workspace", workspace, "--format", "json"]);
+      expect(validation.exitCode).toBe(0);
+      expect(JSON.parse(validation.stdout)).toMatchObject({
+        command: "config",
+        action: "validate",
+        status: "success",
+        configValidation: { schemaVersion: 2, projects: [{ id: "shared" }, { id: "web" }] }
+      });
+
+      const plan = await invokePiece(["plan", "build", "web", "--workspace", workspace, "--format", "json"]);
+      expect(plan.exitCode).toBe(0);
+      const planResult = JSON.parse(plan.stdout);
+      expect(planResult).toMatchObject({
+        command: "plan",
+        task: "build",
+        status: "success",
+        selection: { projectId: "web", closure: ["shared", "web"] },
+        scope: { guarantees: expect.arrayContaining(["native-tasks-were-not-executed"]) }
+      });
+      expect(planResult.projects[0]).toMatchObject({
+        id: "shared",
+        execution: { status: "planned", plan: { command: "npm", args: ["run", "build"] } }
+      });
+      expect(planResult.projects[1]).toMatchObject({ id: "web", execution: { status: "planned" } });
+      await expect(readFile(logPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+
+      const dryRun = await invokePiece(["build", "web", "--dry-run", "--workspace", workspace, "--format", "json"]);
+      expect(dryRun.exitCode).toBe(0);
+      expect(JSON.parse(dryRun.stdout)).toMatchObject({ command: "plan", task: "build", requestedCommand: "build", dryRun: true });
+      await expect(readFile(logPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    });
   });
 
   it("runs independent topological workspace actions concurrently while retaining dependency order", async () => {
@@ -610,6 +653,14 @@ describe("piece CLI", () => {
         ])
       );
       expect(body.diagnostics).not.toEqual(expect.arrayContaining([expect.objectContaining({ code: "workspace-project-dependency-failed" })]));
+
+      const planned = await invokePiece(["plan", "build", "--workspace", workspace, "--format", "json"]);
+      expect(planned.exitCode).toBe(1);
+      const plannedBody = JSON.parse(planned.stdout);
+      expect(plannedBody.projects.map((project) => [project.id, project.execution.status, project.execution.reason])).toEqual([
+        ["a", "blocked", "dependency-cycle"],
+        ["b", "blocked", "dependency-cycle"]
+      ]);
     });
   });
 

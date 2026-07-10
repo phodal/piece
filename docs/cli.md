@@ -9,11 +9,19 @@ the same thing as the configuration schema version.
 piece analyze <entry> [options]  # schemaVersion 1 config
 piece build [project] [options]  # schemaVersion 2 config
 piece check [project] [options]  # schemaVersion 2 config
-piece doctor [options]
+piece plan <build|check> [project] [options]  # schemaVersion 2, non-mutating
+piece config validate [options]
+piece doctor [project] [options]
 ```
 
 `--workspace` defaults to the current directory and `--config` must name a
 workspace-contained file named `piece.config.json`.
+
+`--dry-run` is an alias for planning a `build` or `check`: it returns the same
+non-mutating result shape as `piece plan`, with `requestedCommand` and
+`dryRun: true`. Neither form starts a native command. `piece config validate`
+parses the selected configuration and, for schema v2, checks every declared
+project root and source root without analyzing sources or invoking a profile.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -122,11 +130,23 @@ the project; otherwise the build exits `1`. A successful build without
 `outputs` is reported with `outputVerification: "not-configured"`, not as an
 artifact proof.
 
+### Planning a workspace task
+
+`piece plan build [project]` and `piece plan check [project]` perform the same
+workspace analysis and dependency-closure selection as execution. They then
+validate each selected profile's strict allowlist and required marker, and
+return the exact command, arguments, and working directory that would be used.
+They never launch the command or verify build outputs. The JSON response has
+`command: "plan"`, `task`, ordered `projects`, and batches annotated with
+`parallelSafe`; it is suitable for CI approval or troubleshooting before a
+real run.
+
 ## Strict native fallback profiles
 
-The CLI forces `mode: "execute"` and `level: "project"`; config cannot add a
-shell command, arbitrary arguments, an action runner, or a declaration
-extractor. Each task policy declares exactly the selected profile:
+The CLI forces `level: "project"`. Build/check force `mode: "execute"`; plan
+and `--dry-run` force `mode: "plan"`. Configuration cannot add a shell command,
+arbitrary arguments, an action runner, or a declaration extractor. Each task
+policy declares exactly the selected profile:
 
 | Profile | Request | Required markers | Allowlist |
 | --- | --- | --- | --- |

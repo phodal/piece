@@ -3,7 +3,13 @@ import { constants } from "node:fs";
 import { delimiter, dirname, basename, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyzePieceFile } from "../node.js";
-import { PieceWorkspaceCliConfigError, normalizePieceWorkspaceCliConfig, runPieceWorkspaceCliTask } from "./workspace.js";
+import {
+  PieceWorkspaceCliConfigError,
+  normalizePieceWorkspaceCliConfig,
+  planPieceWorkspaceCliTask,
+  runPieceWorkspaceCliTask,
+  validatePieceWorkspaceCliConfig
+} from "./workspace.js";
 
 export const PIECE_CLI_RESULT_SCHEMA_VERSION = 1;
 export const PIECE_CONFIG_FILE_NAME = "piece.config.json";
@@ -140,7 +146,8 @@ export function parsePieceCliArguments(argv = []) {
     format: "human",
     formatProvenance: "default",
     noColor: false,
-    noColorProvenance: "default"
+    noColorProvenance: "default",
+    dryRun: false
   };
   const seen = new Set();
   const positionals = [];
@@ -173,6 +180,12 @@ export function parsePieceCliArguments(argv = []) {
       options.noColor = true;
       options.noColorProvenance = "flag";
       seen.add("no-color");
+      continue;
+    }
+    if (token === "--dry-run") {
+      if (seen.has("dry-run")) throw new PieceCliUsageError("duplicate-option", "--dry-run may only be specified once.");
+      options.dryRun = true;
+      seen.add("dry-run");
       continue;
     }
     if (token.startsWith("--")) {
@@ -219,11 +232,14 @@ export function parsePieceCliArguments(argv = []) {
     throw new PieceCliUsageError("missing-command", "A command is required. Run 'piece --help' for usage.");
   }
   const [command, ...argumentsAfterCommand] = positionals;
-  if (!["analyze", "doctor", "build", "check"].includes(command)) {
+  if (!["analyze", "doctor", "build", "check", "plan", "config"].includes(command)) {
     throw new PieceCliUsageError("unknown-command", `Unknown command '${command}'.`);
   }
-  if (command === "doctor" && argumentsAfterCommand.length > 0) {
-    throw new PieceCliUsageError("unexpected-argument", "piece doctor does not accept an entry path.");
+  if (options.dryRun && !["build", "check"].includes(command)) {
+    throw new PieceCliUsageError("invalid-option", "--dry-run is supported only by piece build and piece check.");
+  }
+  if (command === "doctor" && argumentsAfterCommand.length > 1) {
+    throw new PieceCliUsageError("unexpected-argument", "piece doctor accepts at most one optional project id.");
   }
   if (command === "analyze" && argumentsAfterCommand.length > 1) {
     throw new PieceCliUsageError("unexpected-argument", "piece analyze accepts exactly one optional entry path.");
@@ -231,11 +247,21 @@ export function parsePieceCliArguments(argv = []) {
   if (["build", "check"].includes(command) && argumentsAfterCommand.length > 1) {
     throw new PieceCliUsageError("unexpected-argument", `piece ${command} accepts at most one optional project id.`);
   }
+  if (command === "plan") {
+    if (argumentsAfterCommand.length < 1 || argumentsAfterCommand.length > 2 || !["build", "check"].includes(argumentsAfterCommand[0])) {
+      throw new PieceCliUsageError("invalid-plan-command", "piece plan requires 'build' or 'check' followed by an optional project id.");
+    }
+  }
+  if (command === "config" && (argumentsAfterCommand.length !== 1 || argumentsAfterCommand[0] !== "validate")) {
+    throw new PieceCliUsageError("invalid-config-command", "piece config supports only 'validate'.");
+  }
   return {
     ...options,
     command,
     entry: command === "analyze" ? argumentsAfterCommand[0] : undefined,
-    projectId: ["build", "check"].includes(command) ? argumentsAfterCommand[0] : undefined
+    projectId: ["build", "check", "doctor"].includes(command) ? argumentsAfterCommand[0] : command === "plan" ? argumentsAfterCommand[1] : undefined,
+    task: command === "plan" ? argumentsAfterCommand[0] : undefined,
+    configAction: command === "config" ? argumentsAfterCommand[0] : undefined
   };
 }
 
@@ -581,6 +607,60 @@ async function runWorkspaceCommand(parsed, context) {
   }
 }
 
+async function runWorkspacePlan(command, parsed, context) {
+  if (context.config.schemaVersion !== 2) {
+    throw new PieceCliUsageError(
+      "workspace-build-requires-config-v2",
+      `piece ${command === "plan" ? `plan ${parsed.task}` : parsed.command} requires a schemaVersion 2 configuration with explicit projects.`
+    );
+  }
+  try {
+    const result = await planPieceWorkspaceCliTask({
+      command: command === "plan" ? parsed.task : command,
+      workspace: context.workspace,
+      config: context.config,
+      projectId: parsed.projectId
+    });
+    return {
+      ...result,
+      ...(command === "plan" ? {} : { requestedCommand: command, dryRun: true }),
+      ...contextResultFields(context)
+    };
+  } catch (error) {
+    if (error instanceof PieceWorkspaceCliConfigError) {
+      throw new PieceCliUsageError(error.code, error.message, error);
+    }
+    throw error;
+  }
+}
+
+async function runConfigValidate(context) {
+  let workspaceValidation;
+  if (context.config.schemaVersion === 2) {
+    try {
+      workspaceValidation = await validatePieceWorkspaceCliConfig({ workspace: context.workspace, config: context.config });
+    } catch (error) {
+      if (error instanceof PieceWorkspaceCliConfigError) {
+        throw new PieceCliUsageError(error.code, error.message, error);
+      }
+      throw error;
+    }
+  }
+  return {
+    schemaVersion: PIECE_CLI_RESULT_SCHEMA_VERSION,
+    command: "config",
+    action: "validate",
+    status: "success",
+    exitCode: 0,
+    ...contextResultFields(context),
+    configValidation: {
+      schemaVersion: context.config.schemaVersion,
+      ...(workspaceValidation ? { projects: workspaceValidation.projects } : {})
+    },
+    diagnostics: []
+  };
+}
+
 async function findExecutable(command) {
   const paths = String(process.env.PATH ?? "").split(delimiter).filter(Boolean);
   const suffixes = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
@@ -648,7 +728,7 @@ async function packageVersion() {
 }
 
 export function pieceCliHelpText() {
-  return `Piece CLI — safe feedback analysis and declared workspace tasks\n\nUsage:\n  piece analyze <entry> [options]\n  piece build [project] [options]\n  piece check [project] [options]\n  piece doctor [options]\n\nCommands:\n  analyze <entry>  Analyze one source file with a schemaVersion 1 config.\n  build [project]  Execute a schemaVersion 2 project's native fallback build and its declared dependency closure.\n  check [project]  Execute a schemaVersion 2 project's native fallback check and its declared dependency closure.\n  doctor           Report the available local runtime and toolchain capabilities.\n\nOptions:\n  --workspace <path>       Workspace root (default: current directory).\n  --config <path>          Configuration file, named ${PIECE_CONFIG_FILE_NAME}.\n  --format <human|json>    Result format (default: human).\n  --no-color               Disable color output.\n  -h, --help               Show this help text.\n  -v, --version            Show the installed Piece version.\n\nWorkspace build/check use only explicit, allowlisted native fallback profiles.\nThey cover the declared project graph; Piece's per-file analysis is evidence,\nnot a claim that a single Piece action built an entire workspace project.\n`;
+  return `Piece CLI — safe feedback analysis and declared workspace tasks\n\nUsage:\n  piece analyze <entry> [options]\n  piece build [project] [options]\n  piece check [project] [options]\n  piece plan <build|check> [project] [options]\n  piece config validate [options]\n  piece doctor [project] [options]\n\nCommands:\n  analyze <entry>  Analyze one source file with a schemaVersion 1 config.\n  build [project]  Execute a schemaVersion 2 project's native fallback build and its declared dependency closure.\n  check [project]  Execute a schemaVersion 2 project's native fallback check and its declared dependency closure.\n  plan <task>      Validate and print a non-mutating schemaVersion 2 native task plan.\n  config validate  Validate the loaded configuration and configured paths without executing a task.\n  doctor [project] Report local runtime/toolchain capabilities and the selected workspace profile.\n\nOptions:\n  --workspace <path>       Workspace root (default: current directory).\n  --config <path>          Configuration file, named ${PIECE_CONFIG_FILE_NAME}.\n  --format <human|json>    Result format (default: human).\n  --dry-run                Plan build/check without executing a native task.\n  --no-color               Disable color output.\n  -h, --help               Show this help text.\n  -v, --version            Show the installed Piece version.\n\nWorkspace build/check use only explicit, allowlisted native fallback profiles.\nThey cover the declared project graph; Piece's per-file analysis is evidence,\nnot a claim that a single Piece action built an entire workspace project.\n`;
 }
 
 function humanResult(result) {
@@ -668,6 +748,12 @@ function humanResult(result) {
   }
   if (result.command === "doctor") {
     return `piece doctor succeeded\nscope: ${result.capabilities.scope}\nworkspace orchestration: ${result.capabilities.workspaceOrchestration}\nnode: ${result.runtime.node.version}\n`;
+  }
+  if (result.command === "plan") {
+    return `piece plan ${result.status}\ntask: ${result.task}\nproject: ${result.selection.projectId}\nclosure: ${result.selection.closure.join(", ")}\nprojects: ${result.projects.length}\n`;
+  }
+  if (result.command === "config") {
+    return `piece config validate succeeded\nschema: ${result.configValidation.schemaVersion}\n`;
   }
   if (result.command === "build" || result.command === "check") {
     const failedProjects = result.projects.filter((project) => project.execution.status !== "success").map((project) => project.id);
@@ -731,8 +817,14 @@ export async function runPieceCli(argv = [], options = {}) {
       parsed.command === "analyze"
         ? await runAnalyze(parsed, context)
         : parsed.command === "build" || parsed.command === "check"
-          ? await runWorkspaceCommand(parsed, context)
-          : await runDoctor(context);
+          ? parsed.dryRun
+            ? await runWorkspacePlan(parsed.command, parsed, context)
+            : await runWorkspaceCommand(parsed, context)
+          : parsed.command === "plan"
+            ? await runWorkspacePlan("plan", parsed, context)
+            : parsed.command === "config"
+              ? await runConfigValidate(context)
+              : await runDoctor(context, parsed);
     emitResult(result, format, io);
     return result.exitCode;
   } catch (error) {

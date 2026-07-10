@@ -1,6 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { executePieceFallback } from "../node-fallback-executor.js";
+import { executePieceFallback, planPieceFallback } from "../node-fallback-executor.js";
 import { PieceWorkspaceError, analyzePieceWorkspace, planPieceWorkspaceBuild } from "../node-workspace.js";
 
 const CONFIG_KEYS = new Set(["schemaVersion", "defaultProject", "projects"]);
@@ -598,12 +598,7 @@ function resultDiagnostics(projects, workspace) {
   return [...unique.values()].sort((left, right) => `${left.projectId ?? ""}:${left.severity}:${left.code}:${left.message}`.localeCompare(`${right.projectId ?? ""}:${right.severity}:${right.code}:${right.message}`));
 }
 
-/**
- * Execute an explicit project's dependency closure through configured native
- * fallback tasks. Piece analysis stays advisory: it never becomes a claim that
- * one declaration action built the whole workspace project.
- */
-export async function runPieceWorkspaceCliTask({ command, workspace, config, projectId }) {
+export async function preparePieceWorkspaceCliTask({ command, workspace, config, projectId }) {
   if (!["build", "check"].includes(command)) {
     configError("invalid-workspace-command", `Unsupported workspace command '${command}'.`);
   }
@@ -642,8 +637,130 @@ export async function runPieceWorkspaceCliTask({ command, workspace, config, pro
     }
     throw error;
   }
-  const projectById = new Map(analyzedWorkspace.projects.map((project) => [project.id, project]));
-  const configById = new Map(config.projects.map((project) => [project.id, project]));
+  return {
+    requestedProjectId,
+    preflight,
+    analyzedWorkspace,
+    plan,
+    projectById: new Map(analyzedWorkspace.projects.map((project) => [project.id, project])),
+    configById: new Map(config.projects.map((project) => [project.id, project]))
+  };
+}
+
+/** Validate every configured project root and source root without executing a task. */
+export async function validatePieceWorkspaceCliConfig({ workspace, config }) {
+  const preflight = await preflightWorkspaceConfig(workspace, config);
+  return {
+    workspaceRoot: preflight.workspaceRoot,
+    projects: config.projects.map((project) => ({
+      id: project.id,
+      root: workspaceRelativePath(preflight.workspaceRoot, preflight.roots.get(project.id)),
+      sourceRoots: [...project.sourceRoots]
+    }))
+  };
+}
+
+function workspaceSelection({ requestedProjectId, projectId, plan }) {
+  return {
+    projectId: requestedProjectId,
+    provenance: projectId ? "argument" : "config-default",
+    closure: [...plan.selectedProjects]
+  };
+}
+
+function workspacePlanSummary(plan) {
+  return {
+    executionMode: plan.executionMode,
+    status: plan.status,
+    batches: plan.batches.map((batch) => ({
+      index: batch.index,
+      kind: batch.kind,
+      parallelSafe: batch.parallelSafe,
+      projects: batch.actions.map((action) => action.projectId)
+    }))
+  };
+}
+
+function workspaceScope(guarantees = []) {
+  return {
+    kind: "declared-workspace-project-graph",
+    workspaceOrchestration: "configured-native-fallback",
+    guarantees,
+    limitations: [
+      "Only projects explicitly declared in piece.config.json are covered.",
+      "Piece analysis is per-file evidence and does not replace the configured native project task."
+    ]
+  };
+}
+
+async function planWorkspaceAction({ action, project, configProject, command, workspaceRoot }) {
+  if (action.scheduling === "cycle-fallback") {
+    return cycleProjectResult({ action, project, workspaceRoot });
+  }
+  const task = configProject[command];
+  const result = await planPieceFallback({
+    workspaceRoot: project.root,
+    analysis: { feedbackScope: projectFeedbackScope(project) },
+    request: { ...task.request, mode: "plan", level: "project" },
+    policy: task.policy
+  });
+  return {
+    id: action.projectId,
+    root: { workspaceRelativePath: workspaceRelativePath(workspaceRoot, project.root) },
+    dependencies: [...action.dependsOn],
+    piece: projectPieceSummary(project),
+    execution: fallbackExecutionSummary(result, workspaceRoot),
+    ...(command === "build" && task.outputs
+      ? {
+          outputs: task.outputs.map((output) => ({
+            workspaceRelativePath: workspaceRelativePath(workspaceRoot, resolve(project.root, output))
+          }))
+        }
+      : {}),
+    diagnostics: (result.diagnostics ?? []).map((diagnostic) => normalizedDiagnostic(diagnostic, action.projectId))
+  };
+}
+
+/**
+ * Produce a strict, non-mutating native-task plan for an explicit project
+ * closure. Marker and allowlist validation run, but no native command starts.
+ */
+export async function planPieceWorkspaceCliTask({ command, workspace, config, projectId }) {
+  const prepared = await preparePieceWorkspaceCliTask({ command, workspace, config, projectId });
+  const projects = await Promise.all(
+    prepared.plan.actions.map((action) =>
+      planWorkspaceAction({
+        action,
+        project: prepared.projectById.get(action.projectId),
+        configProject: prepared.configById.get(action.projectId),
+        command,
+        workspaceRoot: prepared.preflight.workspaceRoot
+      })
+    )
+  );
+  const status = projects.every((project) => project.execution.status === "planned") ? "success" : "failed";
+  return {
+    schemaVersion: 1,
+    command: "plan",
+    task: command,
+    status,
+    exitCode: status === "success" ? 0 : 1,
+    selection: workspaceSelection({ requestedProjectId: prepared.requestedProjectId, projectId, plan: prepared.plan }),
+    scope: workspaceScope(["native-tasks-were-not-executed", "configured-native-task-markers-and-allowlists-were-validated"]),
+    plan: workspacePlanSummary(prepared.plan),
+    projects,
+    diagnostics: resultDiagnostics(projects, prepared.analyzedWorkspace)
+  };
+}
+
+/**
+ * Execute an explicit project's dependency closure through configured native
+ * fallback tasks. Piece analysis stays advisory: it never becomes a claim that
+ * one declaration action built the whole workspace project.
+ */
+export async function runPieceWorkspaceCliTask({ command, workspace, config, projectId }) {
+  const prepared = await preparePieceWorkspaceCliTask({ command, workspace, config, projectId });
+  const { requestedProjectId, preflight, analyzedWorkspace, plan, projectById, configById } = prepared;
   const actionStatuses = new Map();
   const projects = [];
   const executePlannedAction = async (action) => {
@@ -708,24 +825,8 @@ export async function runPieceWorkspaceCliTask({ command, workspace, config, pro
       provenance: projectId ? "argument" : "config-default",
       closure: [...plan.selectedProjects]
     },
-    scope: {
-      kind: "declared-workspace-project-graph",
-      workspaceOrchestration: "configured-native-fallback",
-      guarantees,
-      limitations: [
-        "Only projects explicitly declared in piece.config.json are covered.",
-        "Piece analysis is per-file evidence and does not replace the configured native project task."
-      ]
-    },
-    plan: {
-      executionMode: plan.executionMode,
-      status: plan.status,
-      batches: plan.batches.map((batch) => ({
-        index: batch.index,
-        kind: batch.kind,
-        projects: batch.actions.map((action) => action.projectId)
-      }))
-    },
+    scope: workspaceScope(guarantees),
+    plan: workspacePlanSummary(plan),
     projects,
     diagnostics: resultDiagnostics(projects, analyzedWorkspace)
   };
