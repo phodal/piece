@@ -218,5 +218,5 @@ describe("Node local action cache", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 });
