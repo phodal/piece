@@ -105,6 +105,131 @@ describe("safe Node fallback executor", () => {
     });
   });
 
+  it("rejects inherited, accessor, and prototype-polluted fallback inputs without evaluating getters", async () => {
+    await withDirectory("piece-fallback-plain-data-", async (workspace) => {
+      await createGoModule(workspace);
+      const safePolicy = () => ({ profiles: { go: { root: ".", allowActions: ["test"] } } });
+
+      let requestGetterRead = false;
+      const accessorRequest = {};
+      Object.defineProperty(accessorRequest, "profile", {
+        enumerable: true,
+        get() {
+          requestGetterRead = true;
+          return "go";
+        }
+      });
+      const accessorRequestResult = await planPieceFallback({
+        workspaceRoot: workspace,
+        analysis: fallbackAnalysis(),
+        request: accessorRequest,
+        policy: safePolicy()
+      });
+      expect(accessorRequestResult).toMatchObject({ status: "blocked", diagnostics: [{ code: "fallback-request-invalid" }] });
+      expect(requestGetterRead).toBe(false);
+
+      const inheritedRequest = Object.create({ profile: "go" });
+      const inheritedRequestResult = await planPieceFallback({
+        workspaceRoot: workspace,
+        analysis: fallbackAnalysis(),
+        request: inheritedRequest,
+        policy: safePolicy()
+      });
+      expect(inheritedRequestResult).toMatchObject({ status: "blocked", diagnostics: [{ code: "fallback-request-invalid" }] });
+
+      let profileGetterRead = false;
+      const accessorProfiles = {};
+      Object.defineProperty(accessorProfiles, "go", {
+        enumerable: true,
+        get() {
+          profileGetterRead = true;
+          return { root: ".", allowActions: ["test"] };
+        }
+      });
+      const accessorProfileResult = await planPieceFallback({
+        workspaceRoot: workspace,
+        analysis: fallbackAnalysis(),
+        request: { profile: "go" },
+        policy: { profiles: accessorProfiles }
+      });
+      expect(accessorProfileResult).toMatchObject({ status: "blocked", diagnostics: [{ code: "fallback-policy-invalid" }] });
+      expect(profileGetterRead).toBe(false);
+
+      const inheritedProfiles = Object.create({ go: { root: ".", allowActions: ["test"] } });
+      const inheritedProfileResult = await planPieceFallback({
+        workspaceRoot: workspace,
+        analysis: fallbackAnalysis(),
+        request: { profile: "go" },
+        policy: { profiles: inheritedProfiles }
+      });
+      expect(inheritedProfileResult).toMatchObject({ status: "blocked", diagnostics: [{ code: "fallback-policy-invalid" }] });
+
+      const pollutedPolicy = { profiles: { go: { root: ".", allowActions: ["test"] } } };
+      Object.setPrototypeOf(pollutedPolicy, { timeoutMs: 1 });
+      const pollutedPolicyResult = await planPieceFallback({
+        workspaceRoot: workspace,
+        analysis: fallbackAnalysis(),
+        request: { profile: "go" },
+        policy: pollutedPolicy
+      });
+      expect(pollutedPolicyResult).toMatchObject({ status: "blocked", diagnostics: [{ code: "fallback-policy-required" }] });
+    });
+  });
+
+  it("caps direct-policy fallback time, output, and termination limits", async () => {
+    await withDirectory("piece-fallback-policy-caps-", async (workspace) => {
+      await createGoModule(workspace);
+      const base = { profiles: { go: { root: ".", allowActions: ["test"] } } };
+      const cases = [
+        ["timeoutMs", 30 * 60 * 1_000 + 1],
+        ["maxOutputBytes", 32 * 1024 * 1024 + 1],
+        ["killGraceMs", 60 * 1_000 + 1]
+      ];
+      for (const [field, value] of cases) {
+        const result = await planPieceFallback({
+          workspaceRoot: workspace,
+          analysis: fallbackAnalysis(),
+          request: { profile: "go" },
+          policy: { ...base, [field]: value }
+        });
+        expect(result).toMatchObject({
+          status: "blocked",
+          diagnostics: [{ code: "fallback-policy-invalid", field }]
+        });
+      }
+    });
+  });
+
+  it("rejects reserved object property names from fallback environment policy", async () => {
+    await withDirectory("piece-fallback-environment-names-", async (workspace) => {
+      await createGoModule(workspace);
+      const base = { profiles: { go: { root: ".", allowActions: ["test"] } } };
+      for (const name of ["__proto__", "constructor", "prototype"]) {
+        const allowlistResult = await planPieceFallback({
+          workspaceRoot: workspace,
+          analysis: fallbackAnalysis(),
+          request: { profile: "go" },
+          policy: { ...base, envAllowlist: [name] }
+        });
+        expect(allowlistResult).toMatchObject({
+          status: "blocked",
+          diagnostics: [{ code: "fallback-policy-invalid", name }]
+        });
+
+        const environmentResult = await planPieceFallback({
+          workspaceRoot: workspace,
+          analysis: fallbackAnalysis(),
+          request: { profile: "go" },
+          policy: { ...base, env: { [name]: "unsafe" } }
+        });
+        expect(environmentResult).toMatchObject({
+          status: "blocked",
+          diagnostics: [{ code: "fallback-policy-invalid", name }]
+        });
+      }
+    });
+  });
+
   it("rejects a policy root that escapes through a symlink", async () => {
     await withDirectory("piece-fallback-workspace-", async (workspace) => {
       await withDirectory("piece-fallback-outside-", async (outside) => {
@@ -120,6 +245,46 @@ describe("safe Node fallback executor", () => {
         expect(result.status).toBe("blocked");
         expect(result.diagnostics[0].code).toBe("fallback-workspace-path-escape");
       });
+    });
+  });
+
+  it.runIf(process.platform !== "win32")("blocks marker inspection failures instead of treating them as missing markers", async () => {
+    await withDirectory("piece-fallback-marker-loop-", async (workspace) => {
+      await symlink("go.mod", join(workspace, "go.mod"));
+      const result = await planPieceFallback({
+        workspaceRoot: workspace,
+        analysis: fallbackAnalysis(),
+        request: { profile: "go" },
+        policy: { profiles: { go: { root: ".", allowActions: ["test"] } } }
+      });
+
+      expect(result).toMatchObject({
+        status: "blocked",
+        diagnostics: [{ code: "fallback-marker-inspection-failed", errorCode: "ELOOP" }]
+      });
+    });
+  });
+
+  it.runIf(process.platform !== "win32" && process.getuid?.() !== 0)("blocks EACCES marker inspection errors instead of falling through to missing", async () => {
+    await withDirectory("piece-fallback-marker-permission-", async (workspace) => {
+      const project = join(workspace, "project");
+      await mkdir(project);
+      await createGoModule(project);
+      try {
+        await chmod(project, 0o000);
+        const result = await planPieceFallback({
+          workspaceRoot: workspace,
+          analysis: fallbackAnalysis(),
+          request: { profile: "go" },
+          policy: { profiles: { go: { root: "project", allowActions: ["test"] } } }
+        });
+        expect(result).toMatchObject({
+          status: "blocked",
+          diagnostics: [{ code: "fallback-marker-inspection-failed", errorCode: "EACCES" }]
+        });
+      } finally {
+        await chmod(project, 0o700);
+      }
     });
   });
 

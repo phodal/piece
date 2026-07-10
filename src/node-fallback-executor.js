@@ -22,6 +22,14 @@ const PROFILE_FIELDS = Object.freeze({
 const ENVIRONMENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const ACTION_NAME = /^[A-Za-z][A-Za-z0-9:_-]*$/;
 const GRADLE_TASK_NAME = /^:?[A-Za-z][A-Za-z0-9:_-]*$/;
+const ARRAY_INDEX = /^(?:0|[1-9]\d*)$/;
+const MAX_POLICY_LIST_ENTRIES = 1_000;
+// Fallback execution remains bounded even when callers use the Node API
+// directly instead of going through parsed JSON configuration.
+const MAX_FALLBACK_TIMEOUT_MS = 30 * 60 * 1_000;
+const MAX_FALLBACK_OUTPUT_BYTES = 32 * 1024 * 1024;
+const MAX_FALLBACK_KILL_GRACE_MS = 60 * 1_000;
+const RESERVED_OBJECT_PROPERTY_NAMES = new Set(["__proto__", "constructor", "prototype"]);
 
 function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -34,6 +42,93 @@ function diagnostic(code, message, details = {}) {
     message,
     ...details
   };
+}
+
+function hasOwn(value, key) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/**
+ * Read only own data descriptors from JSON-shaped configuration. This avoids
+ * evaluating getters or inherited values before the strict policy is checked.
+ * A null prototype is accepted because it is a common safe JSON container.
+ */
+function inspectPlainDataObject(value, code, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { diagnostic: diagnostic(code, `${label} must be a plain own-data object.`) };
+  }
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return { diagnostic: diagnostic(code, `${label} must not have inherited or custom prototype properties.`) };
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    if (Object.getOwnPropertySymbols(value).length > 0) {
+      return { diagnostic: diagnostic(code, `${label} must not contain symbol properties.`) };
+    }
+    const keys = Object.keys(descriptors);
+    for (const key of keys) {
+      const descriptor = descriptors[key];
+      if (!hasOwn(descriptor, "value") || descriptor.enumerable !== true) {
+        return { diagnostic: diagnostic(code, `${label}.${key} must be an enumerable data property.`) };
+      }
+    }
+    return { value: { descriptors, keys } };
+  } catch {
+    return { diagnostic: diagnostic(code, `${label} must be a readable plain own-data object.`) };
+  }
+}
+
+function ownValue(inspected, key) {
+  return hasOwn(inspected.descriptors, key) ? inspected.descriptors[key].value : undefined;
+}
+
+function inspectStringArray(value, code, label, { allowEmpty = false, pattern = undefined } = {}) {
+  if (!Array.isArray(value)) {
+    return { diagnostic: diagnostic(code, `${label} must be an array of simple command names.`) };
+  }
+  try {
+    if (Object.getPrototypeOf(value) !== Array.prototype) {
+      return { diagnostic: diagnostic(code, `${label} must not have inherited or custom prototype properties.`) };
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    if (Object.getOwnPropertySymbols(value).length > 0) {
+      return { diagnostic: diagnostic(code, `${label} must not contain symbol properties.`) };
+    }
+    const lengthDescriptor = descriptors.length;
+    if (!hasOwn(lengthDescriptor ?? {}, "value") || !Number.isSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0) {
+      return { diagnostic: diagnostic(code, `${label} must be a regular array.`) };
+    }
+    const length = lengthDescriptor.value;
+    if (length > MAX_POLICY_LIST_ENTRIES) {
+      return { diagnostic: diagnostic(code, `${label} exceeds the maximum of ${MAX_POLICY_LIST_ENTRIES} entries.`) };
+    }
+    for (const key of Object.keys(descriptors)) {
+      if (key === "length") continue;
+      const descriptor = descriptors[key];
+      if (!ARRAY_INDEX.test(key) || !hasOwn(descriptor, "value") || descriptor.enumerable !== true) {
+        return { diagnostic: diagnostic(code, `${label} must contain only enumerable data entries.`) };
+      }
+    }
+    const entries = [];
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!hasOwn(descriptor ?? {}, "value")) {
+        return { diagnostic: diagnostic(code, `${label} must not be sparse or use accessors.`) };
+      }
+      const entry = descriptor.value;
+      if (typeof entry !== "string" || (pattern && !pattern.test(entry))) {
+        return { diagnostic: diagnostic(code, `${label} must be an array of simple command names.`) };
+      }
+      entries.push(entry);
+    }
+    if (!allowEmpty && entries.length === 0) {
+      return { diagnostic: diagnostic(code, `${label} must be a non-empty array of simple command names.`) };
+    }
+    return { value: entries };
+  } catch {
+    return { diagnostic: diagnostic(code, `${label} must be a readable array of simple command names.`) };
+  }
 }
 
 function blocked({ mode = "plan", profile, scope, diagnostics }) {
@@ -52,8 +147,8 @@ function inside(root, candidate) {
   return offset === "" || (offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset));
 }
 
-function unknownFields(value, allowed) {
-  return Object.keys(value).filter((key) => !allowed.has(key));
+function unknownFields(keys, allowed) {
+  return keys.filter((key) => !allowed.has(key));
 }
 
 function normalizedFeedbackScope(analysis) {
@@ -78,40 +173,65 @@ function normalizedFeedbackScope(analysis) {
   };
 }
 
-function positiveInteger(value, field, { allowZero = false } = {}) {
+function positiveInteger(value, field, { allowZero = false, maximum } = {}) {
   if (value === undefined) return { value: undefined };
   if (!Number.isInteger(value) || value < (allowZero ? 0 : 1)) {
     return {
       diagnostic: diagnostic("fallback-policy-invalid", `policy.${field} must be a ${allowZero ? "non-negative" : "positive"} integer.`)
     };
   }
+  if (maximum !== undefined && value > maximum) {
+    return {
+      diagnostic: diagnostic("fallback-policy-invalid", `policy.${field} must not exceed ${maximum}.`, { field, maximum })
+    };
+  }
   return { value };
 }
 
 function stringAllowlist(value, field, pattern = ACTION_NAME) {
-  if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== "string" || !pattern.test(entry))) {
-    return {
-      diagnostic: diagnostic("fallback-policy-invalid", `${field} must be a non-empty array of simple command names.`)
-    };
-  }
-  return { value: [...new Set(value)] };
+  const inspected = inspectStringArray(value, "fallback-policy-invalid", field, { pattern });
+  if (inspected.diagnostic) return inspected;
+  return { value: [...new Set(inspected.value)] };
 }
 
 function normalizeEnvironment(policy) {
-  const names = policy.envAllowlist ?? [];
-  if (!Array.isArray(names) || names.some((name) => typeof name !== "string" || !ENVIRONMENT_NAME.test(name))) {
+  const namesValue = ownValue(policy, "envAllowlist");
+  const namesResult = inspectStringArray(
+    namesValue === undefined ? [] : namesValue,
+    "fallback-policy-invalid",
+    "policy.envAllowlist",
+    { allowEmpty: true, pattern: ENVIRONMENT_NAME }
+  );
+  if (namesResult.diagnostic) {
     return {
       diagnostic: diagnostic("fallback-policy-invalid", "policy.envAllowlist must contain valid environment variable names.")
     };
   }
-  const envAllowlist = [...new Set(names)];
-  const supplied = policy.env ?? {};
-  if (!isRecord(supplied)) {
+  const reservedAllowlistName = namesResult.value.find((name) => RESERVED_OBJECT_PROPERTY_NAMES.has(name));
+  if (reservedAllowlistName) {
     return {
-      diagnostic: diagnostic("fallback-policy-invalid", "policy.env must be an object of string values.")
+      diagnostic: diagnostic("fallback-policy-invalid", `policy.envAllowlist must not contain reserved object property '${reservedAllowlistName}'.`, {
+        name: reservedAllowlistName
+      })
     };
   }
-  for (const [name, value] of Object.entries(supplied)) {
+  const envAllowlist = [...new Set(namesResult.value)];
+  const suppliedValue = ownValue(policy, "env");
+  const suppliedResult = inspectPlainDataObject(
+    suppliedValue === undefined ? {} : suppliedValue,
+    "fallback-policy-invalid",
+    "policy.env"
+  );
+  if (suppliedResult.diagnostic) return suppliedResult;
+  const reservedEnvironmentName = suppliedResult.value.keys.find((name) => RESERVED_OBJECT_PROPERTY_NAMES.has(name));
+  if (reservedEnvironmentName) {
+    return {
+      diagnostic: diagnostic("fallback-policy-invalid", `policy.env.${reservedEnvironmentName} is not allowed.`, { name: reservedEnvironmentName })
+    };
+  }
+  const supplied = Object.create(null);
+  for (const name of suppliedResult.value.keys) {
+    const value = ownValue(suppliedResult.value, name);
     if (!envAllowlist.includes(name)) {
       return {
         diagnostic: diagnostic("fallback-environment-not-allowlisted", `policy.env.${name} is not in policy.envAllowlist.`, { name })
@@ -122,10 +242,17 @@ function normalizeEnvironment(policy) {
         diagnostic: diagnostic("fallback-policy-invalid", `policy.env.${name} must be a string.`, { name })
       };
     }
+    supplied[name] = value;
   }
-  const timeout = positiveInteger(policy.timeoutMs, "timeoutMs");
-  const output = positiveInteger(policy.maxOutputBytes, "maxOutputBytes", { allowZero: true });
-  const grace = positiveInteger(policy.killGraceMs, "killGraceMs", { allowZero: true });
+  const timeout = positiveInteger(ownValue(policy, "timeoutMs"), "timeoutMs", { maximum: MAX_FALLBACK_TIMEOUT_MS });
+  const output = positiveInteger(ownValue(policy, "maxOutputBytes"), "maxOutputBytes", {
+    allowZero: true,
+    maximum: MAX_FALLBACK_OUTPUT_BYTES
+  });
+  const grace = positiveInteger(ownValue(policy, "killGraceMs"), "killGraceMs", {
+    allowZero: true,
+    maximum: MAX_FALLBACK_KILL_GRACE_MS
+  });
   const policyDiagnostic = timeout.diagnostic ?? output.diagnostic ?? grace.diagnostic;
   if (policyDiagnostic) return { diagnostic: policyDiagnostic };
   return {
@@ -140,49 +267,103 @@ function normalizeEnvironment(policy) {
 }
 
 function validateRequest(value) {
-  if (value !== undefined && !isRecord(value)) {
-    return { diagnostic: diagnostic("fallback-request-invalid", "request must be an object.") };
-  }
-  const request = value ?? {};
-  const extras = unknownFields(request, REQUEST_FIELDS);
+  const requestResult = inspectPlainDataObject(value === undefined ? {} : value, "fallback-request-invalid", "request");
+  if (requestResult.diagnostic) return requestResult;
+  const request = requestResult.value;
+  const extras = unknownFields(request.keys, REQUEST_FIELDS);
   if (extras.length > 0) {
     return {
       diagnostic: diagnostic("fallback-request-field-not-allowed", `request contains unsupported field(s): ${extras.join(", ")}.`, { fields: extras })
     };
   }
-  const mode = request.mode ?? "plan";
+  for (const field of REQUEST_FIELDS) {
+    const fieldValue = ownValue(request, field);
+    if (fieldValue !== undefined && typeof fieldValue !== "string") {
+      return { diagnostic: diagnostic("fallback-request-invalid", `request.${field} must be a string when provided.`, { field }) };
+    }
+  }
+  const mode = ownValue(request, "mode") ?? "plan";
   if (!PIECE_FALLBACK_MODES.includes(mode)) {
     return { diagnostic: diagnostic("fallback-mode-invalid", "request.mode must be 'plan' or 'execute'.") };
   }
-  const level = request.level ?? "auto";
+  const level = ownValue(request, "level") ?? "auto";
   if (!["auto", "project"].includes(level)) {
     return { diagnostic: diagnostic("fallback-level-invalid", "request.level must be 'auto' or 'project'.") };
   }
-  if (!PIECE_FALLBACK_PROFILES.includes(request.profile)) {
+  const profile = ownValue(request, "profile");
+  if (!PIECE_FALLBACK_PROFILES.includes(profile)) {
     return {
       diagnostic: diagnostic("fallback-profile-required", `request.profile must be one of: ${PIECE_FALLBACK_PROFILES.join(", ")}.`)
     };
   }
-  return { value: { ...request, mode, level, profile: request.profile } };
+  const requestValue = { mode, level, profile };
+  for (const field of ["action", "task", "script"]) {
+    const fieldValue = ownValue(request, field);
+    if (fieldValue !== undefined) requestValue[field] = fieldValue;
+  }
+  return { value: requestValue };
+}
+
+function normalizeProfilePolicy(profile, inspected) {
+  const profilePolicy = {};
+  for (const field of PROFILE_FIELDS[profile]) {
+    const fieldValue = ownValue(inspected, field);
+    if (fieldValue !== undefined) profilePolicy[field] = fieldValue;
+  }
+  if (typeof profilePolicy.root !== "string" || !profilePolicy.root.trim() || profilePolicy.root.includes("\0")) {
+    return {
+      diagnostic: diagnostic("fallback-policy-invalid", `policy.profiles.${profile}.root must be a non-empty path string.`, { profile })
+    };
+  }
+  const allowlistField = profile === "go" ? "allowActions" : profile === "gradle" ? "allowTasks" : "allowScripts";
+  const allowlist = stringAllowlist(profilePolicy[allowlistField], `policy.profiles.${profile}.${allowlistField}`, profile === "gradle" ? GRADLE_TASK_NAME : ACTION_NAME);
+  if (allowlist.diagnostic) return allowlist;
+  profilePolicy[allowlistField] = allowlist.value;
+  for (const field of ["command", "packageManager"]) {
+    if (profilePolicy[field] !== undefined && typeof profilePolicy[field] !== "string") {
+      return {
+        diagnostic: diagnostic("fallback-policy-invalid", `policy.profiles.${profile}.${field} must be a string when provided.`, { profile, field })
+      };
+    }
+  }
+  return { value: profilePolicy };
 }
 
 function selectedProfile(policy, profile) {
-  if (!isRecord(policy)) {
-    return { diagnostic: diagnostic("fallback-policy-required", "A strict fallback policy object is required.") };
-  }
-  const extras = unknownFields(policy, POLICY_FIELDS);
+  const policyResult = inspectPlainDataObject(policy, "fallback-policy-required", "policy");
+  if (policyResult.diagnostic) return policyResult;
+  const policyValue = policyResult.value;
+  const extras = unknownFields(policyValue.keys, POLICY_FIELDS);
   if (extras.length > 0) {
     return {
       diagnostic: diagnostic("fallback-policy-field-not-allowed", `policy contains unsupported field(s): ${extras.join(", ")}.`, { fields: extras })
     };
   }
-  if (!isRecord(policy.profiles) || !isRecord(policy.profiles[profile])) {
+  const profilesValue = ownValue(policyValue, "profiles");
+  if (profilesValue === undefined) {
     return {
       diagnostic: diagnostic("fallback-profile-not-declared", `policy.profiles.${profile} must explicitly declare the requested fallback profile.`, { profile })
     };
   }
-  const profilePolicy = policy.profiles[profile];
-  const profileExtras = unknownFields(profilePolicy, PROFILE_FIELDS[profile]);
+  const profilesResult = inspectPlainDataObject(profilesValue, "fallback-policy-invalid", "policy.profiles");
+  if (profilesResult.diagnostic) return profilesResult;
+  const unsupportedProfiles = profilesResult.value.keys.filter((name) => !PIECE_FALLBACK_PROFILES.includes(name));
+  if (unsupportedProfiles.length > 0) {
+    return {
+      diagnostic: diagnostic("fallback-profile-field-not-allowed", `policy.profiles contains unsupported profile(s): ${unsupportedProfiles.join(", ")}.`, {
+        fields: unsupportedProfiles
+      })
+    };
+  }
+  const profileValue = ownValue(profilesResult.value, profile);
+  if (profileValue === undefined) {
+    return {
+      diagnostic: diagnostic("fallback-profile-not-declared", `policy.profiles.${profile} must explicitly declare the requested fallback profile.`, { profile })
+    };
+  }
+  const profileResult = inspectPlainDataObject(profileValue, "fallback-policy-invalid", `policy.profiles.${profile}`);
+  if (profileResult.diagnostic) return profileResult;
+  const profileExtras = unknownFields(profileResult.value.keys, PROFILE_FIELDS[profile]);
   if (profileExtras.length > 0) {
     return {
       diagnostic: diagnostic(
@@ -192,16 +373,13 @@ function selectedProfile(policy, profile) {
       )
     };
   }
-  if (typeof profilePolicy.root !== "string" || !profilePolicy.root.trim() || profilePolicy.root.includes("\0")) {
-    return {
-      diagnostic: diagnostic("fallback-policy-invalid", `policy.profiles.${profile}.root must be a non-empty path string.`, { profile })
-    };
-  }
-  const environment = normalizeEnvironment(policy);
+  const profilePolicy = normalizeProfilePolicy(profile, profileResult.value);
+  if (profilePolicy.diagnostic) return profilePolicy;
+  const environment = normalizeEnvironment(policyValue);
   if (environment.diagnostic) return environment;
   return {
     value: {
-      profilePolicy,
+      profilePolicy: profilePolicy.value,
       actionRunner: environment.value
     }
   };
@@ -284,8 +462,19 @@ async function containedExistingPath(root, relativePath, label) {
       };
     }
     return { value: { path: lexicalPath, canonicalPath } };
-  } catch {
-    return { missing: true };
+  } catch (error) {
+    // A missing marker is an expected fallback condition. Permission errors,
+    // symlink loops, I/O failures, and similar inspection faults are not: do
+    // not disguise them as a marker miss and potentially select another path.
+    if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
+      return { missing: true };
+    }
+    return {
+      diagnostic: diagnostic("fallback-marker-inspection-failed", `Could not inspect ${label} marker '${relativePath}'.`, {
+        path: relativePath,
+        ...(typeof error?.code === "string" ? { errorCode: error.code } : {})
+      })
+    };
   }
 }
 
