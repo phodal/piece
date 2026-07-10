@@ -245,13 +245,17 @@ tasks.register<JavaExec>("runKotlinPsiAnalysisBackend") {
 
     doFirst {
         val sourceFile = providers.gradleProperty("pieceAnalysis.sourceFile").orNull
-            ?: error("Missing -PpieceAnalysis.sourceFile=<path>")
+        val batchSources = providers.gradleProperty("pieceAnalysis.batchSources").orNull
+        if (sourceFile.isNullOrBlank() && batchSources.isNullOrBlank()) {
+            error("Missing -PpieceAnalysis.sourceFile=<path> or -PpieceAnalysis.batchSources=<path>")
+        }
         val outputReport = providers.gradleProperty("pieceAnalysis.outputReport").orNull
             ?: error("Missing -PpieceAnalysis.outputReport=<path>")
         setArgs(
             listOf(
                 "--filePath=${providers.gradleProperty("pieceAnalysis.filePath").orNull ?: "Main.kt"}",
-                "--sourceFile=$sourceFile",
+                "--sourceFile=${sourceFile ?: ""}",
+                "--batchSources=${batchSources ?: ""}",
                 "--outputReport=$outputReport",
                 "--parserName=${providers.gradleProperty("pieceAnalysis.parserName").orNull ?: "kotlin-psi-declaration-extractor"}",
                 "--backend=${providers.gradleProperty("pieceAnalysis.backend").orNull ?: ""}",

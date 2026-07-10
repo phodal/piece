@@ -415,6 +415,17 @@ export interface KotlinAnalysisSourceFile {
   readonly source: string;
 }
 
+/** One non-mutating Kotlin source-set host batch. */
+export interface AnalyzeKotlinPieceFilesOptions extends Omit<AnalyzeKotlinPieceFileOptions, "filePath" | "source" | "sourceFiles"> {
+  readonly files: readonly KotlinAnalysisSourceFile[];
+}
+
+export interface KotlinPieceManifestBatch {
+  readonly manifests: ReadonlyMap<string, PieceFileManifest>;
+  readonly sourceFileCount: number;
+  readonly batchCount: number;
+}
+
 export interface NodeKotlinPsiDeclarationExtractorOptions extends NodeActionRunnerPolicyOptions {
   readonly name?: string;
   readonly sourceFiles?: readonly (KotlinAnalysisSourceFile | string)[];
@@ -503,6 +514,7 @@ export function analyzePieceFile(options?: NodeAnalyzePieceFileOptions): Promise
 export function compilePieceApp(options?: NodeCompilePieceAppOptions): Promise<NodeCompilePieceAppStatus>;
 export function buildPiecePreview(options?: NodeBuildPiecePreviewOptions): Promise<PiecePreviewBuild>;
 export function analyzeKotlinPieceFile(options?: AnalyzeKotlinPieceFileOptions): Promise<PieceFileManifest>;
+export function analyzeKotlinPieceFiles(options: AnalyzeKotlinPieceFilesOptions): Promise<KotlinPieceManifestBatch | undefined>;
 export function parsePieceDslFile(options?: ParsePieceDslFileOptions): Promise<PieceDslParseResult>;
 export function mergePieceDslFiles(options?: MergePieceDslFilesOptions): Promise<PieceDslMergeResult>;
 export function generateKotlinPieceDslFile(options?: GenerateKotlinPieceDslFileOptions): Promise<KotlinPieceDslGenerationResult>;
@@ -622,7 +634,7 @@ export interface PieceWorkspaceProject {
     readonly freshFileAnalysisCount: number;
     /** Successfully analyzed files reused by a PieceWorkspaceSession. */
     readonly reusedFileCount: number;
-    /** Native Go package batches started for this revision. */
+    /** Native Go-package or Kotlin-source-set batches started for this revision. */
     readonly nativeBatchCount: number;
     /** Native source files covered by those batches. */
     readonly nativeBatchFileCount: number;

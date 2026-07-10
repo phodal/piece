@@ -3101,6 +3101,93 @@ export async function analyzeKotlinPieceFile(options = {}) {
   }
 }
 
+/**
+ * Analyze one Kotlin source-set group through a single Gradle/JVM host launch.
+ * The backend still emits a manifest per source so callers retain the existing
+ * file-level core pipeline and cache model. Returning undefined deliberately
+ * lets workspace orchestration fall back to the established per-file path.
+ */
+export async function analyzeKotlinPieceFiles(options = {}) {
+  const files = (Array.isArray(options.files) ? options.files : [])
+    .filter((file) => isKotlinSourcePath(file?.filePath))
+    .map((file) => ({ filePath: String(file.filePath), source: String(file.source ?? "") }));
+  if (files.length === 0) {
+    return { manifests: new Map(), sourceFileCount: 0, batchCount: 0 };
+  }
+  const parserName = options.parserName ?? "kotlin-psi-declaration-extractor";
+  const backend = normalizeKotlinAnalysisBackend(options.backend ?? options.kotlinAnalysisBackend);
+  const analysisApiEnabled = options.analysisApiEnabled === true || options.kotlinAnalysisApiEnabled === true;
+  const analysisApiVersion = options.analysisApiVersion ?? options.kotlinAnalysisApiVersion;
+  const semanticDiagnostics = options.semanticDiagnostics === true;
+  const semanticSymbols = options.semanticSymbols === true;
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const rawProjectModel = options.projectModel ?? (await collectKotlinGradleProjectModel({ ...options, filePath: files[0].filePath }));
+  const primaryProjectModel = rawProjectModel ? focusKotlinProjectModel(rawProjectModel, { ...options, filePath: files[0].filePath }) : rawProjectModel;
+  const analysisOptions = mergeKotlinProjectModelOptions(options, primaryProjectModel);
+  const hostWorkspaceInfo = await prepareWorkspace("piece-kotlin-analysis-batch-host-");
+  const hostWorkspace = hostWorkspaceInfo.path;
+  const sourceDirectory = join(hostWorkspace, "sources");
+  const batchSourcesFile = join(hostWorkspace, "batch-sources.tsv");
+  const classpathFile = join(hostWorkspace, "analysis-classpath.txt");
+  const outputReport = join(hostWorkspace, "analysis-batch-report.json");
+
+  try {
+    await mkdir(sourceDirectory, { recursive: true });
+    const batchLines = [];
+    for (const [index, file] of files.entries()) {
+      const sourceFile = join(sourceDirectory, `${index}-${sourceBasename(file.filePath, "Source.kt")}`);
+      await writeFile(sourceFile, file.source, "utf8");
+      batchLines.push(`${file.filePath}\t${sourceFile}`);
+    }
+    await writeFile(batchSourcesFile, `${batchLines.join("\n")}\n`, "utf8");
+    const classpath = collectKotlinClasspath(analysisOptions);
+    if (classpath.length > 0) {
+      await writeFile(classpathFile, `${classpath.join("\n")}\n`, "utf8");
+    }
+    const args = [
+      "-p",
+      join(PACKAGE_ROOT, "piece-core"),
+      "runKotlinPsiAnalysisBackend",
+      "--quiet",
+      `-PpieceAnalysisApi.enabled=${analysisApiEnabled ? "true" : "false"}`,
+      ...(analysisApiVersion ? [`-PpieceAnalysisApi.version=${analysisApiVersion}`] : []),
+      "-PpieceAnalysis.sourceFile=",
+      `-PpieceAnalysis.batchSources=${batchSourcesFile}`,
+      `-PpieceAnalysis.outputReport=${outputReport}`,
+      `-PpieceAnalysis.parserName=${parserName}`,
+      `-PpieceAnalysis.backend=${backend ?? ""}`,
+      `-PpieceAnalysis.semanticDiagnostics=${semanticDiagnostics ? "true" : "false"}`,
+      `-PpieceAnalysis.semanticSymbols=${semanticSymbols ? "true" : "false"}`,
+      "-PpieceAnalysis.companionSources=",
+      `-PpieceAnalysis.classpathFile=${classpath.length > 0 ? classpathFile : ""}`
+    ];
+    const backendCommand = await runCommand(defaultGradleCommand(), args, {
+      cwd: PACKAGE_ROOT,
+      env: options.env,
+      ...actionRunnerOptionsFor(options)
+    });
+    if (!canUseNodeActionOutput(backendCommand) || !(await pathExists(outputReport))) {
+      return undefined;
+    }
+    const reports = await readJsonFile(outputReport);
+    if (!Array.isArray(reports) || reports.length !== files.length) {
+      return undefined;
+    }
+    const manifests = new Map();
+    for (const [index, manifest] of reports.entries()) {
+      const file = files[index];
+      if (!manifest || typeof manifest !== "object" || manifest.filePath !== file.filePath || manifests.has(file.filePath)) {
+        return undefined;
+      }
+      const projectModel = rawProjectModel ? focusKotlinProjectModel(rawProjectModel, { ...options, filePath: file.filePath }) : rawProjectModel;
+      manifests.set(file.filePath, attachKotlinProjectModel(manifest, projectModel));
+    }
+    return { manifests, sourceFileCount: files.length, batchCount: 1 };
+  } finally {
+    await cleanupWorkspace(hostWorkspace, false);
+  }
+}
+
 export function createNodeKotlinPsiDeclarationExtractor(options = {}) {
   const name = options.name ?? "kotlin-psi-declaration-extractor";
   return {

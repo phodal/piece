@@ -3,7 +3,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { analyzeKotlinPieceFile, analyzePieceFile, createNodeKotlinPsiDeclarationExtractor } from "../src/node.js";
+import {
+  analyzeKotlinPieceFile,
+  analyzeKotlinPieceFiles,
+  analyzePieceFile,
+  createNodeKotlinPsiDeclarationExtractor,
+  createPieceWorkspaceSession
+} from "../src/node.js";
 import { stableTextHash } from "../src/core/hash.js";
 
 const execFileAsync = promisify(execFile);
@@ -93,6 +99,64 @@ assert(
   kotlinGreeting?.hashes?.bodyHash === stableTextHash(kotlinGreeting.source),
   `Kotlin PSI did not emit the shared v2 text fingerprint: ${JSON.stringify(kotlinGreeting?.hashes)}`
 );
+
+const batchedKotlin = await analyzeKotlinPieceFiles({
+  files: [
+    { filePath, source },
+    {
+      filePath: "/repo/src/Models.kt",
+      source: `package demo.pricing
+
+data class BatchModel(val id: String)
+`
+    }
+  ]
+});
+assert(batchedKotlin?.batchCount === 1 && batchedKotlin.sourceFileCount === 2, `Kotlin source-set batch did not start once: ${JSON.stringify(batchedKotlin)}`);
+assert(
+  batchedKotlin.manifests.get(filePath)?.slices.some((slice) => slice.name === "renderGreeting"),
+  `Kotlin source-set batch did not return Pricing.kt declarations: ${JSON.stringify(batchedKotlin?.manifests.get(filePath))}`
+);
+assert(
+  batchedKotlin.manifests.get("/repo/src/Models.kt")?.slices.some((slice) => slice.name === "BatchModel"),
+  `Kotlin source-set batch did not return Models.kt declarations: ${JSON.stringify(batchedKotlin?.manifests.get("/repo/src/Models.kt"))}`
+);
+
+const workspaceBatch = await mkdtemp(join(tmpdir(), "piece-kotlin-workspace-batch-"));
+try {
+  const sourceRoot = join(workspaceBatch, "src");
+  const firstKotlinFile = join(sourceRoot, "First.kt");
+  await mkdir(sourceRoot, { recursive: true });
+  await writeFile(firstKotlinFile, "package workspace.batch\n\nfun first() = second()\n", "utf8");
+  await writeFile(join(sourceRoot, "Second.kt"), "package workspace.batch\n\nfun second() = 2\n", "utf8");
+  const viewFile = join(sourceRoot, "View.ts");
+  await writeFile(viewFile, "export const view = 'one';\n", "utf8");
+  const session = createPieceWorkspaceSession({
+    workspaceRoot: workspaceBatch,
+    projects: [{ id: "kotlin", root: ".", sourceRoots: ["src"] }]
+  });
+  const initialWorkspaceBatch = await session.analyze();
+  await writeFile(firstKotlinFile, "package workspace.batch\n\nfun first() = second() + 1\n", "utf8");
+  const editedWorkspaceBatch = await session.analyze();
+  await writeFile(viewFile, "export const view = 'two';\n", "utf8");
+  const unrelatedWorkspaceEdit = await session.analyze();
+  assert(
+    initialWorkspaceBatch.metrics.nativeBatchCount === 1 && initialWorkspaceBatch.metrics.nativeBatchFileCount === 2,
+    `Kotlin workspace did not use one source-set batch: ${JSON.stringify(initialWorkspaceBatch.metrics)}`
+  );
+  assert(
+    editedWorkspaceBatch.metrics.nativeBatchCount === 1 && editedWorkspaceBatch.metrics.freshFileAnalysisCount === 2,
+    `Kotlin workspace did not reanalyze the changed source-set batch: ${JSON.stringify(editedWorkspaceBatch.metrics)}`
+  );
+  assert(
+    unrelatedWorkspaceEdit.metrics.nativeBatchCount === 0 &&
+      unrelatedWorkspaceEdit.metrics.freshFileAnalysisCount === 1 &&
+      unrelatedWorkspaceEdit.metrics.reusedFileCount === 2,
+    `Kotlin workspace did not reuse an unchanged source-set batch: ${JSON.stringify(unrelatedWorkspaceEdit.metrics)}`
+  );
+} finally {
+  await rm(workspaceBatch, { recursive: true, force: true });
+}
 
 const analysis = await analyzePieceFile({
   filePath,
