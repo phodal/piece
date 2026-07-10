@@ -377,10 +377,9 @@ function updatePieceAnalysisFromSingleSliceEdit(options) {
       graphUpdate: "incremental"
     }
   };
-  return {
-    ...analysis,
-    snapshot: createPieceSnapshot({ analysis })
-  };
+  // applyPieceEdit immediately reconciles this analysis and supplies the resulting
+  // snapshot to callers. Avoid materializing an intermediate full snapshot here.
+  return analysis;
 }
 
 export function selectPiecePreviewTarget(analysis, options = {}) {

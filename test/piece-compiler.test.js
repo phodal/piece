@@ -1660,6 +1660,8 @@ export function UserCard() {
     expect(editResult.analysis.metrics.incremental).toBe(true);
     expect(editResult.edit.changedSlices.map((id) => id.split("#")[1])).toEqual(["function:UserCard"]);
     expect(editResult.affectedTargets.map((id) => id.split("#")[1])).toEqual(["function:UserCard"]);
+    expect(editResult.analysis.snapshot).toBe(editResult.reconciliation.snapshot);
+    expect(editResult.analysis.snapshot.revision).toBe(previousAnalysis.snapshot.revision + 1);
   });
 
   it("reconciles declaration snapshots with stable piece identities and artifact reuse", async () => {
