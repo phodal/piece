@@ -23,6 +23,34 @@ export function canUseNodeActionOutput(result) {
   return !isNodeActionFailure(result);
 }
 
+function isWindowsBatchCommand(command) {
+  return /\.(?:bat|cmd)$/i.test(String(command ?? ""));
+}
+
+/**
+ * Build the executable invocation without enabling a shell. Windows batch
+ * files require cmd.exe, while bare commands such as `gradle` stay direct.
+ * `resultCommand` remains the caller's original command for diagnostics.
+ */
+export function createNodeActionInvocation(command, args = [], options = {}) {
+  const platform = options.platform ?? process.platform;
+  const originalArgs = [...args];
+  if (platform !== "win32" || !isWindowsBatchCommand(command)) {
+    return {
+      command,
+      args: originalArgs,
+      resultCommand: command,
+      resultArgs: originalArgs
+    };
+  }
+  return {
+    command: options.comSpec ?? process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe",
+    args: ["/d", "/s", "/c", "call", command, ...originalArgs],
+    resultCommand: command,
+    resultArgs: originalArgs
+  };
+}
+
 function roundedDuration(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
 }
@@ -217,8 +245,9 @@ export async function runNodeAction(command, args = [], options = {}) {
       }
     };
 
+    const invocation = createNodeActionInvocation(command, args, { comSpec: options.comSpec });
     try {
-      child = spawn(command, args, {
+      child = spawn(invocation.command, invocation.args, {
         cwd: options.cwd,
         env: createNodeActionEnvironment(options),
         detached: process.platform !== "win32",

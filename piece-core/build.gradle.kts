@@ -14,6 +14,9 @@ val pieceAnalysisApiClasspath = configurations.create("pieceAnalysisApiClasspath
     description = "Optional Kotlin Analysis API runtime for gated JVM analysis experiments."
 }
 val generatedPicAntlrDir = layout.buildDirectory.dir("generated/antlr/pic")
+val defaultPieceGradleCommand = rootProject.file(
+    if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) "gradlew.bat" else "gradlew",
+).absolutePath
 val pieceAnalysisApiEnabled = providers.gradleProperty("pieceAnalysisApi.enabled")
     .map { it.equals("true", ignoreCase = true) }
     .orElse(false)
@@ -157,7 +160,7 @@ tasks.register<JavaExec>("runKotlinCompileBackend") {
             "--target=${providers.gradleProperty("pieceCompile.target").orNull ?: "jvm"}",
             "--sourceSet=${providers.gradleProperty("pieceCompile.sourceSet").orNull ?: ""}",
             "--projectRoot=${providers.gradleProperty("pieceCompile.projectRoot").orNull ?: ""}",
-            "--gradleCommand=${providers.gradleProperty("pieceCompile.gradleCommand").orNull ?: rootProject.file("gradlew").absolutePath}",
+            "--gradleCommand=${providers.gradleProperty("pieceCompile.gradleCommand").orNull ?: defaultPieceGradleCommand}",
             "--gradleVersion=${providers.gradleProperty("pieceCompile.gradleVersion").orNull ?: gradle.gradleVersion}",
             "--kotlinPluginVersion=${providers.gradleProperty("pieceCompile.kotlinPluginVersion").orNull ?: ""}",
             "--tasks=${providers.gradleProperty("pieceCompile.tasks").orNull ?: ""}",
@@ -279,7 +282,7 @@ tasks.register<JavaExec>("runKotlinGradleProjectModelBackend") {
             listOf(
                 "--projectRoot=$projectRoot",
                 "--outputReport=$outputReport",
-                "--gradleCommand=${providers.gradleProperty("pieceGradleProjectModel.gradleCommand").orNull ?: rootProject.file("gradlew").absolutePath}",
+                "--gradleCommand=${providers.gradleProperty("pieceGradleProjectModel.gradleCommand").orNull ?: defaultPieceGradleCommand}",
                 "--gradleVersion=${providers.gradleProperty("pieceGradleProjectModel.gradleVersion").orNull ?: gradle.gradleVersion}",
                 "--sourceSet=${providers.gradleProperty("pieceGradleProjectModel.sourceSet").orNull.orEmpty()}",
             ),

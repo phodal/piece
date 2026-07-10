@@ -16,7 +16,7 @@ fun main(args: Array<String>) {
     val outputReport = Path.of(options.required("outputReport"))
     val request = KotlinGradleProjectModelRequest(
         projectRoot = projectRoot,
-        gradleCommand = options["gradleCommand"]?.takeIf { it.isNotBlank() } ?: "./gradlew",
+        gradleCommand = options["gradleCommand"]?.takeIf { it.isNotBlank() } ?: defaultGradleCommand(),
         gradleVersion = options["gradleVersion"]?.takeIf { it.isNotBlank() } ?: "9.6.1",
         sourceSet = options["sourceSet"]?.takeIf { it.isNotBlank() },
     )

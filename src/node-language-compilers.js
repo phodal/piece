@@ -11,6 +11,7 @@ import { hashParts, stableTextHash } from "./core/hash.js";
 import { mergePiecePackages, piecePackageToPicDsl } from "./core/pic-dsl.js";
 import { createGoDeclarationExtractor } from "./languages/go/declaration-extractor.js";
 import { canUseNodeActionOutput, isNodeActionFailure, runNodeAction } from "./node-action-runner.js";
+import { resolveNodeGradleCommand, resolveNodeGradleWrapperPath } from "./node-gradle-command.js";
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const GO_ANALYZER_PATH = join(PACKAGE_ROOT, "go-backend", "analyzer", "main.go");
@@ -741,12 +742,11 @@ function collectKotlinClasspath(options) {
 
 async function resolveProjectGradleCommand(command, projectRoot) {
   if (!command) {
-    const projectWrapper = projectRoot ? join(projectRoot, "gradlew") : undefined;
+    const projectWrapper = projectRoot ? resolveNodeGradleWrapperPath({ packageRoot: projectRoot }) : undefined;
     if (projectWrapper && (await pathExists(projectWrapper))) return projectWrapper;
     return defaultGradleCommand();
   }
-  if (!command.includes("/") && !command.includes("\\")) return command;
-  return isAbsolute(command) ? command : resolve(projectRoot ?? PACKAGE_ROOT, command);
+  return resolveNodeGradleCommand(command, { baseDirectory: projectRoot ?? PACKAGE_ROOT });
 }
 
 function commandFailureMessage(command) {
@@ -796,13 +796,12 @@ async function cleanupWorkspace(workspace, keepWorkspace) {
 }
 
 function defaultGradleCommand() {
-  return join(PACKAGE_ROOT, "gradlew");
+  return resolveNodeGradleWrapperPath({ packageRoot: PACKAGE_ROOT });
 }
 
 function resolveGradleCommand(command) {
   if (!command) return defaultGradleCommand();
-  if (!command.includes("/") && !command.includes("\\")) return command;
-  return isAbsolute(command) ? command : resolve(PACKAGE_ROOT, command);
+  return resolveNodeGradleCommand(command, { baseDirectory: PACKAGE_ROOT });
 }
 
 async function readJsonFile(path) {

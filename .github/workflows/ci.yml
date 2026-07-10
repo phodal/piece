@@ -57,6 +57,44 @@ jobs:
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
+  gradle-launcher:
+    name: Gradle launcher on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the platform wrapper directly
+        run: node scripts/run-gradle.mjs --version
+
+      - name: Run Gradle through npm scripts
+        run: npm run core:bridge:smoke
+
+      - name: Run Kotlin analysis through the Node host
+        run: npm run language:analysis:smoke
+
   toolchains:
     name: Linux language toolchains
     runs-on: ubuntu-latest

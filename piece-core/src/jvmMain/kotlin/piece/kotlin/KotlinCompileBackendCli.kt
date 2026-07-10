@@ -16,7 +16,7 @@ fun main(args: Array<String>) {
 
     val sourceFile = options.required("sourceFile")
     val outputReport = Path.of(options.required("outputReport"))
-    val gradleCommand = options["gradleCommand"]?.takeIf { it.isNotBlank() } ?: "./gradlew"
+    val gradleCommand = options["gradleCommand"]?.takeIf { it.isNotBlank() } ?: defaultGradleCommand()
     val source = Path.of(sourceFile).readText()
     val companionFiles = options["companionSources"]
         ?.takeIf { it.isNotBlank() }

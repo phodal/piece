@@ -118,7 +118,9 @@ class KotlinGradleProjectModelBackend {
             if (commands.last().errorCode == "tooling-api-unavailable") {
                 commands += runCommand(
                     command = request.gradleCommand,
-                    args = listOf("-p", projectRoot.toString(), "--init-script", initScript.toString(), "-q", "printPieceKotlinProjectModel"),
+                    args = gradleFallbackArgs(
+                        listOf("-p", projectRoot.toString(), "--init-script", initScript.toString(), "-q", "printPieceKotlinProjectModel"),
+                    ),
                     cwd = projectRoot,
                 )
             }
@@ -535,7 +537,7 @@ private fun runCommand(command: String, args: List<String>, cwd: Path): KotlinCo
     var errorCode: String? = null
     val elapsed = measureTimeMillis {
         try {
-            val process = ProcessBuilder(listOf(command) + args)
+            val process = ProcessBuilder(gradleProcessCommand(command, args))
                 .directory(cwd.toFile())
                 .redirectErrorStream(false)
                 .start()

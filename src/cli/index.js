@@ -1,6 +1,6 @@
 import { access, readFile, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
-import { delimiter, dirname, basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { delimiter, dirname, basename, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyzePieceFile } from "../node.js";
 
@@ -548,9 +548,14 @@ async function findExecutable(command) {
   return undefined;
 }
 
+export function resolvePieceGradleWrapperPath({ platform = process.platform, packageRoot = PACKAGE_ROOT } = {}) {
+  const path = platform === "win32" ? win32 : posix;
+  return path.join(packageRoot, platform === "win32" ? "gradlew.bat" : "gradlew");
+}
+
 async function runDoctor(context) {
   const [go, java, gradle] = await Promise.all([findExecutable("go"), findExecutable("java"), findExecutable("gradle")]);
-  const wrapper = join(PACKAGE_ROOT, "gradlew");
+  const wrapper = resolvePieceGradleWrapperPath();
   const wrapperInfo = await existingPath(wrapper);
   return {
     schemaVersion: PIECE_CLI_RESULT_SCHEMA_VERSION,

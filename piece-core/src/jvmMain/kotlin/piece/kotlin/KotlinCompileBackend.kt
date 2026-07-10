@@ -350,7 +350,7 @@ private fun runGradleBuild(request: KotlinCompileRequest, workspace: Path, tasks
     }
     return runCommand(
         command = request.gradleCommand,
-        args = listOf("-p", workspace.toString()) + tasks,
+        args = gradleFallbackArgs(listOf("-p", workspace.toString()) + tasks),
         cwd = workspace,
     )
 }
@@ -485,7 +485,7 @@ private fun runCommand(command: String, args: List<String>, cwd: Path): KotlinCo
     var errorCode: String? = null
     val elapsed = measureTimeMillis {
         try {
-            val process = ProcessBuilder(listOf(command) + args)
+            val process = ProcessBuilder(gradleProcessCommand(command, args))
                 .directory(cwd.toFile())
                 .redirectErrorStream(false)
                 .start()
