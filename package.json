@@ -4,8 +4,18 @@
   "description": "Piece-aware build feedback for AI-era coding agents.",
   "type": "module",
   "types": "./src/public-api/index.d.ts",
+  "bin": {
+    "piece": "./bin/piece.js"
+  },
   "license": "Apache-2.0",
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/index.js",
+    "./src/browser.js",
+    "./src/node.js",
+    "./src/public-api/index.js",
+    "./src/public-api/browser.js",
+    "./src/public-api/node.js"
+  ],
   "homepage": "https://phodal.github.io/piece/",
   "repository": {
     "type": "git",
@@ -16,8 +26,14 @@
   },
   "scripts": {
     "test": "vitest run",
+    "test:cli": "vitest run test/cli.test.js",
     "typecheck": "tsc --noEmit",
     "verify": "npm run typecheck && npm test && npm pack --dry-run",
+    "smoke:packed": "node scripts/smoke-packed-package.mjs",
+    "go:check": "cd go-backend && go test ./...",
+    "language:verify": "npm run go:check && npm run core:check && npm run pic:dsl:smoke && npm run pic:kotlin:smoke && npm run pic:source:smoke && npm run pic:override:smoke && npm run language:analysis:smoke && npm run language:analysis-api-gate:smoke && npm run language:analysis-api:smoke && npm run language:project-model:smoke && npm run language:compile:smoke",
+    "release:verify": "npm run verify && npm run smoke:packed && npm run language:verify",
+    "prepublishOnly": "npm run release:verify",
     "core:check": "./gradlew check wasmJsBrowserDistribution jsNodeProductionLibraryDistribution && node scripts/smoke-kotlin-core-bridge.mjs",
     "core:js:build": "./gradlew jsNodeProductionLibraryDistribution",
     "core:bridge:smoke": "npm run core:js:build && node scripts/smoke-kotlin-core-bridge.mjs",
@@ -70,6 +86,7 @@
     }
   },
   "files": [
+    "bin",
     "docs",
     "go-backend",
     "grammar",

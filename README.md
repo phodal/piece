@@ -93,13 +93,71 @@ To exercise the local compile and action-cache path across Go, Kotlin, and JS/TS
 npm run language:compile:smoke
 ```
 
-## Install
+## Package Availability and ESM
+
+Piece is ESM-only. Use `import` with Node.js 20 or newer; CommonJS `require()`
+is not a supported package entrypoint.
+
+The repository can always be installed from a local checkout or tarball. A
+public `npm install piece-compiler` release is available only after the
+repository owner configures npm package ownership and a Trusted Publisher for
+this repository, then publishes a verified tag. The GitHub workflow can request
+an OIDC token, but npm Trusted Publisher setup remains an external npm account
+configuration. Check the package registry or a tagged release before depending
+on that package name in automation.
+
+When a published version is available, use it as ESM:
 
 ```sh
 npm install piece-compiler
 ```
 
-Node.js 20 or newer is required.
+```js
+import { createPieceCompiler } from "piece-compiler";
+```
+
+## CLI: Safe Single-File Analysis
+
+The initial `piece` CLI is a production-oriented feedback surface for analyzing
+one source file. It intentionally does **not** claim to build or watch an
+entire workspace yet.
+
+From a local checkout, run `node bin/piece.js`; from an installed tarball or
+published release, run `npx piece`:
+
+```sh
+node bin/piece.js analyze src/App.tsx --format json
+npx piece doctor
+```
+
+`--workspace <path>` selects the workspace root, and `--no-color` makes human
+output suitable for logs. Human output goes to stderr; `--format json` writes a
+single stable `schemaVersion: 1` result to stdout.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Successful analysis or doctor report. |
+| `1` | Analysis failed or returned an error diagnostic. |
+| `2` | Invalid CLI usage, configuration, or workspace-contained path. |
+| `4` | Infrastructure failure such as an unreadable workspace or config. |
+
+The only configuration filename is `piece.config.json`, located inside the
+workspace. Its first schema is intentionally narrow and rejects unknown keys:
+
+```json
+{
+  "schemaVersion": 1,
+  "entry": "src/App.tsx",
+  "sourceRoots": ["src"],
+  "globals": ["console"],
+  "packageScopeSelection": "safe",
+  "sourceSetScopeSelection": "safe"
+}
+```
+
+All config and entry paths must remain inside the selected workspace. The JSON
+result records whether the workspace, configuration, entry, and source roots
+came from a flag, argument, config, or default.
 
 ## Repository Map
 
@@ -144,6 +202,17 @@ npm run language:analysis:smoke
 npm run language:compile:smoke
 npm run pages:build
 ```
+
+Before a manual npm publish, run the same release boundary that npm executes
+through `prepublishOnly`:
+
+```sh
+npm run release:verify
+```
+
+It verifies source tests, installs and probes the packed tarball (including the
+CLI), and runs the Go/Kotlin/DSL language smoke suite. Do not use
+`npm publish --ignore-scripts`, which bypasses this local release gate.
 
 For the deeper architecture and roadmap, see [docs/architecture.md](./docs/architecture.md), [docs/incremental-feedback-architecture.md](./docs/incremental-feedback-architecture.md), and [docs/roadmap.md](./docs/roadmap.md).
 
