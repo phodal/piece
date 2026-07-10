@@ -655,9 +655,13 @@ function humanResult(result) {
   if (result.kind === "help") return pieceCliHelpText();
   if (result.kind === "version") return `piece ${result.version}\n`;
   if (result.status === "failed") {
+    const nativeFailure = result.projects
+      ?.map((project) => ({ project: project.id, command: project.execution?.command }))
+      .find(({ command }) => command?.stderrTail || command?.stdoutTail);
+    const nativeOutput = nativeFailure?.command?.stderrTail || nativeFailure?.command?.stdoutTail;
     return `${result.command ? `piece ${result.command}` : "piece"} failed (exit ${result.exitCode})\n${result.diagnostics
       .map((diagnostic) => `${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message}`)
-      .join("\n")}\n`;
+      .join("\n")}${nativeOutput ? `\nnative output (${nativeFailure.project}):\n${nativeOutput}` : ""}\n`;
   }
   if (result.command === "analyze") {
     return `piece analyze succeeded\nentry: ${result.input.entry.workspaceRelativePath}\nparser: ${result.analysis.parser}\nslices: ${result.analysis.sliceCount}\nedges: ${result.analysis.edgeCount}\nfeedback scope: ${result.analysis.feedbackScope.level}${result.analysis.feedbackScope.fallbackRequired ? " (fallback required)" : ""}\n`;

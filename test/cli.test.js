@@ -222,7 +222,7 @@ describe("piece CLI", () => {
           'const script = process.argv[3] ?? "";',
           'const project = basename(process.cwd());',
           'appendFileSync(process.env.PIECE_CLI_LOG, project + ":" + script + "\\n");',
-          'if (project === "shared" && process.env.PIECE_CLI_FAIL_SHARED === "1") process.exit(9);',
+          'if (project === "shared" && process.env.PIECE_CLI_FAIL_SHARED === "1") { process.stderr.write("shared native failure\\n"); process.exit(9); }',
           'if (script === "build" && process.env.PIECE_CLI_SKIP_OUTPUT !== "1") {',
           '  mkdirSync("dist", { recursive: true });',
           '  writeFileSync("dist/build.txt", project);',
@@ -352,7 +352,7 @@ describe("piece CLI", () => {
           'const script = process.argv[3] ?? "";',
           'const project = basename(process.cwd());',
           'appendFileSync(process.env.PIECE_CLI_LOG, project + ":" + script + "\\n");',
-          'if (project === "shared" && process.env.PIECE_CLI_FAIL_SHARED === "1") process.exit(9);',
+          'if (project === "shared" && process.env.PIECE_CLI_FAIL_SHARED === "1") { process.stderr.write("shared native failure\\n"); process.exit(9); }',
           'if (script === "build" && process.env.PIECE_CLI_SKIP_OUTPUT !== "1") { mkdirSync("dist", { recursive: true }); writeFileSync("dist/build.txt", project); }'
         ].join("\n")
       );
@@ -374,7 +374,15 @@ describe("piece CLI", () => {
       expect(failedBody.diagnostics).toEqual(
         expect.arrayContaining([expect.objectContaining({ code: "workspace-project-dependency-failed", projectId: "web" })])
       );
+      expect(failedBody.projects.find((project) => project.id === "shared")?.execution.command).toMatchObject({
+        stderrTail: "shared native failure\n",
+        outputTailTruncated: { stderr: false }
+      });
       expect(await readFile(logPath, "utf8")).toBe("shared:build\n");
+
+      const humanFailure = await invokePiece(["build", "web", "--workspace", workspace]);
+      expect(humanFailure.exitCode).toBe(1);
+      expect(humanFailure.stderr).toContain("native output (shared):\nshared native failure");
 
       await writeFile(logPath, "", "utf8");
       await writeFile(

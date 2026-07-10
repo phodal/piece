@@ -18,6 +18,7 @@ const PROJECT_ID = /^[A-Za-z][A-Za-z0-9._-]*$/;
 const ENVIRONMENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const ACTION_NAME = /^[A-Za-z][A-Za-z0-9:_-]*$/;
 const GRADLE_TASK_NAME = /^:?[A-Za-z][A-Za-z0-9:_-]*$/;
+const EXECUTION_OUTPUT_TAIL_CHARACTERS = 8_192;
 
 export class PieceWorkspaceCliConfigError extends Error {
   constructor(code, message, cause) {
@@ -399,6 +400,17 @@ function projectPieceSummary(project) {
   };
 }
 
+function executionOutputTail(value) {
+  const output = String(value ?? "");
+  if (output.length <= EXECUTION_OUTPUT_TAIL_CHARACTERS) {
+    return { text: output, truncated: false };
+  }
+  return {
+    text: output.slice(-EXECUTION_OUTPUT_TAIL_CHARACTERS),
+    truncated: true
+  };
+}
+
 function fallbackExecutionSummary(result, workspaceRoot) {
   const plan = result?.plan;
   const command = result?.command;
@@ -422,7 +434,17 @@ function fallbackExecutionSummary(result, workspaceRoot) {
             exitCode: command.exitCode,
             ...(command.errorCode ? { errorCode: command.errorCode } : {}),
             durationMs: command.durationMs,
-            outputBytes: command.outputBytes
+            outputBytes: command.outputBytes,
+            ...(result?.status !== "success"
+              ? {
+                  stdoutTail: executionOutputTail(command.stdout).text,
+                  stderrTail: executionOutputTail(command.stderr).text,
+                  outputTailTruncated: {
+                    stdout: executionOutputTail(command.stdout).truncated,
+                    stderr: executionOutputTail(command.stderr).truncated
+                  }
+                }
+              : {})
           }
         }
       : {})
