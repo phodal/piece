@@ -26,6 +26,7 @@ const fixtureSizeSelect = document.querySelector<HTMLSelectElement>("#fixture-si
 const runBenchmarkButton = document.querySelector<HTMLButtonElement>("#run-benchmark")!;
 const sampleEditButton = document.querySelector<HTMLButtonElement>("#apply-sample-edit")!;
 const runEditSequenceButton = document.querySelector<HTMLButtonElement>("#run-edit-sequence")!;
+const assetRevision = new URL(import.meta.url).searchParams.get("v");
 
 let esbuildReady = false;
 let currentAnalysis: any;
@@ -451,7 +452,11 @@ function renderMetrics(metrics: MetricRecord) {
 }
 
 function assetUrl(path: string) {
-  return new URL(path, document.baseURI).href;
+  const url = new URL(path, document.baseURI);
+  if (assetRevision) {
+    url.searchParams.set("v", assetRevision);
+  }
+  return url.href;
 }
 
 function iframeSrcDoc(code: string) {

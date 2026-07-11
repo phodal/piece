@@ -1,4 +1,5 @@
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,10 +10,19 @@ const wasmDistDir = join(repoRoot, "piece-core", "build", "dist", "wasmJs", "pro
 
 await rm(siteDir, { recursive: true, force: true });
 await mkdir(siteDir, { recursive: true });
-await cp(join(previewDir, "index.html"), join(siteDir, "index.html"));
 await cp(join(previewDir, "preview.css"), join(siteDir, "preview.css"));
 await cp(join(previewDir, "dist"), join(siteDir, "dist"), { recursive: true });
 await cp(wasmDistDir, join(siteDir, "wasm"), { recursive: true });
+const clientBundle = await readFile(join(previewDir, "dist", "client.js"));
+const assetRevision = createHash("sha256").update(clientBundle).digest("hex").slice(0, 16);
+const pageIndex = (await readFile(join(previewDir, "index.html"), "utf8")).replace(
+  'src="./dist/client.js"',
+  `src="./dist/client.js?v=${assetRevision}"`,
+);
+if (!pageIndex.includes(`./dist/client.js?v=${assetRevision}`)) {
+  throw new Error("Pages entry point did not include the preview client script.");
+}
+await writeFile(join(siteDir, "index.html"), pageIndex);
 await writeFile(
   join(siteDir, "wasm", "index.html"),
   `<!doctype html>
