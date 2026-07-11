@@ -324,10 +324,10 @@ export function formatScore(score: number) {
 export function UserCard(props: UserCardProps) {
   const color = statusColorMap[props.user.status];
   return (
-    <article className="user-card" style={{ borderColor: color }}>
+    <article className="user-card" data-piece-version="00" style={{ borderColor: color }}>
       <h1>{props.user.name}</h1>
       <p data-testid="status-label" style={{ color }}>{statusLabelMap[props.user.status]}</p>
-      <strong data-testid="score">Score 00: {formatScore(props.user.score)}</strong>
+      <strong data-testid="score">Score: {formatScore(props.user.score)}</strong>
     </article>
   );
 }
@@ -642,13 +642,14 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
     iframe.srcdoc = iframeSrcDoc(result.preview.bundle?.code ?? "");
     const pieceTotalMs = result.preview.metrics.totalMs;
     const pieceE2EMs = Math.round(((reuseAnalysis ? 0 : analysisWorkMs) + pieceTotalMs) * 1000) / 1000;
+    const fullBaseline = fullTotalMs === undefined ? "not sampled (click Run Benchmark)" : `${fullTotalMs}ms`;
     const speedup = fullTotalMs && fullTotalMs > 0 ? `${(fullTotalMs / Math.max(pieceTotalMs, 0.001)).toFixed(2)}x` : "-";
     const e2eSpeedup = fullTotalMs && fullTotalMs > 0 ? `${(fullTotalMs / Math.max(pieceE2EMs, 0.001)).toFixed(2)}x` : "-";
     lastMetrics = {
       version: rebuildVersion,
       pieceTotalMs,
       pieceE2EMs,
-      fullTotalMs: fullTotalMs ?? "-",
+      fullTotalMs: fullTotalMs ?? "Run Benchmark",
       speedup,
       e2eSpeedup,
       cache: result.preview.metrics.cache.status,
@@ -663,7 +664,7 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
       edges: result.analysis.metrics.edgeCount
     };
     renderMetrics(lastMetrics);
-    status.textContent = `${mode}: piece=${pieceTotalMs}ms, full=${fullTotalMs === undefined ? "not measured" : `${fullTotalMs}ms`}, speedup=${speedup}, e2e=${e2eSpeedup}`;
+    status.textContent = `${mode}: piece=${pieceTotalMs}ms, full baseline=${fullBaseline}, speedup=${speedup}, e2e=${e2eSpeedup}`;
     target.textContent = `target: ${targetName}`;
     (window as any).__piecePreview = {
       version: rebuildVersion,
@@ -697,7 +698,7 @@ function nextMarkerVersion(source: string, pattern: RegExp, render: (version: st
 function applySampleEdit() {
   const source = getEditorSource();
   const cursor = editorView.state.selection.main.head;
-  const next = nextMarkerVersion(source, /Score (\d{2}):/, (version) => `Score ${version}:`);
+  const next = nextMarkerVersion(source, /data-piece-version="(\d{2})"/, (version) => `data-piece-version="${version}"`);
   if (next === source) {
     status.textContent = "Sample edit marker is missing from the current source.";
     return;
