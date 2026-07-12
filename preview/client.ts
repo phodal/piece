@@ -38,6 +38,7 @@ let editorView: EditorView;
 let suppressEditorRebuild = false;
 let latestRebuildVersion = 0;
 let editSequenceRunning = false;
+let latestFullBaselineMs: number | undefined;
 const declarationExtractor = createFallbackDeclarationExtractor();
 const textEncoder = new TextEncoder();
 
@@ -325,9 +326,10 @@ export function formatScore(score: number) {
 export function UserCard(props: UserCardProps) {
   const color = statusColorMap[props.user.status];
   return (
-    <article className="user-card" data-piece-version="00" style={{ borderColor: color }}>
+    <article className="user-card" style={{ borderColor: color }}>
       <h1>{props.user.name}</h1>
       <p data-testid="status-label" style={{ color }}>{statusLabelMap[props.user.status]}</p>
+      <p data-testid="preview-revision">Preview revision 00</p>
       <strong data-testid="score">Score: {formatScore(props.user.score)}</strong>
     </article>
   );
@@ -636,9 +638,12 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
       analysisWorkMs = result.analysis.metrics.totalMs;
     }
 
-    const fullTotalMs = mode === "benchmark" ? await buildFullEsbuild(source) : undefined;
+    const measuredFullTotalMs = mode === "benchmark" ? await buildFullEsbuild(source) : undefined;
     if (rebuildVersion !== latestRebuildVersion) {
       return;
+    }
+    if (measuredFullTotalMs !== undefined) {
+      latestFullBaselineMs = measuredFullTotalMs;
     }
 
     currentAnalysis = result.analysis;
@@ -647,14 +652,17 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
     iframe.srcdoc = iframeSrcDoc(result.preview.bundle?.code ?? "");
     const pieceTotalMs = result.preview.metrics.totalMs;
     const pieceE2EMs = Math.round(((reuseAnalysis ? 0 : analysisWorkMs) + pieceTotalMs) * 1000) / 1000;
-    const fullBaseline = fullTotalMs === undefined ? "not sampled (click Run Benchmark)" : `${fullTotalMs}ms`;
-    const speedup = fullTotalMs && fullTotalMs > 0 ? `${(fullTotalMs / Math.max(pieceTotalMs, 0.001)).toFixed(2)}x` : "-";
-    const e2eSpeedup = fullTotalMs && fullTotalMs > 0 ? `${(fullTotalMs / Math.max(pieceE2EMs, 0.001)).toFixed(2)}x` : "-";
+    const fullBaselineMs = latestFullBaselineMs;
+    const fullBaseline = fullBaselineMs === undefined
+      ? "not sampled (click Run Benchmark)"
+      : `${fullBaselineMs}ms${measuredFullTotalMs === undefined ? " (last benchmark)" : ""}`;
+    const speedup = fullBaselineMs && fullBaselineMs > 0 ? `${(fullBaselineMs / Math.max(pieceTotalMs, 0.001)).toFixed(2)}x` : "-";
+    const e2eSpeedup = fullBaselineMs && fullBaselineMs > 0 ? `${(fullBaselineMs / Math.max(pieceE2EMs, 0.001)).toFixed(2)}x` : "-";
     lastMetrics = {
       version: rebuildVersion,
       pieceTotalMs,
       pieceE2EMs,
-      fullTotalMs: fullTotalMs ?? "Run Benchmark",
+      fullTotalMs: fullBaselineMs ?? "Run Benchmark",
       speedup,
       e2eSpeedup,
       cache: result.preview.metrics.cache.status,
@@ -703,7 +711,7 @@ function nextMarkerVersion(source: string, pattern: RegExp, render: (version: st
 function applySampleEdit() {
   const source = getEditorSource();
   const cursor = editorView.state.selection.main.head;
-  const next = nextMarkerVersion(source, /data-piece-version="(\d{2})"/, (version) => `data-piece-version="${version}"`);
+  const next = nextMarkerVersion(source, /Preview revision (\d{2})/, (version) => `Preview revision ${version}`);
   if (next === source) {
     status.textContent = "Sample edit marker is missing from the current source.";
     return;
@@ -768,6 +776,7 @@ function resetFixture() {
   currentAnalysis = undefined;
   currentPreview = undefined;
   currentSource = "";
+  latestFullBaselineMs = undefined;
   setEditorSource(source, 0);
   void rebuild(source, "initial");
 }
