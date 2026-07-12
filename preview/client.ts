@@ -39,6 +39,8 @@ let suppressEditorRebuild = false;
 let latestRebuildVersion = 0;
 let editSequenceRunning = false;
 let latestFullBaselineMs: number | undefined;
+let latestFullBaselineOrigin: "background" | "benchmark" | undefined;
+let baselineSampleVersion = 0;
 const declarationExtractor = createFallbackDeclarationExtractor();
 const textEncoder = new TextEncoder();
 
@@ -608,6 +610,50 @@ async function compilePiece(source: string, previousPreview?: any, analysisOverr
   return { analysis, preview };
 }
 
+function formatFullBaseline(fullBaselineMs: number, origin: "background" | "benchmark" | undefined, measuredNow: boolean) {
+  if (measuredNow) {
+    return `${fullBaselineMs}ms`;
+  }
+  return `${fullBaselineMs}ms (${origin === "benchmark" ? "last benchmark" : "background sample"})`;
+}
+
+function speedupFor(fullBaselineMs: number, durationMs: string | number | undefined) {
+  const duration = typeof durationMs === "number" ? durationMs : Number(durationMs);
+  return Number.isFinite(duration) && duration > 0
+    ? `${(fullBaselineMs / Math.max(duration, 0.001)).toFixed(2)}x`
+    : "-";
+}
+
+function renderStatus(mode: "initial" | "edit" | "benchmark", pieceTotalMs: number, fullBaseline: string, speedup: string, e2eSpeedup: string) {
+  status.textContent = `${mode}: piece=${pieceTotalMs}ms, full baseline=${fullBaseline}, speedup=${speedup}, e2e=${e2eSpeedup}`;
+}
+
+async function sampleFullBaselineInBackground(source: string, rebuildVersion: number, mode: "initial" | "edit") {
+  const sampleVersion = baselineSampleVersion + 1;
+  baselineSampleVersion = sampleVersion;
+  try {
+    const fullBaselineMs = await buildFullEsbuild(source);
+    if (sampleVersion !== baselineSampleVersion || rebuildVersion !== latestRebuildVersion || currentSource !== source) {
+      return;
+    }
+
+    latestFullBaselineMs = fullBaselineMs;
+    latestFullBaselineOrigin = "background";
+    const speedup = speedupFor(fullBaselineMs, lastMetrics.pieceTotalMs);
+    const e2eSpeedup = speedupFor(fullBaselineMs, lastMetrics.pieceE2EMs);
+    lastMetrics = {
+      ...lastMetrics,
+      fullTotalMs: fullBaselineMs,
+      speedup,
+      e2eSpeedup
+    };
+    renderMetrics(lastMetrics);
+    renderStatus(mode, Number(lastMetrics.pieceTotalMs), formatFullBaseline(fullBaselineMs, latestFullBaselineOrigin, false), speedup, e2eSpeedup);
+  } catch (error) {
+    console.warn("Background full-build baseline could not be sampled.", error);
+  }
+}
+
 async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = "edit") {
   const rebuildVersion = latestRebuildVersion + 1;
   latestRebuildVersion = rebuildVersion;
@@ -661,6 +707,7 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
     }
     if (measuredFullTotalMs !== undefined) {
       latestFullBaselineMs = measuredFullTotalMs;
+      latestFullBaselineOrigin = "benchmark";
     }
 
     currentAnalysis = result.analysis;
@@ -671,15 +718,15 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
     const pieceE2EMs = Math.round(((reuseAnalysis ? 0 : analysisWorkMs) + pieceTotalMs) * 1000) / 1000;
     const fullBaselineMs = latestFullBaselineMs;
     const fullBaseline = fullBaselineMs === undefined
-      ? "not sampled (click Run Benchmark)"
-      : `${fullBaselineMs}ms${measuredFullTotalMs === undefined ? " (last benchmark)" : ""}`;
-    const speedup = fullBaselineMs && fullBaselineMs > 0 ? `${(fullBaselineMs / Math.max(pieceTotalMs, 0.001)).toFixed(2)}x` : "-";
-    const e2eSpeedup = fullBaselineMs && fullBaselineMs > 0 ? `${(fullBaselineMs / Math.max(pieceE2EMs, 0.001)).toFixed(2)}x` : "-";
+      ? "sampling in background"
+      : formatFullBaseline(fullBaselineMs, latestFullBaselineOrigin, measuredFullTotalMs !== undefined);
+    const speedup = fullBaselineMs && fullBaselineMs > 0 ? speedupFor(fullBaselineMs, pieceTotalMs) : "-";
+    const e2eSpeedup = fullBaselineMs && fullBaselineMs > 0 ? speedupFor(fullBaselineMs, pieceE2EMs) : "-";
     lastMetrics = {
       version: rebuildVersion,
       pieceTotalMs,
       pieceE2EMs,
-      fullTotalMs: fullBaselineMs ?? "Run Benchmark",
+      fullTotalMs: fullBaselineMs ?? "Sampling…",
       speedup,
       e2eSpeedup,
       cache: result.preview.metrics.cache.status,
@@ -694,7 +741,7 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
       edges: result.analysis.metrics.edgeCount
     };
     renderMetrics(lastMetrics);
-    status.textContent = `${mode}: piece=${pieceTotalMs}ms, full baseline=${fullBaseline}, speedup=${speedup}, e2e=${e2eSpeedup}`;
+    renderStatus(mode, pieceTotalMs, fullBaseline, speedup, e2eSpeedup);
     target.textContent = `target: ${targetName}`;
     (window as any).__piecePreview = {
       version: rebuildVersion,
@@ -703,6 +750,9 @@ async function rebuild(source: string, mode: "initial" | "edit" | "benchmark" = 
       analysis: result.analysis,
       preview: result.preview
     };
+    if (mode !== "benchmark" && fullBaselineMs === undefined) {
+      void sampleFullBaselineInBackground(source, rebuildVersion, mode);
+    }
     return lastMetrics;
   } catch (error) {
     if (rebuildVersion !== latestRebuildVersion) {
@@ -794,6 +844,7 @@ function resetFixture() {
   currentPreview = undefined;
   currentSource = "";
   latestFullBaselineMs = undefined;
+  latestFullBaselineOrigin = undefined;
   setEditorSource(source, 0);
   void rebuild(source, "initial");
 }
