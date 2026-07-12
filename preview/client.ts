@@ -11,7 +11,7 @@ import { createFallbackDeclarationExtractor } from "../src/core/declaration-extr
 const filePath = "/workspace/DashboardPage.tsx";
 const targetName = "UserCard";
 const fixturePath = "/@fixture/DashboardPage.UserCard.fixture.ts";
-const previewPropsModule = `export const previewProps = { user: { id: "u-1024", name: "Ada Lovelace", status: "active", score: 94 } };`;
+const defaultPreviewUser = { id: "u-1024", name: "Ada Lovelace", status: "active", score: 94 };
 
 type MetricRecord = Record<string, string | number>;
 
@@ -461,6 +461,23 @@ function assetUrl(path: string) {
   return url.href;
 }
 
+function previewPropsModuleForSource(source: string) {
+  const userLiteral = source.match(/\bconst\s+user(?:\s*:\s*User)?\s*=\s*\{([\s\S]*?)\};/)?.[1];
+  if (!userLiteral) {
+    return `export const previewProps = ${JSON.stringify({ user: defaultPreviewUser })};`;
+  }
+  const stringValue = (key: string) => userLiteral.match(new RegExp(`\\b${key}\\s*:\\s*(["'])(.*?)\\1`))?.[2];
+  const scoreValue = Number(userLiteral.match(/\bscore\s*:\s*(-?\d+(?:\.\d+)?)/)?.[1]);
+  const status = stringValue("status");
+  const user = {
+    id: stringValue("id") ?? defaultPreviewUser.id,
+    name: stringValue("name") ?? defaultPreviewUser.name,
+    status: status === "active" || status === "disabled" || status === "paused" ? status : defaultPreviewUser.status,
+    score: Number.isFinite(scoreValue) ? scoreValue : defaultPreviewUser.score
+  };
+  return `export const previewProps = ${JSON.stringify({ user })};`;
+}
+
 function iframeSrcDoc(code: string) {
   return `<!doctype html>
 <html>
@@ -584,7 +601,7 @@ async function compilePiece(source: string, previousPreview?: any, analysisOverr
     preview: {
       propsModulePath: fixturePath,
       virtualFiles: {
-        [fixturePath]: previewPropsModule
+        [fixturePath]: previewPropsModuleForSource(source)
       }
     }
   });

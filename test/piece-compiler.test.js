@@ -1602,6 +1602,57 @@ export function UserCard() {
     expect(preview.bundle?.code).toContain("createRoot");
   });
 
+  it("rebuilds a cached preview when its virtual fixture props change", async () => {
+    const source = `import * as React from "react";
+
+interface UserCardProps {
+  name: string;
+}
+
+export function UserCard(props: UserCardProps) {
+  return <section>{props.name}</section>;
+}
+`;
+    const fixturePath = "/@fixture/UserCard.props.ts";
+    let transformCalls = 0;
+    const buildEngine = {
+      name: "virtual-fixture-test-engine",
+      async build() {
+        throw new Error("build should not be called");
+      },
+      async transform(input) {
+        transformCalls += 1;
+        return { code: input };
+      }
+    };
+    const compiler = createPieceCompiler();
+    const analysis = await compiler.analyzeFile({ filePath: "/repo/src/UserCard.tsx", source });
+    const buildPreview = (name, previousPreview) =>
+      compiler.buildPreview({
+        analysis,
+        target: "UserCard",
+        previousPreview,
+        compileStrategy: "transform",
+        buildEngine,
+        preview: {
+          propsModulePath: fixturePath,
+          virtualFiles: {
+            [fixturePath]: `export const previewProps = { name: ${JSON.stringify(name)} };`
+          }
+        }
+      });
+
+    const first = await buildPreview("Ada Lovelace");
+    const changedFixture = await buildPreview("Grace Hopper", first);
+    const unchangedFixture = await buildPreview("Grace Hopper", changedFixture);
+
+    expect(first.metrics.cache.status).toBe("miss");
+    expect(changedFixture.metrics.cache.status).toBe("miss");
+    expect(changedFixture.bundle?.code).toContain("Grace Hopper");
+    expect(unchangedFixture.metrics.cache.status).toBe("hit");
+    expect(transformCalls).toBe(2);
+  });
+
   it("returns standalone compile status for a piece preview", async () => {
     const status = await compilePieceApp({
       filePath: "/repo/src/DashboardPage.tsx",

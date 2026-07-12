@@ -10,7 +10,7 @@ import { createPieceSnapshot, reconcilePieceSnapshot } from "./reconciler.js";
 import { explainPieceFeedbackScope } from "./feedback-scope.js";
 import { createPieceActionCacheMetadata, pieceToolchainInputsFromManifest } from "./action-cache.js";
 import { byteLength, measureAsync, measureSync, nowMs, roundMs } from "./metrics.js";
-import { stableTextHash } from "./hash.js";
+import { hashParts, stableTextHash } from "./hash.js";
 import { collectIdentifierReferences, createSourceRange } from "./source-utils.js";
 
 const KOTLIN_MANIFEST_PARSERS = new Set(["kotlin-declaration-extractor", "kotlin-psi-declaration-extractor"]);
@@ -437,6 +437,17 @@ function createPreviewMetrics({ startedAt, analyzeMs, targetMs, closureMs, virtu
   };
 }
 
+function virtualModulesCacheKey(virtualModules) {
+  return hashParts([
+    `version:${virtualModules.version ?? 1}`,
+    `entry:${virtualModules.entryPath ?? ""}`,
+    `closure:${virtualModules.closurePath ?? ""}`,
+    ...Object.entries(virtualModules.files ?? {})
+      .sort(([left], [right]) => left.localeCompare(right))
+      .flatMap(([path, source]) => [`path:${path}`, `source:${stableTextHash(source ?? "")}`])
+  ]);
+}
+
 export async function buildPiecePreview(options) {
   const startedAt = nowMs();
   let analysis = options.analysis;
@@ -463,10 +474,12 @@ export async function buildPiecePreview(options) {
     })
   );
   const virtualModules = virtualModulesResult.value;
+  const nextVirtualModulesCacheKey = virtualModulesCacheKey(virtualModules);
   const cacheHit = Boolean(
     options.previousPreview?.bundle &&
       options.reuseRuntimeBundle !== false &&
-      options.previousPreview.closure?.hashes?.runtimeClosureHash === closure.hashes.runtimeClosureHash
+      options.previousPreview.closure?.hashes?.runtimeClosureHash === closure.hashes.runtimeClosureHash &&
+      options.previousPreview.virtualModulesCacheKey === nextVirtualModulesCacheKey
   );
   let bundle = cacheHit ? options.previousPreview.bundle : undefined;
   let bundleMs = 0;
@@ -492,6 +505,7 @@ export async function buildPiecePreview(options) {
     analysis,
     closure,
     virtualModules,
+    virtualModulesCacheKey: nextVirtualModulesCacheKey,
     bundle,
     metrics: createPreviewMetrics({
       startedAt,
