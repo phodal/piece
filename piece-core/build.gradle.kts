@@ -81,7 +81,7 @@ dependencies {
                 isTransitive = false
             }
         }
-        pieceAnalysisApiClasspath("org.jetbrains.kotlin:kotlin-reflect:1.6.10") {
+        pieceAnalysisApiClasspath("org.jetbrains.kotlin:kotlin-reflect:2.4.10") {
             isTransitive = false
         }
         pieceAnalysisApiClasspath("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0") {
