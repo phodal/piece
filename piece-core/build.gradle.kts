@@ -58,7 +58,7 @@ kotlin {
 
     sourceSets {
         jvmMain.dependencies {
-            implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.2.21")
+            implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.4.10")
             implementation("org.antlr:antlr4-runtime:4.13.2")
         }
 
